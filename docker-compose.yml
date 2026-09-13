@@ -32,6 +32,40 @@ services:
       timeout: 5s
       retries: 10
 
+  # The application services below belong to the "app" profile, so a plain
+  # `docker compose up -d` still starts only the databases for local development
+  # (backend with ./mvnw, frontend with pnpm dev). The start.bat / start.sh
+  # launchers run everything with `docker compose --profile app up`.
+  backend:
+    build: ./backend
+    container_name: techcup-backend
+    profiles: ["app"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/techcup
+      DB_USER: techcup
+      DB_PASSWORD: techcup
+      MONGO_URI: mongodb://mongo:27017/techcup
+      CORS_ORIGINS: http://localhost:5173
+      # Containers default to UTC. Date rules ("start only on the start date",
+      # 18:00 kick-offs) must use the tournament's local time.
+      TZ: America/Bogota
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build: ./frontend
+    container_name: techcup-frontend
+    profiles: ["app"]
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
 volumes:
   techcup_pgdata:
   techcup_mongodata:

@@ -26,11 +26,49 @@ The frontend is a React + TypeScript SPA. Full details, data model and REST cont
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS v4, Zustand, React Router, pnpm |
 | Local infra | Docker Compose |
 
-## Run locally
+## Quick start
 
-Start the databases. PostgreSQL is published on host port **5433** and MongoDB on **27018**,
-on purpose: many machines already run those services on their default ports, and the local
-one would silently win the connection.
+One launcher builds and starts everything (PostgreSQL, MongoDB, backend and frontend) in Docker
+and opens the app in the browser.
+
+- **Windows:** double-click `start.bat`, or run it from a terminal in the project folder.
+- **macOS / Linux:** run `bash start.sh` from the project folder.
+
+### Requirements
+
+| Requirement | Details |
+|---|---|
+| Docker | Docker Desktop on Windows and macOS, or Docker Engine with the Compose v2 plugin on Linux. It must be **running** before you launch. |
+| curl | Used to wait for the backend. Built into Windows 10 and 11, macOS and most Linux distributions. |
+| Free ports | `5173` (web), `8080` (API), `5433` (PostgreSQL) and `27018` (MongoDB). |
+| Internet | Only for the first run, to download the base images and the Maven and pnpm dependencies. |
+| Resources | Around 4 GB of RAM available to Docker and 3 GB of free disk. |
+
+Java, Maven, Node and pnpm are **not** required: they run inside the build containers.
+The first run takes several minutes; later runs reuse the cached images and start in seconds.
+
+When it is ready:
+
+- Web app: http://localhost:5173
+- API: http://localhost:8080/api, Swagger UI at http://localhost:8080/swagger-ui.html
+- Administrator (development only): `admin@escuelaing.edu.co` / `Admin123*`
+
+The database starts empty except for that administrator. To load sample data, see
+[Demo data](#demo-data). To stop everything:
+
+```bash
+docker compose --profile app down
+```
+
+Add `-v` to that command to also delete the stored data.
+
+## Development setup
+
+For working on the code, run the databases in Docker and the backend and frontend natively, with
+hot reload. PostgreSQL is published on host port **5433** and MongoDB on **27018**, on purpose:
+many machines already run those services on their default ports, and the local one would
+silently win the connection. A plain `docker compose up -d` starts only the databases; the
+backend and frontend containers belong to the `app` profile used by the launchers.
 
 ```bash
 docker compose up -d
