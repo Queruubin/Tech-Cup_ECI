@@ -23,7 +23,7 @@ function StandingsTab({ tournamentId, highlightTeamId }: { tournamentId: number;
   return (
     <QueryState loading={loading} error={error} onRetry={refetch}>
       <StandingsTable rows={data ?? []} highlightTeamId={highlightTeamId} qualifiedCount={data && data.length >= 8 ? 8 : data && data.length >= 4 ? 4 : 0} />
-      <p className="mt-2 text-xs text-gray-500">PJ: jugados · PG: ganados · PE: empatados · PP: perdidos · GF/GC: goles a favor/en contra · DG: diferencia · Pts: puntos.</p>
+      <p className="mt-2 text-xs text-stone-500">PJ: jugados · PG: ganados · PE: empatados · PP: perdidos · GF/GC: goles a favor/en contra · DG: diferencia · Pts: puntos.</p>
     </QueryState>
   )
 }

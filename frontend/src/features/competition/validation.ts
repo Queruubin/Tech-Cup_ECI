@@ -1,8 +1,16 @@
-import type { EventType, MatchEventRequest, MatchPhase, MatchResultRequest } from '@/types/api'
+import type { EventType, MatchEventRequest, MatchPhase, MatchResponse, MatchResultRequest } from '@/types/api'
 
 /** Knockout phases accept penalties; the group stage does not. */
 export function isKnockoutPhase(phase: MatchPhase): boolean {
   return phase !== 'GROUP'
+}
+
+/** Team that advanced by walkover after a knockout cancellation, or null. */
+export function walkoverWinnerOf(match: MatchResponse): MatchResponse['homeTeam'] | null {
+  if (match.walkoverWinnerTeamId === null) return null
+  if (match.walkoverWinnerTeamId === match.homeTeam.id) return match.homeTeam
+  if (match.walkoverWinnerTeamId === match.awayTeam.id) return match.awayTeam
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -48,6 +56,27 @@ export const EMPTY_RESULT_VALUES: ResultFormValues = {
 }
 
 const MAX_MINUTE = 130
+
+/**
+ * Form values pre-filled from a recorded result, used to correct a PLAYED match.
+ * Event rows keep a stable key derived from the event id.
+ */
+export function resultValuesFromMatch(match: MatchResponse): ResultFormValues {
+  const numberOrEmpty = (value: number | null) => (value === null ? '' : String(value))
+  return {
+    homeScore: numberOrEmpty(match.homeScore),
+    awayScore: numberOrEmpty(match.awayScore),
+    homePenalties: numberOrEmpty(match.homePenalties),
+    awayPenalties: numberOrEmpty(match.awayPenalties),
+    events: match.events.map((event) => ({
+      key: `existing-${event.id}`,
+      side: event.teamId === match.awayTeam.id ? 'away' : 'home',
+      playerId: String(event.playerId),
+      type: event.type,
+      minute: numberOrEmpty(event.minute),
+    })),
+  }
+}
 
 function parseCount(raw: string): number | null {
   const value = raw.trim()

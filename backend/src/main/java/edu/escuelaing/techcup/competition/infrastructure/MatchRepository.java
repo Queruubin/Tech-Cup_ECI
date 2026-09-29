@@ -27,6 +27,10 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
     @Query("SELECT COALESCE(MAX(m.roundNumber), 0) FROM Match m WHERE m.tournament.id = :tournamentId")
     int findMaxRoundNumber(@Param("tournamentId") Long tournamentId);
 
+    /** The phases that have at least one match in the tournament, in no particular order. */
+    @Query("SELECT DISTINCT m.phase FROM Match m WHERE m.tournament.id = :tournamentId")
+    List<MatchPhase> findDistinctPhases(@Param("tournamentId") Long tournamentId);
+
     /** PLAYED matches of a team, most recent first; backs the "previous match" sanction rule. */
     @Query("""
             SELECT m FROM Match m

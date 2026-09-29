@@ -14,6 +14,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -66,6 +67,10 @@ public class Registration {
 
     @Column(name = "reviewed_at")
     private Instant reviewedAt;
+
+    /** Optimistic lock: an approval and a cancellation racing on the same row cannot both win. */
+    @Version
+    private Long version;
 
     /**
      * Applies a validated state transition (see {@link RegistrationStatus}) and stamps the review.

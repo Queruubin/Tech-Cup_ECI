@@ -28,9 +28,10 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>Only a player with a sport profile and no active team can request; at most ONE
  *       PENDING request at a time; the target team must be ACTIVE and not full.</li>
  *   <li>The player may cancel while PENDING; the team captain accepts or rejects.</li>
- *   <li>Accepting adds the member through the teams module (which re-validates capacity,
- *       jersey uniqueness and "one team per player") and cancels the player's other pending
- *       requests.</li>
+ *   <li>Accepting locks the player's row, adds the member through the teams module (which
+ *       re-validates capacity, jersey uniqueness and "one team per player") and cancels the
+ *       player's other pending requests.</li>
+ *   <li>When a team is inactivated its pending requests are cancelled on its behalf.</li>
  * </ul>
  * Audited as JOIN_REQUEST_CREATED / CANCELLED / ACCEPTED / REJECTED.
  */
@@ -109,12 +110,17 @@ public class JoinRequestService {
         return found.stream().map(r -> toResponse(r, team)).toList();
     }
 
+    /**
+     * Accepts the request. The player's user row is locked first so that two captains accepting
+     * requests from the same player at the same time are serialised: the second one then sees the
+     * membership created by the first and is refused by the teams module.
+     */
     @Transactional
     public JoinRequestResponse accept(AuthenticatedUser actor, Long requestId) {
         JoinRequest joinRequest = require(requestId);
         TeamRef team = requireCaptainOrAdmin(actor, joinRequest.getTeamId());
         joinRequest.accept();
-        Long playerId = joinRequest.getPlayer().getId();
+        Long playerId = userService.getUserForUpdate(joinRequest.getPlayer().getId()).getId();
         teamGateway.addMember(team.id(), playerId);
         requests.findByPlayerIdAndStatus(playerId, JoinRequestStatus.PENDING).forEach(JoinRequest::cancel);
         auditService.record(actor.id(), AuditAction.JOIN_REQUEST_ACCEPTED, ENTITY_TYPE, requestId,

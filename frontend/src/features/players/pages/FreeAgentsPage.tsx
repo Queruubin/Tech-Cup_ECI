@@ -20,7 +20,7 @@ export function FreeAgentsPage() {
         title="Jugadores disponibles"
         description="Jugadores con perfil deportivo que aún no pertenecen a un equipo."
         actions={
-          <label className="flex items-center gap-2 text-sm text-gray-600">
+          <label className="flex items-center gap-2 text-sm text-stone-600">
             Posición
             <Select
               options={POSITION_OPTIONS}

@@ -53,11 +53,11 @@ export interface TeamColorsProps {
 export function TeamColors({ colors, className }: TeamColorsProps) {
   const swatches = colorSwatches(colors)
   return (
-    <span className={cn('inline-flex items-center gap-1.5 text-xs text-gray-500', className)}>
+    <span className={cn('inline-flex items-center gap-1.5 text-xs text-stone-500', className)}>
       {swatches.length > 0 && (
         <span className="flex items-center gap-0.5" aria-hidden="true">
           {swatches.map((hex) => (
-            <span key={hex} className="h-3 w-3 rounded-full ring-1 ring-inset ring-gray-300" style={{ backgroundColor: hex }} />
+            <span key={hex} className="h-3 w-3 rounded-full ring-1 ring-inset ring-stone-300" style={{ backgroundColor: hex }} />
           ))}
         </span>
       )}

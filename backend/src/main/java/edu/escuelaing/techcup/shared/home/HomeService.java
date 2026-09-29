@@ -21,8 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
  * their repositories), so every business rule they enforce still applies here.
  *
  * <p>What it returns: the current tournament (latest ACTIVE or IN_PROGRESS), the caller's team,
- * that team's registration for the current tournament, the next {@value #UPCOMING_MATCHES}
- * scheduled matches and the top {@value #STANDINGS_ROWS} rows of the table.</p>
+ * that team's registration for the current tournament (its receipt reference only for the team
+ * captain), the next {@value #UPCOMING_MATCHES} scheduled matches and the top
+ * {@value #STANDINGS_ROWS} rows of the table.</p>
  */
 @Service
 public class HomeService {
@@ -55,12 +56,19 @@ public class HomeService {
 
         RegistrationResponse myRegistration = myTeam == null
                 ? null
-                : registrationService.findByTeam(tournament.id(), myTeam.id()).orElse(null);
+                : registrationService.findByTeam(tournament.id(), myTeam.id())
+                        .map(registration -> isCaptain(actor, myTeam) ? registration : registration.withoutReceipt())
+                        .orElse(null);
         List<MatchResponse> upcomingMatches = matchService.upcoming(tournament.id(), UPCOMING_MATCHES);
         List<StandingRow> standingsTop = standingsService.standings(tournament.id()).stream()
                 .limit(STANDINGS_ROWS)
                 .toList();
 
         return new HomeResponse(tournament, myTeam, myRegistration, upcomingMatches, standingsTop);
+    }
+
+    /** Only the captain uploaded the payment receipt, so only the captain gets its reference back. */
+    private static boolean isCaptain(AuthenticatedUser actor, TeamResponse team) {
+        return team.captain() != null && actor.id().equals(team.captain().id());
     }
 }

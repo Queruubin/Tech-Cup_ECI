@@ -9,7 +9,7 @@ import type { MatchResponse, TopScorer } from '@/types/api'
 import { useMatchHistory, useStandings, useTeamResults, useTopScorers } from '../hooks/useTournaments'
 
 function MatchList({ matches, emptyMessage }: { matches: MatchResponse[]; emptyMessage: string }) {
-  if (matches.length === 0) return <p className="text-sm text-gray-500">{emptyMessage}</p>
+  if (matches.length === 0) return <p className="text-sm text-stone-500">{emptyMessage}</p>
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
       {matches.map((match) => (
@@ -17,7 +17,7 @@ function MatchList({ matches, emptyMessage }: { matches: MatchResponse[]; emptyM
           key={match.id}
           match={match}
           actions={
-            <Link to={`/matches/${match.id}`} className="text-sm font-medium text-emerald-700 hover:underline">
+            <Link to={`/matches/${match.id}`} className="text-sm font-medium text-brand-700 hover:underline">
               Ver partido
             </Link>
           }
@@ -36,12 +36,12 @@ export function StatsTab({ tournamentId }: { tournamentId: number }) {
 
   const scorerColumns: Column<TopScorer>[] = [
     { key: 'pos', header: '#', align: 'center', className: 'w-10', cell: (_row) => '' },
-    { key: 'player', header: 'Jugador', cell: (row) => <span className="font-medium text-gray-900">{row.playerName}</span> },
+    { key: 'player', header: 'Jugador', cell: (row) => <span className="font-medium text-ink">{row.playerName}</span> },
     {
       key: 'team',
       header: 'Equipo',
       cell: (row) => (
-        <Link to={`/teams/${row.teamId}`} className="hover:text-emerald-700">
+        <Link to={`/teams/${row.teamId}`} className="hover:text-brand-700">
           {row.teamName}
         </Link>
       ),
@@ -90,7 +90,7 @@ export function StatsTab({ tournamentId }: { tournamentId: number }) {
             <MatchList matches={results.data ?? []} emptyMessage="Este equipo no tiene partidos registrados." />
           </QueryState>
         ) : (
-          <p className="text-sm text-gray-500">Seleccione un equipo para ver sus resultados.</p>
+          <p className="text-sm text-stone-500">Seleccione un equipo para ver sus resultados.</p>
         )}
       </Card>
 

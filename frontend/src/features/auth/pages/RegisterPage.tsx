@@ -34,7 +34,7 @@ export function RegisterPage() {
       footer={
         <span>
           ¿Ya tiene cuenta?{' '}
-          <Link to="/login" className="font-medium text-emerald-700 hover:underline">
+          <Link to="/login" className="font-medium text-brand-700 hover:underline">
             Inicie sesión
           </Link>
         </span>

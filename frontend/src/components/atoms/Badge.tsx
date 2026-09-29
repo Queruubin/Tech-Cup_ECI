@@ -28,13 +28,15 @@ export interface BadgeProps {
   size?: 'sm' | 'md'
 }
 
+// success = green (a "good" state), danger = solid brand red, accent = brand red tint (live/emphasised),
+// info = sky, neutral = stone. Tints and solids stay distinguishable from one another.
 const TONE_CLASSES: Record<BadgeTone, string> = {
-  neutral: 'bg-gray-100 text-gray-700 ring-gray-200',
-  success: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  neutral: 'bg-stone-100 text-stone-700 ring-stone-200',
+  success: 'bg-green-50 text-green-700 ring-green-200',
   warning: 'bg-amber-50 text-amber-700 ring-amber-200',
-  danger: 'bg-red-50 text-red-700 ring-red-200',
+  danger: 'bg-brand-600 text-white ring-brand-600',
   info: 'bg-sky-50 text-sky-700 ring-sky-200',
-  accent: 'bg-emerald-600 text-white ring-emerald-600',
+  accent: 'bg-brand-50 text-brand-700 ring-brand-200',
 }
 
 export function Badge({ tone = 'neutral', children, className, size = 'sm' }: BadgeProps) {
@@ -68,7 +70,7 @@ type StatusValue =
 const TOURNAMENT_TONES: Record<TournamentStatus, BadgeTone> = {
   DRAFT: 'neutral',
   ACTIVE: 'success',
-  IN_PROGRESS: 'info',
+  IN_PROGRESS: 'accent',
   FINISHED: 'neutral',
 }
 const REGISTRATION_TONES: Record<RegistrationStatus, BadgeTone> = {
@@ -80,7 +82,7 @@ const REGISTRATION_TONES: Record<RegistrationStatus, BadgeTone> = {
 const MATCH_TONES: Record<MatchStatus, BadgeTone> = {
   SCHEDULED: 'info',
   PLAYED: 'success',
-  CANCELLED: 'danger',
+  CANCELLED: 'neutral',
 }
 const JOIN_REQUEST_TONES: Record<JoinRequestStatus, BadgeTone> = {
   PENDING: 'warning',

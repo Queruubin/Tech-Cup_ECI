@@ -17,6 +17,7 @@ import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.exception.ForbiddenOperationException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.shared.storage.FileKind;
+import edu.escuelaing.techcup.shared.storage.FileOwner;
 import edu.escuelaing.techcup.shared.storage.FileStorage;
 import edu.escuelaing.techcup.teams.application.TeamService;
 import edu.escuelaing.techcup.teams.domain.Team;
@@ -112,7 +113,7 @@ class RegistrationServiceTest {
         givenNoLiveRegistration();
         givenApprovedCount(0L);
         givenEligible(true);
-        when(fileStorage.store(any(), eq(FileKind.IMAGE_OR_PDF))).thenReturn("receipt-file");
+        when(fileStorage.store(any(), eq(FileKind.IMAGE_OR_PDF), eq(FileOwner.receipt(5L)))).thenReturn("receipt-file");
         when(registrations.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         var response = service.register(CAPTAIN, 1L, RECEIPT);
@@ -177,7 +178,7 @@ class RegistrationServiceTest {
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("no cumple los requisitos")
                 .hasMessageContaining("al menos 7");
-        verify(fileStorage, never()).store(any(), any());
+        verify(fileStorage, never()).store(any(), any(), any());
     }
 
     // --- review -------------------------------------------------------------------------------
@@ -186,6 +187,7 @@ class RegistrationServiceTest {
     void approvingMovesTheRegistrationToApproved() {
         Registration registration = registration(RegistrationStatus.UNDER_REVIEW);
         when(registrations.findById(9L)).thenReturn(Optional.of(registration));
+        givenLockedTournament(TournamentStatus.ACTIVE);
         givenApprovedCount(1L);
         when(userService.getUser(ORGANIZER.id())).thenReturn(user(ORGANIZER.id()));
 
@@ -194,16 +196,30 @@ class RegistrationServiceTest {
         assertThat(response.status()).isEqualTo(RegistrationStatus.APPROVED);
         assertThat(registration.getReviewNote()).isEqualTo("Payment verified");
         assertThat(registration.getReviewedBy()).isNotNull();
+        verify(tournamentService).requireTournamentForUpdate(1L);
     }
 
     @Test
     void approvingRechecksTheCapacity() {
         when(registrations.findById(9L)).thenReturn(Optional.of(registration(RegistrationStatus.UNDER_REVIEW)));
+        givenLockedTournament(TournamentStatus.ACTIVE);
         givenApprovedCount(8L);
 
         assertThatThrownBy(() -> service.approve(ORGANIZER, 9L, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("ya está completo");
+    }
+
+    @Test
+    void approvingRequiresAnActiveTournament() {
+        Registration registration = registration(RegistrationStatus.UNDER_REVIEW);
+        when(registrations.findById(9L)).thenReturn(Optional.of(registration));
+        givenLockedTournament(TournamentStatus.IN_PROGRESS);
+
+        assertThatThrownBy(() -> service.approve(ORGANIZER, 9L, null))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("mientras el torneo esté activo");
+        assertThat(registration.getStatus()).isEqualTo(RegistrationStatus.UNDER_REVIEW);
     }
 
     @Test
@@ -219,6 +235,7 @@ class RegistrationServiceTest {
     @Test
     void anApprovedRegistrationCannotBeApprovedTwice() {
         when(registrations.findById(9L)).thenReturn(Optional.of(registration(RegistrationStatus.APPROVED)));
+        givenLockedTournament(TournamentStatus.ACTIVE);
         givenApprovedCount(1L);
         lenient().when(userService.getUser(ORGANIZER.id())).thenReturn(user(ORGANIZER.id()));
 
@@ -263,6 +280,11 @@ class RegistrationServiceTest {
         Tournament tournament = tournament(status, deadline, maxTeams);
         when(tournamentService.requireTournament(1L)).thenReturn(tournament);
         return tournament;
+    }
+
+    private void givenLockedTournament(TournamentStatus status) {
+        when(tournamentService.requireTournamentForUpdate(1L))
+                .thenReturn(tournament(status, TODAY.plusDays(5), 8));
     }
 
     private void givenTeamOfCaptain() {

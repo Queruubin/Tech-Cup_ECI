@@ -30,7 +30,7 @@ export function EligibilityPanel({ eligibility, loading, error, onRetry }: Eligi
                 </ul>
               </Alert>
             )}
-            <ul className="mt-3 space-y-1 text-xs text-gray-500">
+            <ul className="mt-3 space-y-1 text-xs text-stone-500">
               <li>Entre 7 y 12 integrantes.</li>
               <li>Sin dorsales repetidos.</li>
               <li>Todos los integrantes con perfil deportivo.</li>

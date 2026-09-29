@@ -11,8 +11,8 @@ export interface AlertProps {
 }
 
 const KIND_CLASSES: Record<ToastKind, string> = {
-  success: 'border-emerald-200 bg-emerald-50 text-emerald-900',
-  error: 'border-red-200 bg-red-50 text-red-900',
+  success: 'border-green-200 bg-green-50 text-green-900',
+  error: 'border-brand-200 bg-brand-50 text-brand-900',
   warning: 'border-amber-200 bg-amber-50 text-amber-900',
   info: 'border-sky-200 bg-sky-50 text-sky-900',
 }

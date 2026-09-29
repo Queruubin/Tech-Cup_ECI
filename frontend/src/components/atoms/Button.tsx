@@ -13,12 +13,14 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   leftIcon?: ReactNode
 }
 
+// primary = solid brand red; secondary/outline = white surface with a stone border and ink text;
+// danger = outlined brand red so it never competes with primary; ghost = ink text, stone hover.
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: 'bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800 shadow-sm',
-  secondary: 'bg-gray-900 text-white hover:bg-gray-800 active:bg-gray-700 shadow-sm',
-  outline: 'border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 active:bg-gray-100',
-  ghost: 'text-gray-700 hover:bg-gray-100 active:bg-gray-200',
-  danger: 'bg-red-600 text-white hover:bg-red-700 active:bg-red-800 shadow-sm',
+  primary: 'bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800 shadow-sm',
+  secondary: 'border border-stone-300 bg-white text-ink hover:bg-stone-50 active:bg-stone-100 shadow-sm',
+  outline: 'border border-stone-300 bg-white text-stone-800 hover:bg-stone-50 active:bg-stone-100',
+  ghost: 'text-ink hover:bg-stone-100 active:bg-stone-200',
+  danger: 'border border-brand-600 bg-white text-brand-700 hover:bg-brand-50 active:bg-brand-100',
 }
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {

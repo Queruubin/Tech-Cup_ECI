@@ -61,14 +61,14 @@ export function HomePage() {
                   padded={false}
                   actions={
                     data.tournament && (
-                      <Link to={`/tournaments/${data.tournament.id}`} className="text-sm font-medium text-emerald-700 hover:underline">
+                      <Link to={`/tournaments/${data.tournament.id}`} className="text-sm font-medium text-brand-700 hover:underline">
                         Ver calendario
                       </Link>
                     )
                   }
                 >
                   {data.upcomingMatches.length === 0 ? (
-                    <p className="px-5 py-6 text-sm text-gray-500">No hay partidos programados por el momento.</p>
+                    <p className="px-5 py-6 text-sm text-stone-500">No hay partidos programados por el momento.</p>
                   ) : (
                     <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2">
                       {data.upcomingMatches.map((match) => (
@@ -77,7 +77,7 @@ export function HomePage() {
                           match={match}
                           highlightTeamId={data.myTeam?.id ?? null}
                           actions={
-                            <Link to={`/matches/${match.id}`} className="text-sm font-medium text-emerald-700 hover:underline">
+                            <Link to={`/matches/${match.id}`} className="text-sm font-medium text-brand-700 hover:underline">
                               Ver partido
                             </Link>
                           }
@@ -95,7 +95,7 @@ export function HomePage() {
                     data.tournament && (
                       <Link
                         to={`/tournaments/${data.tournament.id}?tab=standings`}
-                        className="text-sm font-medium text-emerald-700 hover:underline"
+                        className="text-sm font-medium text-brand-700 hover:underline"
                       >
                         Ver tabla completa
                       </Link>

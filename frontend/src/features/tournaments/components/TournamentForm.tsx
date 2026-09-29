@@ -7,6 +7,8 @@ import type { CreateTournamentRequest } from '@/types/api'
 
 export interface TournamentFormProps {
   initial?: CreateTournamentRequest
+  /** `'dates'` (ACTIVE tournaments) locks every field except the three dates. */
+  editableFields?: 'all' | 'dates'
   loading: boolean
   error: string | null
   fieldErrors: Record<string, string>
@@ -52,7 +54,17 @@ export function validateTournament(values: {
   return errors
 }
 
-export function TournamentForm({ initial = EMPTY, loading, error, fieldErrors, submitLabel, onSubmit, onCancel }: TournamentFormProps) {
+export function TournamentForm({
+  initial = EMPTY,
+  editableFields = 'all',
+  loading,
+  error,
+  fieldErrors,
+  submitLabel,
+  onSubmit,
+  onCancel,
+}: TournamentFormProps) {
+  const datesOnly = editableFields === 'dates'
   const [name, setName] = useState(initial.name)
   const [startDate, setStartDate] = useState(initial.startDate)
   const [endDate, setEndDate] = useState(initial.endDate)
@@ -83,7 +95,7 @@ export function TournamentForm({ initial = EMPTY, loading, error, fieldErrors, s
       {error && <Alert kind="error">{error}</Alert>}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FormField label="Nombre" required error={errorFor('name')} className="sm:col-span-2">
-          <Input value={name} onChange={(event) => setName(event.target.value)} />
+          <Input value={name} disabled={datesOnly} onChange={(event) => setName(event.target.value)} />
         </FormField>
         <FormField label="Fecha inicial" required error={errorFor('startDate')}>
           <Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
@@ -95,10 +107,10 @@ export function TournamentForm({ initial = EMPTY, loading, error, fieldErrors, s
           <Input type="date" value={registrationDeadline} onChange={(event) => setRegistrationDeadline(event.target.value)} />
         </FormField>
         <FormField label="Cantidad máxima de equipos" required error={errorFor('maxTeams')}>
-          <Input type="number" min={2} value={maxTeams} onChange={(event) => setMaxTeams(event.target.value)} />
+          <Input type="number" min={2} value={maxTeams} disabled={datesOnly} onChange={(event) => setMaxTeams(event.target.value)} />
         </FormField>
         <FormField label="Costo de inscripción (COP)" required error={errorFor('fee')}>
-          <Input type="number" min={0} step={1000} value={fee} onChange={(event) => setFee(event.target.value)} />
+          <Input type="number" min={0} step={1000} value={fee} disabled={datesOnly} onChange={(event) => setFee(event.target.value)} />
         </FormField>
       </div>
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

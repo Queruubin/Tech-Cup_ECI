@@ -5,6 +5,7 @@ import { Input } from '@/components/atoms/Input'
 import { Textarea } from '@/components/atoms/Textarea'
 import { Alert } from '@/components/molecules/Alert'
 import { FormField } from '@/components/molecules/FormField'
+import { IMAGE_ACCEPT, IMAGE_HINT, MAX_UPLOAD_BYTES } from '@/lib/uploads'
 
 export interface VenueFormValues {
   name: string
@@ -44,8 +45,8 @@ export function VenueForm({ loading, error, fieldErrors, onSubmit }: VenueFormPr
       <FormField label="Descripción" error={fieldErrors.description}>
         <Textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
       </FormField>
-      <FormField label="Imagen" error={fieldErrors.file} hint="Opcional. PNG o JPG.">
-        <FileInput accept="image/*" value={file} onChange={setFile} />
+      <FormField label="Imagen" error={fieldErrors.file} hint={`Opcional. ${IMAGE_HINT}.`}>
+        <FileInput accept={IMAGE_ACCEPT} maxBytes={MAX_UPLOAD_BYTES} value={file} onChange={setFile} hint={IMAGE_HINT} />
       </FormField>
       <div>
         <Button type="submit" size="sm" loading={loading}>

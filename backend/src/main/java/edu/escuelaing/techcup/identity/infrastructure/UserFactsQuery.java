@@ -36,4 +36,11 @@ public interface UserFactsQuery extends Repository<AppUser, Long> {
             )
             """, nativeQuery = true)
     boolean isLockedByTournament(@Param("userId") Long userId);
+
+    @Query(value = """
+            SELECT EXISTS (
+                SELECT 1 FROM teams t WHERE t.captain_user_id = :userId AND t.status = 'ACTIVE'
+            )
+            """, nativeQuery = true)
+    boolean captainsActiveTeam(@Param("userId") Long userId);
 }

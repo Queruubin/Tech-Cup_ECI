@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { Button } from '@/components/atoms/Button'
+import { Alert } from '@/components/molecules/Alert'
 import { Card } from '@/components/molecules/Card'
 import { EmptyState } from '@/components/molecules/EmptyState'
 import { PageHeader } from '@/components/molecules/PageHeader'
@@ -11,15 +12,16 @@ import { useTournament } from '@/features/tournaments/hooks/useTournaments'
 import { isFuture } from '@/lib/format'
 import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
-import type { CancelReason, MatchResultRequest, UpdateMatchRequest } from '@/types/api'
+import type { MatchResultRequest, UpdateMatchRequest } from '@/types/api'
 import { competitionApi } from '../api'
-import { CancelMatchDialog } from '../components/CancelMatchDialog'
+import { CancelMatchDialog, type CancelMatchInput } from '../components/CancelMatchDialog'
 import { MatchEditForm } from '../components/MatchEditForm'
 import { MatchEventsList } from '../components/MatchEventsList'
 import { MatchScoreboard } from '../components/MatchScoreboard'
 import { ResultForm } from '../components/ResultForm'
 import { SanctionedPlayersPanel } from '../components/SanctionedPlayersPanel'
 import { useMatch, useReferees } from '../hooks/useCompetition'
+import { resultValuesFromMatch } from '../validation'
 
 export function MatchDetailPage() {
   const params = useParams<{ id: string }>()
@@ -31,7 +33,9 @@ export function MatchDetailPage() {
   const query = useMatch(matchId)
   const match = query.data
   const editable = !!match && match.status === 'SCHEDULED' && isFuture(match.scheduledAt)
-  const canRecordResult = !!match && match.status === 'SCHEDULED'
+  // The server decides when a result can be recorded or corrected.
+  const canRecordResult = !!match && match.resultEditable
+  const isCorrection = !!match && match.status === 'PLAYED'
 
   const tournament = useTournament(isOrganizer && match ? match.tournamentId : null)
   const referees = useReferees(isOrganizer && !!match)
@@ -42,7 +46,9 @@ export function MatchDetailPage() {
   const [cancelOpen, setCancelOpen] = useState(false)
 
   const update = useMutation((payload: UpdateMatchRequest) => competitionApi.updateMatch(matchId as number, payload))
-  const cancel = useMutation((reason: CancelReason) => competitionApi.cancelMatch(matchId as number, reason))
+  const cancel = useMutation((input: CancelMatchInput) =>
+    competitionApi.cancelMatch(matchId as number, input.reason, input.winnerTeamId),
+  )
   const result = useMutation((payload: MatchResultRequest) => competitionApi.recordResult(matchId as number, payload))
 
   if (matchId === null) {
@@ -140,7 +146,7 @@ export function MatchDetailPage() {
                     />
                   </QueryState>
                 ) : (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-stone-500">
                     {editable
                       ? 'Seleccione “Editar” para modificar la fecha, la cancha o el árbitro.'
                       : 'No hay acciones de programación disponibles para este partido.'}
@@ -151,9 +157,18 @@ export function MatchDetailPage() {
 
             {isOrganizer && canRecordResult && (
               <Card
-                title="Registrar resultado"
-                description="Al registrar el resultado el partido queda en estado Jugado. Registre un evento por cada gol y por cada tarjeta."
+                title={isCorrection ? 'Corregir resultado' : 'Registrar resultado'}
+                description={
+                  isCorrection
+                    ? 'La corrección reemplaza el marcador, los penales y todos los eventos registrados.'
+                    : 'Al registrar el resultado el partido queda en estado Jugado. Registre un evento por cada gol y por cada tarjeta.'
+                }
               >
+                {isCorrection && (
+                  <Alert kind="warning" className="mb-4">
+                    Al corregir el resultado se recalculará la tabla de posiciones y las sanciones derivadas de los eventos.
+                  </Alert>
+                )}
                 <QueryState
                   loading={homeRoster.loading || awayRoster.loading}
                   error={homeRoster.error ?? awayRoster.error}
@@ -164,8 +179,11 @@ export function MatchDetailPage() {
                   inline
                 >
                   <ResultForm
+                    // Remount after each recorded/corrected result so the form reflects the saved data.
+                    key={`${match.id}-${match.status}-${match.events.map((event) => event.id).join(',')}`}
                     match={match}
                     rosters={{ home: homeRoster.data?.members ?? [], away: awayRoster.data?.members ?? [] }}
+                    initial={isCorrection ? resultValuesFromMatch(match) : undefined}
                     loading={result.loading}
                     error={result.error}
                     fieldErrors={result.fieldErrors}
@@ -174,7 +192,7 @@ export function MatchDetailPage() {
                         .mutate(payload)
                         .then((updated) => {
                           query.setData(updated)
-                          toast.success('Resultado registrado.')
+                          toast.success(isCorrection ? 'Resultado corregido.' : 'Resultado registrado.')
                         })
                         .catch(() => undefined)
                     }
@@ -182,16 +200,28 @@ export function MatchDetailPage() {
                 </QueryState>
               </Card>
             )}
+
+            {isOrganizer && !canRecordResult && (
+              <Card title="Resultado">
+                <p className="text-sm text-stone-500">
+                  {match.status === 'CANCELLED'
+                    ? 'El partido fue cancelado; no admite resultado.'
+                    : 'El resultado de este partido ya no se puede registrar ni corregir.'}
+                </p>
+              </Card>
+            )}
           </div>
 
           <CancelMatchDialog
+            key={`${match.id}-${cancelOpen}`}
             open={cancelOpen}
+            match={match}
             loading={cancel.loading}
             error={cancel.error}
             onClose={() => setCancelOpen(false)}
-            onConfirm={(reason) =>
+            onConfirm={(input) =>
               cancel
-                .mutate(reason)
+                .mutate(input)
                 .then((updated) => {
                   // The contract returns the cancelled match; fall back to a refetch on a 204.
                   if (updated) query.setData(updated)

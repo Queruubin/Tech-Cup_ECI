@@ -60,15 +60,17 @@ public class MatchController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ORGANIZER')")
-    @Operation(summary = "Cancel a match, keeping it in the history with its reason")
+    @Operation(summary = "Cancel a match, keeping it in the history with its reason; "
+            + "a knockout match needs winnerTeamId (the team that goes through)")
     public MatchResponse cancel(@CurrentUser AuthenticatedUser actor, @PathVariable Long id,
-                                @RequestParam("reason") CancelReason reason) {
-        return matchService.cancel(actor, id, reason);
+                                @RequestParam("reason") CancelReason reason,
+                                @RequestParam(value = "winnerTeamId", required = false) Long winnerTeamId) {
+        return matchService.cancel(actor, id, reason, winnerTeamId);
     }
 
     @PostMapping("/{id}/result")
     @PreAuthorize("hasRole('ORGANIZER')")
-    @Operation(summary = "Record the final score with its goals and cards")
+    @Operation(summary = "Record the final score with its goals and cards, or correct it while resultEditable is true")
     public MatchResponse recordResult(@CurrentUser AuthenticatedUser actor, @PathVariable Long id,
                                       @Valid @RequestBody RecordResultRequest request) {
         return matchService.recordResult(actor, id, request);

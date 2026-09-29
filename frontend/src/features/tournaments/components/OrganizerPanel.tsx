@@ -7,9 +7,10 @@ import { Alert } from '@/components/molecules/Alert'
 import { Card } from '@/components/molecules/Card'
 import { ConfirmDialog } from '@/components/molecules/Modal'
 import { formatDate, todayIso } from '@/lib/format'
+import { MAX_UPLOAD_BYTES, PDF_ACCEPT, PDF_HINT } from '@/lib/uploads'
 import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
-import type { CreateTournamentRequest, TournamentResponse, VenueResponse } from '@/types/api'
+import type { CreateTournamentRequest, TournamentResponse, UpdateTournamentRequest, VenueResponse } from '@/types/api'
 import { tournamentsApi } from '../api'
 import { useTournamentMatches } from '../hooks/useTournaments'
 import { RegistrationsReview } from './RegistrationsReview'
@@ -34,7 +35,8 @@ const LIFECYCLE_COPY: Record<Lifecycle, { title: string; description: string; co
   },
   start: {
     title: 'Iniciar torneo',
-    description: 'Solo se puede iniciar en la fecha inicial y con al menos 2 equipos aprobados. Los equipos inscritos quedarán bloqueados.',
+    description:
+      'Se puede iniciar desde la fecha inicial en adelante y con al menos 2 equipos aprobados. Los equipos inscritos quedarán bloqueados.',
     confirm: 'Iniciar',
   },
   finish: {
@@ -70,19 +72,27 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
   const matchCount = matches.data?.length ?? 0
 
   const isDraft = tournament.status === 'DRAFT'
+  const isActive = tournament.status === 'ACTIVE'
+  // DRAFT: every field is editable. ACTIVE: only the three dates (the server rejects the rest).
+  const canEdit = isDraft || isActive
   const today = todayIso()
   const canActivate = isDraft
   const activateBlockers = [
     !tournament.rulebookFileId && 'Falta cargar el reglamento.',
     tournament.venues.length === 0 && 'Debe registrar al menos una cancha.',
   ].filter((item): item is string => typeof item === 'string')
-  const startBlockers = [
-    tournament.startDate !== today && `Solo se puede iniciar el ${formatDate(tournament.startDate)}.`,
-    tournament.approvedTeams < 2 && 'Se requieren al menos 2 equipos aprobados.',
-  ].filter((item): item is string => typeof item === 'string')
+  const startBlockers = [tournament.approvedTeams < 2 && 'Se requieren al menos 2 equipos aprobados.'].filter(
+    (item): item is string => typeof item === 'string',
+  )
+  // Informative only: the server decides whether the start date has been reached (409 otherwise).
+  const startDateHint =
+    tournament.startDate > today ? `El torneo se podrá iniciar a partir del ${formatDate(tournament.startDate)}.` : null
 
   const update = useMutation(async (payload: CreateTournamentRequest) => {
-    const updated = await tournamentsApi.update(tournament.id, payload)
+    const body: UpdateTournamentRequest = isDraft
+      ? payload
+      : { startDate: payload.startDate, endDate: payload.endDate, registrationDeadline: payload.registrationDeadline }
+    const updated = await tournamentsApi.update(tournament.id, body)
     onUpdated(updated)
     return updated
   })
@@ -160,11 +170,13 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
         actions={<StatusBadge kind="tournament" value={tournament.status} size="md" />}
       >
         <div className="flex flex-wrap gap-2">
+          {canEdit && (
+            <Button size="sm" variant="outline" onClick={() => setEditing((value) => !value)}>
+              {editing ? 'Cerrar edición' : isDraft ? 'Editar datos' : 'Editar fechas'}
+            </Button>
+          )}
           {isDraft && (
             <>
-              <Button size="sm" variant="outline" onClick={() => setEditing((value) => !value)}>
-                {editing ? 'Cerrar edición' : 'Editar datos'}
-              </Button>
               <Button size="sm" onClick={() => setPending({ kind: 'activate' })} disabled={!canActivate || activateBlockers.length > 0}>
                 Activar
               </Button>
@@ -173,7 +185,7 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
               </Button>
             </>
           )}
-          {tournament.status === 'ACTIVE' && (
+          {isActive && (
             <Button size="sm" onClick={() => setPending({ kind: 'start' })} disabled={startBlockers.length > 0}>
               Iniciar torneo
             </Button>
@@ -204,9 +216,10 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
             </ul>
           </Alert>
         )}
-        {tournament.status === 'ACTIVE' && startBlockers.length > 0 && (
+        {isActive && (startBlockers.length > 0 || startDateHint) && (
           <Alert kind="info" className="mt-3" title="Para iniciar el torneo">
             <ul className="list-disc pl-5">
+              {startDateHint && <li>{startDateHint}</li>}
               {startBlockers.map((item) => (
                 <li key={item}>{item}</li>
               ))}
@@ -214,16 +227,22 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
           </Alert>
         )}
         {tournament.status === 'IN_PROGRESS' && (
-          <p className="mt-3 text-xs text-gray-500">
+          <p className="mt-3 text-xs text-stone-500">
             {matchCount === 0
               ? 'Aún no se ha generado el fixture.'
               : `${matchCount} partidos registrados. Avance de fase cuando todos los partidos de la fase actual estén jugados o cancelados.`}
           </p>
         )}
-        {editing && isDraft && (
-          <div className="mt-4 border-t border-gray-100 pt-4">
+        {editing && canEdit && (
+          <div className="mt-4 border-t border-stone-100 pt-4">
+            {isActive && (
+              <p className="mb-3 text-xs text-stone-500">
+                Con el torneo activo solo se pueden modificar las fechas; el resto de los datos queda fijo.
+              </p>
+            )}
             <TournamentForm
               key={tournament.id}
+              editableFields={isDraft ? 'all' : 'dates'}
               initial={{
                 name: tournament.name,
                 startDate: tournament.startDate,
@@ -257,8 +276,8 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
             <RulebookLink fileId={tournament.rulebookFileId} tournamentName={tournament.name} />
             {(tournament.status === 'DRAFT' || tournament.status === 'ACTIVE') && (
               <>
-                <FileInput accept="application/pdf" value={rulebook} onChange={setRulebook} hint="Archivo PDF" />
-                {uploadRulebook.error && <p className="text-xs font-medium text-red-600">{uploadRulebook.error}</p>}
+                <FileInput accept={PDF_ACCEPT} maxBytes={MAX_UPLOAD_BYTES} value={rulebook} onChange={setRulebook} hint={PDF_HINT} />
+                {uploadRulebook.error && <p className="text-xs font-medium text-brand-600">{uploadRulebook.error}</p>}
                 <div>
                   <Button
                     size="sm"
@@ -286,7 +305,7 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
 
         <Card title="Agregar cancha" description="Disponible mientras el torneo no haya finalizado.">
           {tournament.status === 'FINISHED' ? (
-            <p className="text-sm text-gray-500">El torneo finalizó; no se pueden agregar canchas.</p>
+            <p className="text-sm text-stone-500">El torneo finalizó; no se pueden agregar canchas.</p>
           ) : (
             <VenueForm
               key={tournament.venues.length}
@@ -309,7 +328,7 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
           venues={tournament.venues}
           renderActions={(venue) =>
             tournament.status !== 'FINISHED' ? (
-              <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50" onClick={() => setPending({ kind: 'deleteVenue', venue })}>
+              <Button size="sm" variant="danger" onClick={() => setPending({ kind: 'deleteVenue', venue })}>
                 Eliminar
               </Button>
             ) : null

@@ -27,4 +27,10 @@ public record RegistrationResponse(
                 registration.getCreatedAt(),
                 registration.getReviewedAt());
     }
+
+    /** The same registration with the receipt reference hidden, for readers who may not open it. */
+    public RegistrationResponse withoutReceipt() {
+        return new RegistrationResponse(id, tournamentId, teamId, teamName, null, status, reviewNote,
+                createdAt, reviewedAt);
+    }
 }

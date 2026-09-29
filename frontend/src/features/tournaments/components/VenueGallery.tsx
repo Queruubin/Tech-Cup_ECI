@@ -5,7 +5,7 @@ import type { VenueResponse } from '@/types/api'
 function VenueImage({ fileId, name }: { fileId: string | null; name: string }) {
   const { url } = useFileUrl(fileId)
   return (
-    <div className="flex h-40 w-full items-center justify-center overflow-hidden bg-emerald-50 text-emerald-300">
+    <div className="flex h-40 w-full items-center justify-center overflow-hidden bg-stone-100 text-stone-300">
       {url ? (
         <img src={url} alt={name} className="h-full w-full object-cover" />
       ) : (
@@ -24,16 +24,16 @@ export interface VenueGalleryProps {
 }
 
 export function VenueGallery({ venues, renderActions }: VenueGalleryProps) {
-  if (venues.length === 0) return <p className="text-sm text-gray-500">Aún no se han registrado canchas.</p>
+  if (venues.length === 0) return <p className="text-sm text-stone-500">Aún no se han registrado canchas.</p>
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {venues.map((venue) => (
-        <article key={venue.id} className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <article key={venue.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
           <VenueImage fileId={venue.imageFileId} name={venue.name} />
           <div className="flex items-start justify-between gap-2 p-4">
             <div className="min-w-0">
-              <h4 className="truncate text-sm font-semibold text-gray-900">{venue.name}</h4>
-              {venue.description && <p className="mt-0.5 text-xs text-gray-600">{venue.description}</p>}
+              <h4 className="truncate text-sm font-semibold text-ink">{venue.name}</h4>
+              {venue.description && <p className="mt-0.5 text-xs text-stone-600">{venue.description}</p>}
             </div>
             {renderActions && <div className="shrink-0">{renderActions(venue)}</div>}
           </div>

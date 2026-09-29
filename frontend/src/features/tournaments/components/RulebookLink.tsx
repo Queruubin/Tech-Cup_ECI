@@ -10,7 +10,7 @@ export interface RulebookLinkProps {
 
 export function RulebookLink({ fileId, tournamentName }: RulebookLinkProps) {
   const [downloading, setDownloading] = useState(false)
-  if (!fileId) return <p className="text-sm text-gray-500">El reglamento aún no ha sido publicado.</p>
+  if (!fileId) return <p className="text-sm text-stone-500">El reglamento aún no ha sido publicado.</p>
 
   const handleDownload = () => {
     setDownloading(true)

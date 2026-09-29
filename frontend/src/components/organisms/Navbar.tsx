@@ -25,16 +25,12 @@ export interface NavbarProps {
 
 function Brand() {
   return (
-    <NavLink to="/" className="flex items-center gap-2 text-gray-900">
-      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7.5l3.2 2.3-1.2 3.8H10l-1.2-3.8L12 7.5z" />
-        </svg>
+    <NavLink to="/" className="flex items-center gap-2.5 text-white">
+      {/* The logo is drawn with black outlines, so it sits on a white tile to stay legible on the dark header. */}
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white p-1">
+        <img src="/logo.svg" alt="" className="h-full w-auto" />
       </span>
-      <span className="text-base font-semibold tracking-tight">
-        TechCup <span className="text-emerald-600">Fútbol</span>
-      </span>
+      <span className="text-base font-semibold tracking-tight">TechCup Fútbol</span>
     </NavLink>
   )
 }
@@ -43,7 +39,7 @@ function linkClasses(isActive: boolean, mobile = false): string {
   return cn(
     'rounded-lg text-sm font-medium transition-colors',
     mobile ? 'block px-3 py-2' : 'px-3 py-1.5',
-    isActive ? 'bg-emerald-50 text-emerald-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900',
+    isActive ? 'bg-brand-600 text-white' : 'text-stone-300 hover:bg-white/10 hover:text-white',
   )
 }
 
@@ -53,7 +49,7 @@ export function Navbar({ user, hasRole, items, onLogout, loggingOut }: NavbarPro
   const visible = items.filter((item) => !item.roles || item.roles.length === 0 || hasRole(...item.roles))
 
   return (
-    <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-stone-800 bg-ink text-white">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
         <Brand />
 
@@ -70,19 +66,19 @@ export function Navbar({ user, hasRole, items, onLogout, loggingOut }: NavbarPro
             <div className="flex items-center gap-2">
               <Avatar name={user.fullName} size="sm" />
               <div className="leading-tight">
-                <p className="text-sm font-medium text-gray-900">{user.fullName}</p>
-                <p className="text-xs text-gray-500">{user.roles.map((role) => ROLE_LABELS[role]).join(' · ')}</p>
+                <p className="text-sm font-medium text-white">{user.fullName}</p>
+                <p className="text-xs text-stone-400">{user.roles.map((role) => ROLE_LABELS[role]).join(' · ')}</p>
               </div>
             </div>
           )}
-          <Button variant="ghost" size="sm" onClick={onLogout} loading={loggingOut}>
+          <Button variant="secondary" size="sm" onClick={onLogout} loading={loggingOut}>
             Cerrar sesión
           </Button>
         </div>
 
         <button
           type="button"
-          className="rounded-lg p-2 text-gray-600 hover:bg-gray-100 md:hidden"
+          className="rounded-lg p-2 text-stone-300 hover:bg-white/10 hover:text-white md:hidden"
           aria-label={open ? 'Cerrar menú' : 'Abrir menú'}
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
@@ -94,13 +90,13 @@ export function Navbar({ user, hasRole, items, onLogout, loggingOut }: NavbarPro
       </div>
 
       {open && (
-        <div className="border-t border-gray-200 bg-white px-4 py-3 md:hidden">
+        <div className="border-t border-stone-800 bg-ink px-4 py-3 md:hidden">
           {user && (
             <div className="mb-3 flex items-center gap-3 px-1">
               <Avatar name={user.fullName} size="md" />
               <div className="leading-tight">
-                <p className="text-sm font-medium text-gray-900">{user.fullName}</p>
-                <p className="text-xs text-gray-500">{user.roles.map((role) => ROLE_LABELS[role]).join(' · ')}</p>
+                <p className="text-sm font-medium text-white">{user.fullName}</p>
+                <p className="text-xs text-stone-400">{user.roles.map((role) => ROLE_LABELS[role]).join(' · ')}</p>
               </div>
             </div>
           )}
@@ -117,8 +113,8 @@ export function Navbar({ user, hasRole, items, onLogout, loggingOut }: NavbarPro
               </NavLink>
             ))}
           </nav>
-          <div className="mt-3 border-t border-gray-100 pt-3">
-            <Button variant="outline" size="sm" fullWidth onClick={onLogout} loading={loggingOut}>
+          <div className="mt-3 border-t border-stone-800 pt-3">
+            <Button variant="secondary" size="sm" fullWidth onClick={onLogout} loading={loggingOut}>
               Cerrar sesión
             </Button>
           </div>

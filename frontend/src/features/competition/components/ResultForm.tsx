@@ -23,6 +23,8 @@ export interface ResultFormProps {
   match: MatchResponse
   /** Rosters used to pick the player of each event, keyed by side. */
   rosters: Record<MatchSide, TeamMember[]>
+  /** Pre-filled values (see `resultValuesFromMatch`) when correcting an already recorded result. */
+  initial?: ResultFormValues
   loading: boolean
   error: string | null
   fieldErrors: Record<string, string>
@@ -30,12 +32,14 @@ export interface ResultFormProps {
 }
 
 /**
- * Organizer form to register the result of a SCHEDULED match.
+ * Organizer form to register the result of a SCHEDULED match, or to correct the result of a
+ * PLAYED match (when `initial` is given the submit reads "Corregir resultado").
  * Client-side rule: the goal events of each team must add up to that team's score.
  */
-export function ResultForm({ match, rosters, loading, error, fieldErrors, onSubmit }: ResultFormProps) {
-  const [values, setValues] = useState<ResultFormValues>(EMPTY_RESULT_VALUES)
-  const [validation, setValidation] = useState(() => validateResult(EMPTY_RESULT_VALUES, match.phase))
+export function ResultForm({ match, rosters, initial, loading, error, fieldErrors, onSubmit }: ResultFormProps) {
+  const correction = initial !== undefined
+  const [values, setValues] = useState<ResultFormValues>(initial ?? EMPTY_RESULT_VALUES)
+  const [validation, setValidation] = useState(() => validateResult(initial ?? EMPTY_RESULT_VALUES, match.phase))
   const [submitted, setSubmitted] = useState(false)
   const nextKey = useRef(1)
 
@@ -134,8 +138,8 @@ export function ResultForm({ match, rosters, loading, error, fieldErrors, onSubm
       <div>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h4 className="text-sm font-semibold text-gray-900">Eventos del partido</h4>
-            <p className="text-xs text-gray-500">
+            <h4 className="text-sm font-semibold text-ink">Eventos del partido</h4>
+            <p className="text-xs text-stone-500">
               Goles registrados: {match.homeTeam.name} {homeGoals} · {match.awayTeam.name} {awayGoals}. Deben coincidir con el
               marcador.
             </p>
@@ -146,7 +150,7 @@ export function ResultForm({ match, rosters, loading, error, fieldErrors, onSubm
         </div>
 
         {values.events.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500">
+          <p className="rounded-xl border border-dashed border-stone-300 px-4 py-6 text-center text-sm text-stone-500">
             Aún no hay eventos. Agregue un evento por cada gol y por cada tarjeta.
           </p>
         ) : (
@@ -159,7 +163,7 @@ export function ResultForm({ match, rosters, loading, error, fieldErrors, onSubm
               }))
               const rowError = submitted ? validation.eventErrors[event.key] : undefined
               return (
-                <li key={event.key} className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <li key={event.key} className="rounded-xl border border-stone-200 bg-stone-50 p-3">
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_1fr_5rem_auto] sm:items-end">
                     <FormField label="Equipo">
                       <Select
@@ -196,12 +200,12 @@ export function ResultForm({ match, rosters, loading, error, fieldErrors, onSubm
                         onChange={(change) => updateEvent(event.key, { minute: change.target.value })}
                       />
                     </FormField>
-                    <Button type="button" size="sm" variant="ghost" className="text-red-600 hover:bg-red-50" onClick={() => removeEvent(event.key)}>
+                    <Button type="button" size="sm" variant="danger" onClick={() => removeEvent(event.key)}>
                       Quitar
                     </Button>
                   </div>
                   {rowError && (
-                    <p role="alert" className="mt-2 text-xs font-medium text-red-600">
+                    <p role="alert" className="mt-2 text-xs font-medium text-brand-600">
                       {rowError}
                     </p>
                   )}
@@ -214,7 +218,7 @@ export function ResultForm({ match, rosters, loading, error, fieldErrors, onSubm
 
       <div className="flex justify-end">
         <Button type="submit" loading={loading}>
-          Registrar resultado
+          {correction ? 'Corregir resultado' : 'Registrar resultado'}
         </Button>
       </div>
     </form>

@@ -1,3 +1,10 @@
+# Local development: `docker compose up -d` starts only the two databases with development
+# defaults (no .env needed). Full stack: `docker compose --profile app up -d --build` runs the
+# backend with the "prod" Spring profile and REQUIRES a .env file (copy .env.example) that sets
+# at least JWT_SECRET and ADMIN_PASSWORD; the backend refuses to start with the dev defaults.
+#
+# Every published port is bound to 127.0.0.1 so the databases and the API are never reachable
+# from other machines; only the frontend (5173) is exposed.
 services:
   postgres:
     image: postgres:16-alpine
@@ -5,11 +12,11 @@ services:
     environment:
       POSTGRES_DB: techcup
       POSTGRES_USER: techcup
-      POSTGRES_PASSWORD: techcup
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-techcup}
     # Host port 5433 on purpose: many machines already run a native PostgreSQL on
     # 5432, which would silently win the connection and fail authentication.
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - techcup_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -21,12 +28,18 @@ services:
   mongo:
     image: mongo:7
     container_name: techcup-mongo
+    # Authentication is enabled; the root user is created on the FIRST start of the volume only
+    # (existing dev volumes must be recreated once with `docker compose down -v`).
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-techcup}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-techcup}
     # Host port 27018 for the same reason as PostgreSQL above.
     ports:
-      - "27018:27017"
+      - "127.0.0.1:27018:27017"
     volumes:
       - techcup_mongodata:/data/db
     healthcheck:
+      # "ping" is allowed without credentials, so the check works with auth enabled.
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
       interval: 5s
       timeout: 5s
@@ -45,17 +58,27 @@ services:
         condition: service_healthy
       mongo:
         condition: service_healthy
+    # JWT_SECRET, ADMIN_EMAIL and ADMIN_PASSWORD come from .env, which is mandatory for this
+    # profile: compose fails fast when the file is missing instead of starting a backend with
+    # development credentials, and ProductionGuard refuses the dev defaults if .env leaves them
+    # empty. (A `${VAR:?}` guard would also break the databases-only `docker compose up -d`,
+    # because interpolation runs on the whole file regardless of profiles.)
+    env_file:
+      - path: .env
+        required: true
     environment:
+      SPRING_PROFILES_ACTIVE: prod
       DB_URL: jdbc:postgresql://postgres:5432/techcup
       DB_USER: techcup
-      DB_PASSWORD: techcup
-      MONGO_URI: mongodb://mongo:27017/techcup
+      DB_PASSWORD: ${DB_PASSWORD:-techcup}
+      MONGO_URI: mongodb://${MONGO_USER:-techcup}:${MONGO_PASSWORD:-techcup}@mongo:27017/techcup?authSource=admin
       CORS_ORIGINS: http://localhost:5173
-      # Containers default to UTC. Date rules ("start only on the start date",
-      # 18:00 kick-offs) must use the tournament's local time.
-      TZ: America/Bogota
+      # Containers default to UTC. Date rules ("start on the start date", 18:00 kick-offs)
+      # use the tournament's local time through app.time-zone.
+      APP_TIME_ZONE: ${APP_TIME_ZONE:-America/Bogota}
+      TZ: ${APP_TIME_ZONE:-America/Bogota}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
 
   frontend:
     build: ./frontend

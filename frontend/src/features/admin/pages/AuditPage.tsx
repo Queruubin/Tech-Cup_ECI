@@ -17,11 +17,11 @@ const LIMIT_OPTIONS = [
 ]
 
 function DetailsCell({ details }: { details: Record<string, unknown> | null }) {
-  if (!details || Object.keys(details).length === 0) return <span className="text-gray-400">—</span>
+  if (!details || Object.keys(details).length === 0) return <span className="text-stone-400">—</span>
   return (
     <details className="max-w-xs">
-      <summary className="cursor-pointer text-xs text-emerald-700">Ver detalles</summary>
-      <pre className="mt-1 max-h-40 overflow-auto rounded-lg bg-gray-50 p-2 text-[11px] text-gray-700">
+      <summary className="cursor-pointer text-xs text-brand-700">Ver detalles</summary>
+      <pre className="mt-1 max-h-40 overflow-auto rounded-lg bg-stone-50 p-2 text-[11px] text-stone-700">
         {JSON.stringify(details, null, 2)}
       </pre>
     </details>
@@ -46,7 +46,7 @@ export function AuditPage() {
       header: 'Entidad',
       hideOnMobile: true,
       cell: (row) => (
-        <span className="text-gray-700">
+        <span className="text-stone-700">
           {row.entityType}
           {row.entityId !== null && row.entityId !== undefined ? ` #${row.entityId}` : ''}
         </span>

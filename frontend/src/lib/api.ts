@@ -144,11 +144,17 @@ function defaultMessageFor(status: number): string {
     case 401:
       return 'Su sesión ha expirado. Inicie sesión nuevamente.'
     case 403:
-      return 'No tiene permisos para realizar esta acción.'
+      return 'No tiene permiso para realizar esta acción.'
     case 404:
       return 'El recurso solicitado no existe.'
     case 409:
       return 'La operación entra en conflicto con el estado actual.'
+    case 413:
+      return 'El archivo supera el tamaño máximo permitido (5 MB).'
+    case 415:
+      return 'Tipo de archivo no permitido.'
+    case 429:
+      return 'Demasiados intentos. Espere unos minutos e intente de nuevo.'
     case 0:
       return 'No fue posible conectar con el servidor.'
     default:

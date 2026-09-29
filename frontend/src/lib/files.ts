@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchBlob } from '@/lib/api'
+import { fetchBlob, isApiError } from '@/lib/api'
 
 export interface FileUrlState {
   url: string | null
@@ -7,6 +7,8 @@ export interface FileUrlState {
   contentType: string | null
   loading: boolean
   error: string | null
+  /** HTTP status of the failed fetch (e.g. 403 when the viewer may not see the file), if any. */
+  errorStatus: number | null
 }
 
 interface LoadedFile {
@@ -14,6 +16,7 @@ interface LoadedFile {
   url: string | null
   contentType: string | null
   error: string | null
+  errorStatus: number | null
 }
 
 /**
@@ -32,7 +35,7 @@ export function useFileUrl(fileId: string | null | undefined): FileUrlState {
       .then((blob) => {
         if (controller.signal.aborted) return
         objectUrl = URL.createObjectURL(blob)
-        setLoaded({ fileId, url: objectUrl, contentType: blob.type || null, error: null })
+        setLoaded({ fileId, url: objectUrl, contentType: blob.type || null, error: null, errorStatus: null })
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return
@@ -41,6 +44,7 @@ export function useFileUrl(fileId: string | null | undefined): FileUrlState {
           url: null,
           contentType: null,
           error: cause instanceof Error ? cause.message : 'No fue posible cargar el archivo.',
+          errorStatus: isApiError(cause) ? cause.status : null,
         })
       })
 
@@ -50,11 +54,11 @@ export function useFileUrl(fileId: string | null | undefined): FileUrlState {
     }
   }, [fileId])
 
-  if (!fileId) return { url: null, contentType: null, loading: false, error: null }
+  if (!fileId) return { url: null, contentType: null, loading: false, error: null, errorStatus: null }
   if (loaded && loaded.fileId === fileId) {
-    return { url: loaded.url, contentType: loaded.contentType, loading: false, error: loaded.error }
+    return { url: loaded.url, contentType: loaded.contentType, loading: false, error: loaded.error, errorStatus: loaded.errorStatus }
   }
-  return { url: null, contentType: null, loading: true, error: null }
+  return { url: null, contentType: null, loading: true, error: null, errorStatus: null }
 }
 
 /** Downloads a stored file with the bearer token and triggers a browser download. */

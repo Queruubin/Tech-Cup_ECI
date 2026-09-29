@@ -22,7 +22,7 @@ export function Avatar({ name, photoFileId, size = 'md', className }: AvatarProp
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full bg-emerald-100 font-semibold text-emerald-800',
+        'inline-flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full bg-brand-100 font-semibold text-brand-800',
         SIZE_CLASSES[size],
         className,
       )}

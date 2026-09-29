@@ -80,8 +80,15 @@ macOS, Linux or Git Bash:
 ./mvnw spring-boot:run
 ```
 
-On startup Flyway creates the database schema and a single administrator account. No other
-configuration is needed: the defaults already point to the databases from step 2.
+On startup Flyway creates the database schema and the backend creates a single administrator
+account (`admin@escuelaing.edu.co` / `Admin123*`, logged with a warning because it is the
+development default). No other configuration is needed: the defaults already point to the
+databases from step 2, including the MongoDB development credentials.
+
+> **Upgrading from an earlier checkout?** MongoDB now runs with authentication and the
+> administrator is no longer seeded by a Flyway migration. If you already had the databases
+> running, reset them once (section 7: `docker compose down -v`, then `docker compose up -d`)
+> before starting the backend; otherwise it cannot connect to the old MongoDB volume.
 
 It is ready when the log shows `Started TechcupApplication`. To confirm, open
 http://localhost:8080/actuator/health, which must return `{"status":"UP"}`.
@@ -169,10 +176,26 @@ This deletes **all** data, including uploaded files, and returns to a clean data
    docker compose up -d
    ```
 
-3. Start the backend again (step 3). Flyway recreates the schema and the administrator.
+3. Start the backend again (step 3). Flyway recreates the schema and the backend recreates the
+   administrator.
 4. Optionally, run the demo data script again (step 5).
 
-The backend must be restarted after a reset: the schema is only created at startup.
+The backend must be restarted after a reset: the schema and the administrator are only created
+at startup.
+
+## 7b. Running the whole stack in Docker (production profile)
+
+`start.bat` / `start.sh` (or `docker compose --profile app up -d --build`) run the backend inside
+Docker with the `prod` Spring profile. That profile needs a `.env` file at the project root:
+
+```bash
+cp .env.example .env
+```
+
+Fill in `JWT_SECRET` (at least 32 random bytes, e.g. `openssl rand -base64 48`) and
+`ADMIN_PASSWORD`. Docker Compose stops early when `.env` is missing, and the backend refuses to
+start while either value is still the development default. The administrator is then
+`ADMIN_EMAIL` / `ADMIN_PASSWORD` from that file, and Swagger UI is disabled.
 
 ## 8. It works when
 
@@ -191,6 +214,9 @@ The backend must be restarted after a reset: the schema is only created at start
 | Backend: `password authentication failed for user "techcup"` | the backend reached a different PostgreSQL, usually because a `DB_URL` variable points to port 5432 | Remove the `DB_URL` environment variable so the default (port 5433) is used. |
 | Backend: `JAVA_HOME is not set` or `release version 17 not supported` | Java 17 is missing or not the active JDK | Install JDK 17 and make `java -version` report 17. |
 | Backend: `Connection refused` to PostgreSQL or MongoDB | the databases are not running or not healthy yet | Run step 2 and wait for `healthy` in `docker compose ps`. |
+| Backend: `Authentication failed` against MongoDB | the Mongo volume was created before authentication was enabled, so the root user does not exist | Reset the data (section 7) and start again. |
+| Backend (Docker): `Refusing to start with the 'prod' profile` | `.env` is missing `JWT_SECRET` or `ADMIN_PASSWORD`, or they still have the development values | Edit `.env` (see section 7b) and run the launcher again. |
+| Login answers `429 Too Many Requests` | five failed attempts in 15 minutes for that e-mail or from your address | Wait 15 minutes; only time (or a successful login for that e-mail) clears the counter. |
 | `./mvnw: Permission denied` (macOS or Linux) | the wrapper is not executable | Run `chmod +x mvnw` once. |
 | The web page loads but every action fails | the backend is not running on port 8080 | Start the backend (step 3) and reload the page. |
 | Seed: `cannot log in as admin@escuelaing.edu.co -- is the backend running` | the backend is not running or not ready | Wait for `Started TechcupApplication` and run the script again. |

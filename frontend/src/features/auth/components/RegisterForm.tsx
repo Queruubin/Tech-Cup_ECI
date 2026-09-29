@@ -78,7 +78,7 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
       {error && <Alert kind="error">{error}</Alert>}
 
       <fieldset className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <legend className="mb-2 text-sm font-semibold text-gray-900">Datos personales</legend>
+        <legend className="mb-2 text-sm font-semibold text-ink">Datos personales</legend>
         <FormField label="Nombre completo" required error={errorFor('fullName')} className="sm:col-span-2">
           <Input
             autoComplete="name"
@@ -112,7 +112,7 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
       </fieldset>
 
       <fieldset className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <legend className="mb-2 text-sm font-semibold text-gray-900">Vínculo con la Escuela</legend>
+        <legend className="mb-2 text-sm font-semibold text-ink">Vínculo con la Escuela</legend>
         <FormField label="Relación con la Escuela" required error={errorFor('schoolRelation')}>
           <Select
             options={RELATION_OPTIONS}
@@ -156,7 +156,7 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
       </fieldset>
 
       <fieldset className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <legend className="mb-2 text-sm font-semibold text-gray-900">Cuenta</legend>
+        <legend className="mb-2 text-sm font-semibold text-ink">Cuenta</legend>
         <FormField label="Correo electrónico" required error={errorFor('email')} hint={emailHint} className="sm:col-span-2">
           <Input
             type="email"

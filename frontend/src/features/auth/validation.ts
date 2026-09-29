@@ -4,6 +4,47 @@ import type { AcademicProgram, DocumentType, InitialRole, RegisterRequest, Schoo
 export const INSTITUTIONAL_DOMAINS = ['escuelaing.edu.co', 'mail.escuelaing.edu.co'] as const
 
 export const PASSWORD_MIN_LENGTH = 8
+export const PASSWORD_MAX_LENGTH = 72
+export const PASSWORD_RULE_HINT = `Entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres, con al menos una letra y un número.`
+
+/**
+ * Password rule for `POST /auth/password` and `POST /admin/users/{id}/password`:
+ * 8–72 characters, at least one letter and one digit.
+ */
+export function validateNewPassword(password: string): string | undefined {
+  if (password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
+    return `La contraseña debe tener entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres.`
+  }
+  if (!/\p{L}/u.test(password) || !/\d/.test(password)) {
+    return 'La contraseña debe incluir al menos una letra y un número.'
+  }
+  return undefined
+}
+
+export interface PasswordChangeValues {
+  currentPassword: string
+  newPassword: string
+  confirmPassword: string
+}
+
+export type PasswordChangeErrors = Partial<Record<keyof PasswordChangeValues, string>>
+
+/**
+ * Validates a new password and its confirmation. `requireCurrent` is false for the admin reset,
+ * which does not ask for the current password.
+ */
+export function validatePasswordChange(values: PasswordChangeValues, options: { requireCurrent?: boolean } = {}): PasswordChangeErrors {
+  const { requireCurrent = true } = options
+  const errors: PasswordChangeErrors = {}
+  if (requireCurrent && !values.currentPassword) errors.currentPassword = 'Ingrese su contraseña actual.'
+  const newPasswordError = validateNewPassword(values.newPassword)
+  if (newPasswordError) errors.newPassword = newPasswordError
+  if (values.confirmPassword !== values.newPassword) errors.confirmPassword = 'Las contraseñas no coinciden.'
+  if (requireCurrent && values.currentPassword && !newPasswordError && values.newPassword === values.currentPassword) {
+    errors.newPassword = 'La nueva contraseña debe ser diferente de la actual.'
+  }
+  return errors
+}
 
 export interface RegisterFormValues {
   fullName: string

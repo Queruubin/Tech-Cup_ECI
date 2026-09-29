@@ -31,8 +31,9 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
-    public UserResponse get(@PathVariable Long id) {
-        return userService.getResponse(id);
+    @Operation(summary = "A user's profile; personal data only for the user themself or an ADMIN")
+    public UserResponse get(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
+        return userService.getResponse(id, actor);
     }
 
     @PatchMapping("/{id}")

@@ -31,8 +31,12 @@ The frontend is a React + TypeScript SPA. Full details, data model and REST cont
 One launcher builds and starts everything (PostgreSQL, MongoDB, backend and frontend) in Docker
 and opens the app in the browser.
 
-- **Windows:** double-click `start.bat`, or run it from a terminal in the project folder.
-- **macOS / Linux:** run `bash start.sh` from the project folder.
+1. Copy `.env.example` to `.env` and fill in `JWT_SECRET` (for example the output of
+   `openssl rand -base64 48`) and `ADMIN_PASSWORD`. The full stack runs the backend with the
+   production profile, which refuses to start with the development defaults, and Docker Compose
+   stops early if the file is missing.
+2. **Windows:** double-click `start.bat`, or run it from a terminal in the project folder.
+   **macOS / Linux:** run `bash start.sh` from the project folder.
 
 ### Requirements
 
@@ -40,7 +44,8 @@ and opens the app in the browser.
 |---|---|
 | Docker | Docker Desktop on Windows and macOS, or Docker Engine with the Compose v2 plugin on Linux. It must be **running** before you launch. |
 | curl | Used to wait for the backend. Built into Windows 10 and 11, macOS and most Linux distributions. |
-| Free ports | `5173` (web), `8080` (API), `5433` (PostgreSQL) and `27018` (MongoDB). |
+| Free ports | `5173` (web), `8080` (API), `5433` (PostgreSQL) and `27018` (MongoDB). Only `5173` is reachable from other machines; the rest bind to `127.0.0.1`. |
+| `.env` file | Copied from `.env.example` with `JWT_SECRET` and `ADMIN_PASSWORD` set (see below). |
 | Internet | Only for the first run, to download the base images and the Maven and pnpm dependencies. |
 | Resources | Around 4 GB of RAM available to Docker and 3 GB of free disk. |
 
@@ -50,11 +55,11 @@ The first run takes several minutes; later runs reuse the cached images and star
 When it is ready:
 
 - Web app: http://localhost:5173
-- API: http://localhost:8080/api, Swagger UI at http://localhost:8080/swagger-ui.html
-- Administrator (development only): `admin@escuelaing.edu.co` / `Admin123*`
+- API: http://localhost:8080/api (Swagger UI is disabled in the production profile)
+- Administrator: the `ADMIN_EMAIL` / `ADMIN_PASSWORD` from your `.env`
 
-The database starts empty except for that administrator. To load sample data, see
-[Demo data](#demo-data). To stop everything:
+The database starts empty except for that administrator, which the backend creates on its first
+start. To load sample data, see [Demo data](#demo-data). To stop everything:
 
 ```bash
 docker compose --profile app down
@@ -84,7 +89,12 @@ cd frontend && pnpm install && pnpm dev
 
 - Web: http://localhost:5173
 - API: http://localhost:8080, Swagger UI at http://localhost:8080/swagger-ui.html
-- Default admin (development only): `admin@escuelaing.edu.co` / `Admin123*`
+- Default admin (development only, created by the backend on first start):
+  `admin@escuelaing.edu.co` / `Admin123*`. No `.env` is needed in this mode.
+
+> **Already had the databases running before?** MongoDB now starts with authentication and the
+> administrator is created by the backend instead of a Flyway migration. Run
+> `docker compose down -v` once to recreate the volumes, then `docker compose up -d` again.
 
 ### Demo data
 

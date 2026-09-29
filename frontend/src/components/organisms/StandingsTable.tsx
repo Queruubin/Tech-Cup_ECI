@@ -26,7 +26,7 @@ export function StandingsTable({
       key: 'team',
       header: 'Equipo',
       cell: (row) => (
-        <Link to={`/teams/${row.teamId}`} className="font-medium text-gray-900 hover:text-emerald-700">
+        <Link to={`/teams/${row.teamId}`} className="font-medium text-ink hover:text-brand-700">
           {row.teamName}
         </Link>
       ),
@@ -48,7 +48,7 @@ export function StandingsTable({
       header: 'Pts',
       align: 'center',
       className: 'font-semibold',
-      cell: (row) => <span className="font-semibold text-gray-900">{row.points}</span>,
+      cell: (row) => <span className="font-semibold text-ink">{row.points}</span>,
     },
   ]
 
@@ -61,8 +61,8 @@ export function StandingsTable({
       empty={emptyMessage}
       rowClassName={(row) =>
         cn(
-          row.teamId === highlightTeamId && 'bg-emerald-50/70',
-          qualifiedCount > 0 && row.position === qualifiedCount && 'border-b-2 border-b-emerald-300',
+          row.teamId === highlightTeamId && 'bg-brand-50/70',
+          qualifiedCount > 0 && row.position === qualifiedCount && 'border-b-2 border-b-brand-300',
         )
       }
     />

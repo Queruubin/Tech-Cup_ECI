@@ -26,13 +26,13 @@ export function SanctionedPlayersPanel({ matchId, defaultOpen = false }: Sanctio
         <div className="mt-3">
           <QueryState loading={query.loading} error={query.error} onRetry={query.refetch} inline>
             {(query.data ?? []).length === 0 ? (
-              <p className="text-sm text-gray-500">No hay jugadores sancionados para este partido.</p>
+              <p className="text-sm text-stone-500">No hay jugadores sancionados para este partido.</p>
             ) : (
-              <ul className="divide-y divide-gray-100 rounded-xl border border-amber-200 bg-amber-50/60">
+              <ul className="divide-y divide-stone-100 rounded-xl border border-amber-200 bg-amber-50/60">
                 {(query.data ?? []).map((player) => (
                   <li key={`${player.teamId}-${player.userId}`} className="px-4 py-2.5">
-                    <p className="text-sm font-medium text-gray-900">{player.fullName}</p>
-                    <p className="text-xs text-gray-600">
+                    <p className="text-sm font-medium text-ink">{player.fullName}</p>
+                    <p className="text-xs text-stone-600">
                       {player.teamName} · {player.reason}
                     </p>
                   </li>

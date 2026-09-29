@@ -59,7 +59,7 @@ export function BasicInfoForm({ user, loading, error, fieldErrors, onSubmit }: B
           <Input value={fullName} onChange={(event) => setFullName(event.target.value)} />
         </FormField>
         <FormField label="Correo electrónico" hint="El correo no se puede modificar.">
-          <Input value={user.email} disabled readOnly />
+          <Input value={user.email ?? '—'} disabled readOnly />
         </FormField>
         <FormField label="Relación con la Escuela" required error={fieldErrors.schoolRelation}>
           <Select

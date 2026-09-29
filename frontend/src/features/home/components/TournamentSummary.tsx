@@ -40,8 +40,8 @@ export function TournamentSummary({ tournament }: TournamentSummaryProps) {
         />
       </div>
       {tournament.venues.length > 0 && (
-        <p className="mt-3 text-sm text-gray-600">
-          <span className="font-medium text-gray-800">Canchas:</span>{' '}
+        <p className="mt-3 text-sm text-stone-600">
+          <span className="font-medium text-stone-800">Canchas:</span>{' '}
           {tournament.venues.map((venue) => venue.name).join(', ')}
         </p>
       )}

@@ -49,6 +49,25 @@ describe('api error normalization', () => {
     expect(error.message).toMatch(/servidor/i)
   })
 
+  it.each([
+    [403, /no tiene permiso para realizar esta acción/i],
+    [413, /supera el tamaño máximo permitido \(5 MB\)/i],
+    [415, /tipo de archivo no permitido/i],
+    [429, /demasiados intentos/i],
+  ])('maps a non-JSON %i response to its default Spanish message', async (status, expected) => {
+    const response = new Response('', { status, headers: { 'Content-Type': 'text/plain' } })
+    const error = await normalizeErrorResponse(response)
+    expect(error.status).toBe(status)
+    expect(error.message).toMatch(expected)
+  })
+
+  it('keeps the server-provided message when the error body is JSON', async () => {
+    const response = jsonResponse({ status: 429, error: 'Too Many Requests', message: 'Cuenta bloqueada por 15 minutos' }, 429)
+    const error = await normalizeErrorResponse(response)
+    expect(error.status).toBe(429)
+    expect(error.message).toBe('Cuenta bloqueada por 15 minutos')
+  })
+
   it('ignores malformed detail entries', async () => {
     const response = jsonResponse({ status: 400, error: 'Bad Request', message: 'x', details: [{ foo: 1 }, { field: 'a', message: 'b' }] }, 400)
     const error = await normalizeErrorResponse(response)

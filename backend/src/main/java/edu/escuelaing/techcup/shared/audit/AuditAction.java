@@ -5,7 +5,10 @@ public enum AuditAction {
     // identity
     USER_REGISTERED,
     LOGIN,
+    LOGIN_FAILED,
     LOGOUT,
+    PASSWORD_CHANGED,
+    PASSWORD_RESET_BY_ADMIN,
     ROLE_ASSIGNED,
     ROLE_REMOVED,
     REFEREE_CREATED,
@@ -42,5 +45,6 @@ public enum AuditAction {
     MATCH_UPDATED,
     MATCH_CANCELLED,
     MATCH_RESULT_RECORDED,
+    MATCH_RESULT_CORRECTED,
     LINEUP_SAVED
 }

@@ -23,7 +23,7 @@ export function MatchesTab({ tournamentId, highlightTeamId }: { tournamentId: nu
   return (
     <div className="flex flex-col gap-4">
       <div className="flex justify-end">
-        <label className="flex items-center gap-2 text-sm text-gray-600">
+        <label className="flex items-center gap-2 text-sm text-stone-600">
           Fase
           <Select
             options={PHASE_OPTIONS}
@@ -45,7 +45,7 @@ export function MatchesTab({ tournamentId, highlightTeamId }: { tournamentId: nu
                 match={match}
                 highlightTeamId={highlightTeamId}
                 actions={
-                  <Link to={`/matches/${match.id}`} className="text-sm font-medium text-emerald-700 hover:underline">
+                  <Link to={`/matches/${match.id}`} className="text-sm font-medium text-brand-700 hover:underline">
                     Ver partido
                   </Link>
                 }

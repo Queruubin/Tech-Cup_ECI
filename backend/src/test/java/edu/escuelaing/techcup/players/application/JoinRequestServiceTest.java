@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -16,6 +18,7 @@ import edu.escuelaing.techcup.players.domain.JoinRequest;
 import edu.escuelaing.techcup.players.domain.JoinRequestStatus;
 import edu.escuelaing.techcup.players.infrastructure.JoinRequestRepository;
 import edu.escuelaing.techcup.players.infrastructure.PlayerProfileRepository;
+import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.exception.ForbiddenOperationException;
@@ -147,11 +150,13 @@ class JoinRequestServiceTest {
         when(teamGateway.getTeam(5L)).thenReturn(TEAM);
         when(requests.findByPlayerIdAndStatus(10L, JoinRequestStatus.PENDING)).thenReturn(List.of(other));
         when(profiles.findById(10L)).thenReturn(Optional.empty());
+        when(userService.getUserForUpdate(10L)).thenReturn(AppUser.builder().id(10L).fullName("Pedro").build());
 
         var response = service.accept(CAPTAIN, 99L);
 
         assertThat(response.status()).isEqualTo(JoinRequestStatus.ACCEPTED);
         assertThat(other.getStatus()).isEqualTo(JoinRequestStatus.CANCELLED);
+        verify(userService).getUserForUpdate(10L);
         verify(teamGateway).addMember(5L, 10L);
     }
 

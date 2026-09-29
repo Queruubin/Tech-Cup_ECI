@@ -2,7 +2,11 @@ package edu.escuelaing.techcup.competition.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import edu.escuelaing.techcup.competition.api.dto.RecordResultRequest;
@@ -17,6 +21,9 @@ import edu.escuelaing.techcup.competition.infrastructure.MatchRepository;
 import edu.escuelaing.techcup.identity.application.RefereeService;
 import edu.escuelaing.techcup.identity.application.UserService;
 import edu.escuelaing.techcup.identity.domain.AppUser;
+import edu.escuelaing.techcup.identity.domain.Role;
+import edu.escuelaing.techcup.identity.domain.UserStatus;
+import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
@@ -32,6 +39,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -42,9 +50,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * Result validation, rescheduling guards and the seeding decisions of {@code advance}. The draw
- * algorithms themselves are covered by {@link RoundRobinFixtureStrategyTest} and
- * {@link KnockoutFixtureStrategyTest}.
+ * Result validation and correction, rescheduling guards, walkover cancellations and the seeding
+ * decisions of {@code advance}. The draw algorithms themselves are covered by
+ * {@link RoundRobinFixtureStrategyTest} and {@link KnockoutFixtureStrategyTest}.
  */
 @ExtendWith(MockitoExtension.class)
 class MatchServiceTest {
@@ -77,7 +85,7 @@ class MatchServiceTest {
         Clock clock = Clock.fixed(NOW, ZONE);
         service = new MatchService(matches, tournamentService, teamService, userService, refereeService,
                 standingsService, new RoundRobinFixtureStrategy(new FixtureShuffler(new java.util.Random(1L))),
-                new KnockoutFixtureStrategy(), new MatchResponseAssembler(), auditService, clock);
+                new KnockoutFixtureStrategy(), new MatchResponseAssembler(matches), auditService, clock);
     }
 
     // --- result validation --------------------------------------------------------------------
@@ -126,6 +134,7 @@ class MatchServiceTest {
     @Test
     void avalidResultIsRecordedAndTheMatchBecomesPlayed() {
         Match match = givenMatch(match(MatchPhase.GROUP, MatchStatus.SCHEDULED));
+        when(matches.findDistinctPhases(1L)).thenReturn(List.of(MatchPhase.GROUP));
         when(userService.getUser(101L)).thenReturn(player(101L));
         when(userService.getUser(201L)).thenReturn(player(201L));
 
@@ -136,16 +145,60 @@ class MatchServiceTest {
         assertThat(match.getHomeScore()).isEqualTo(1);
         assertThat(match.getAwayScore()).isEqualTo(1);
         assertThat(response.events()).hasSize(2);
+        assertThat(response.resultEditable()).isTrue();
+        verify(auditService).record(eq(7L), eq(AuditAction.MATCH_RESULT_RECORDED), anyString(), eq(3L), any());
     }
 
     @Test
-    void aresultCannotBeRecordedTwice() {
+    void aPlayedMatchInTheLatestPhaseCanBeCorrected() {
+        Match match = match(MatchPhase.GROUP, MatchStatus.PLAYED);
+        match.setHomeScore(2);
+        match.setAwayScore(0);
+        givenMatch(match);
+        when(matches.findDistinctPhases(1L)).thenReturn(List.of(MatchPhase.GROUP));
+        when(userService.getUser(201L)).thenReturn(player(201L));
+
+        var response = service.recordResult(ORGANIZER, 3L, new RecordResultRequest(
+                0, 1, null, null, List.of(goal(20L, 201L))));
+
+        assertThat(match.getStatus()).isEqualTo(MatchStatus.PLAYED);
+        assertThat(match.getHomeScore()).isZero();
+        assertThat(match.getAwayScore()).isEqualTo(1);
+        assertThat(response.events()).singleElement().extracting(event -> event.playerId()).isEqualTo(201L);
+        verify(auditService).record(eq(7L), eq(AuditAction.MATCH_RESULT_CORRECTED), anyString(), eq(3L), any());
+    }
+
+    @Test
+    void aPlayedMatchCannotBeCorrectedOnceALaterPhaseWasDrawnFromIt() {
         givenMatch(match(MatchPhase.GROUP, MatchStatus.PLAYED));
+        when(matches.findDistinctPhases(1L)).thenReturn(List.of(MatchPhase.GROUP, MatchPhase.QUARTERFINAL));
 
         assertThatThrownBy(() -> service.recordResult(ORGANIZER, 3L,
                 new RecordResultRequest(0, 0, null, null, List.of())))
                 .isInstanceOf(BusinessRuleException.class)
-                .hasMessageContaining("«jugado»");
+                .hasMessageContaining("siguiente fase");
+    }
+
+    @Test
+    void aCancelledMatchDoesNotAcceptAResult() {
+        givenMatch(match(MatchPhase.GROUP, MatchStatus.CANCELLED));
+
+        assertThatThrownBy(() -> service.recordResult(ORGANIZER, 3L,
+                new RecordResultRequest(0, 0, null, null, List.of())))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("«cancelado»");
+    }
+
+    @Test
+    void resultsRequireTheTournamentToBeInProgress() {
+        Match match = match(MatchPhase.GROUP, MatchStatus.SCHEDULED);
+        match.getTournament().setStatus(TournamentStatus.FINISHED);
+        givenMatch(match);
+
+        assertThatThrownBy(() -> service.recordResult(ORGANIZER, 3L,
+                new RecordResultRequest(0, 0, null, null, List.of())))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("mientras el torneo esté en progreso");
     }
 
     @Test
@@ -187,7 +240,7 @@ class MatchServiceTest {
         assertThat(match.winner()).get().extracting(Team::getId).isEqualTo(10L);
     }
 
-    // --- rescheduling and cancellation ----------------------------------------------------------
+    // --- rescheduling -----------------------------------------------------------------------------
 
     @Test
     void amatchThatHasKickedOffCannotBeRescheduled() {
@@ -212,6 +265,40 @@ class MatchServiceTest {
     }
 
     @Test
+    void aMatchCannotBeMovedIntoThePast() {
+        givenMatch(match(MatchPhase.GROUP, MatchStatus.SCHEDULED));
+
+        assertThatThrownBy(() -> service.update(ORGANIZER, 3L,
+                new UpdateMatchRequest(NOW.minusSeconds(1), null, null)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("posterior al momento actual");
+    }
+
+    @Test
+    void anInactiveRefereeCannotBeAppointed() {
+        givenMatch(match(MatchPhase.GROUP, MatchStatus.SCHEDULED));
+        AppUser referee = AppUser.builder().id(9L).fullName("Ref").status(UserStatus.INACTIVE)
+                .roles(new HashSet<>(Set.of(Role.REFEREE))).build();
+        when(userService.getUser(9L)).thenReturn(referee);
+
+        assertThatThrownBy(() -> service.update(ORGANIZER, 3L, new UpdateMatchRequest(null, null, 9L)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("está inactivo");
+    }
+
+    @Test
+    void anActiveRefereeIsAppointed() {
+        Match match = givenMatch(match(MatchPhase.GROUP, MatchStatus.SCHEDULED));
+        AppUser referee = AppUser.builder().id(9L).fullName("Ref").status(UserStatus.ACTIVE)
+                .roles(new HashSet<>(Set.of(Role.REFEREE))).build();
+        when(userService.getUser(9L)).thenReturn(referee);
+
+        service.update(ORGANIZER, 3L, new UpdateMatchRequest(null, null, 9L));
+
+        assertThat(match.getReferee()).isSameAs(referee);
+    }
+
+    @Test
     void anEmptyPatchIsRefused() {
         givenMatch(match(MatchPhase.GROUP, MatchStatus.SCHEDULED));
 
@@ -220,28 +307,73 @@ class MatchServiceTest {
                 .hasMessageContaining("No hay nada que actualizar");
     }
 
+    // --- cancellation -----------------------------------------------------------------------------
+
     @Test
     void cancellingRequiresAreason() {
-        assertThatThrownBy(() -> service.cancel(ORGANIZER, 3L, null))
+        assertThatThrownBy(() -> service.cancel(ORGANIZER, 3L, null, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("motivo de la cancelación");
     }
 
     @Test
-    void cancellingKeepsTheMatchWithItsReason() {
+    void cancellingAGroupMatchKeepsItWithItsReasonAndNoWalkover() {
         Match match = givenMatch(match(MatchPhase.GROUP, MatchStatus.SCHEDULED));
 
-        service.cancel(ORGANIZER, 3L, CancelReason.NO_SHOW);
+        var response = service.cancel(ORGANIZER, 3L, CancelReason.NO_SHOW, 20L);
 
         assertThat(match.getStatus()).isEqualTo(MatchStatus.CANCELLED);
         assertThat(match.getCancelReason()).isEqualTo(CancelReason.NO_SHOW);
+        assertThat(match.getWalkoverWinnerTeam()).isNull();
+        assertThat(response.walkoverWinnerTeamId()).isNull();
+        assertThat(response.resultEditable()).isFalse();
+    }
+
+    @Test
+    void cancellingAKnockoutMatchNeedsTheTeamThatGoesThrough() {
+        givenMatch(match(MatchPhase.SEMIFINAL, MatchStatus.SCHEDULED));
+
+        assertThatThrownBy(() -> service.cancel(ORGANIZER, 3L, CancelReason.DISQUALIFIED, null))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("qué equipo avanza");
+    }
+
+    @Test
+    void theWalkoverWinnerMustPlayTheMatch() {
+        givenMatch(match(MatchPhase.SEMIFINAL, MatchStatus.SCHEDULED));
+
+        assertThatThrownBy(() -> service.cancel(ORGANIZER, 3L, CancelReason.DISQUALIFIED, 99L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("no juega este partido");
+    }
+
+    @Test
+    void cancellingAKnockoutMatchRecordsTheWalkover() {
+        Match match = givenMatch(match(MatchPhase.SEMIFINAL, MatchStatus.SCHEDULED));
+
+        var response = service.cancel(ORGANIZER, 3L, CancelReason.NO_SHOW, 20L);
+
+        assertThat(match.getStatus()).isEqualTo(MatchStatus.CANCELLED);
+        assertThat(match.getWalkoverWinnerTeam().getId()).isEqualTo(20L);
+        assertThat(response.walkoverWinnerTeamId()).isEqualTo(20L);
+    }
+
+    @Test
+    void cancellationsRequireTheTournamentToBeInProgress() {
+        Match match = match(MatchPhase.GROUP, MatchStatus.SCHEDULED);
+        match.getTournament().setStatus(TournamentStatus.FINISHED);
+        givenMatch(match);
+
+        assertThatThrownBy(() -> service.cancel(ORGANIZER, 3L, CancelReason.NO_SHOW, null))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("mientras el torneo esté en progreso");
     }
 
     // --- generation and advance -----------------------------------------------------------------
 
     @Test
     void fixturesAreOnlyGeneratedForAnInProgressTournament() {
-        when(tournamentService.requireTournament(1L)).thenReturn(tournament(TournamentStatus.ACTIVE));
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.ACTIVE));
 
         assertThatThrownBy(() -> service.generate(ORGANIZER, 1L))
                 .isInstanceOf(BusinessRuleException.class)
@@ -250,7 +382,7 @@ class MatchServiceTest {
 
     @Test
     void fixturesAreOnlyGeneratedOnce() {
-        when(tournamentService.requireTournament(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
         when(matches.existsByTournamentId(1L)).thenReturn(true);
 
         assertThatThrownBy(() -> service.generate(ORGANIZER, 1L))
@@ -260,7 +392,7 @@ class MatchServiceTest {
 
     @Test
     void generatingTheGroupStageNeedsTwoApprovedTeams() {
-        when(tournamentService.requireTournament(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
         when(matches.existsByTournamentId(1L)).thenReturn(false);
         when(tournamentService.approvedTeamIds(1L)).thenReturn(List.of(10L));
 
@@ -271,7 +403,7 @@ class MatchServiceTest {
 
     @Test
     void advanceRefusesWhileTheCurrentPhaseIsUnfinished() {
-        when(tournamentService.requireTournament(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
         when(matches.findByTournamentIdOrderByScheduledAtAscIdAsc(1L))
                 .thenReturn(List.of(match(MatchPhase.GROUP, MatchStatus.SCHEDULED)));
 
@@ -282,7 +414,7 @@ class MatchServiceTest {
 
     @Test
     void advanceRefusesWithNoFixtureAtAll() {
-        when(tournamentService.requireTournament(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
         when(matches.findByTournamentIdOrderByScheduledAtAscIdAsc(1L)).thenReturn(List.of());
 
         assertThatThrownBy(() -> service.advance(ORGANIZER, 1L))
@@ -333,7 +465,7 @@ class MatchServiceTest {
         Match drawn = match(MatchPhase.SEMIFINAL, MatchStatus.PLAYED);
         drawn.setHomeScore(1);
         drawn.setAwayScore(1);
-        when(tournamentService.requireTournament(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
         when(matches.findByTournamentIdOrderByScheduledAtAscIdAsc(1L)).thenReturn(List.of(drawn));
 
         assertThatThrownBy(() -> service.advance(ORGANIZER, 1L))
@@ -342,20 +474,43 @@ class MatchServiceTest {
     }
 
     @Test
-    void acancelledKnockoutMatchBlocksTheBracket() {
+    void acancelledKnockoutMatchWithoutAWalkoverBlocksTheBracket() {
         Match cancelled = match(MatchPhase.SEMIFINAL, MatchStatus.CANCELLED);
         cancelled.setCancelReason(CancelReason.NO_SHOW);
-        when(tournamentService.requireTournament(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
         when(matches.findByTournamentIdOrderByScheduledAtAscIdAsc(1L)).thenReturn(List.of(cancelled));
 
         assertThatThrownBy(() -> service.advance(ORGANIZER, 1L))
                 .isInstanceOf(BusinessRuleException.class)
-                .hasMessageContaining("fue cancelado por");
+                .hasMessageContaining("sin indicar qué equipo avanza");
+    }
+
+    @Test
+    void theWalkoverWinnerOfACancelledKnockoutMatchGoesThrough() {
+        Match played = playedMatch(MatchPhase.SEMIFINAL, 1L, 4L, 2, 0);
+        Match cancelled = match(MatchPhase.SEMIFINAL, MatchStatus.CANCELLED);
+        cancelled.setCancelReason(CancelReason.DISQUALIFIED);
+        cancelled.setWalkoverWinnerTeam(cancelled.getAwayTeam());
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
+        when(matches.findByTournamentIdOrderByScheduledAtAscIdAsc(1L)).thenReturn(List.of(played, cancelled));
+        when(matches.findMaxRoundNumber(1L)).thenReturn(4);
+        when(refereeService.activeReferees()).thenReturn(List.of());
+        when(teamService.requireTeam(1L)).thenReturn(team(1L, "Team 1"));
+        when(teamService.requireTeam(20L)).thenReturn(team(20L, "Lions"));
+        when(matches.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var created = service.advance(ORGANIZER, 1L);
+
+        assertThat(created).singleElement().satisfies(finalMatch -> {
+            assertThat(finalMatch.phase()).isEqualTo(MatchPhase.FINAL);
+            assertThat(finalMatch.homeTeam().id()).isEqualTo(1L);
+            assertThat(finalMatch.awayTeam().id()).isEqualTo(20L);
+        });
     }
 
     @Test
     void theBracketStopsAfterTheFinal() {
-        when(tournamentService.requireTournament(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
         when(matches.findByTournamentIdOrderByScheduledAtAscIdAsc(1L))
                 .thenReturn(List.of(playedMatch(MatchPhase.FINAL, 10L, 20L, 2, 0)));
 
@@ -367,7 +522,7 @@ class MatchServiceTest {
     // --- helpers ---------------------------------------------------------------------------------
 
     private void givenFinishedGroupStage(int teamCount) {
-        when(tournamentService.requireTournament(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
         when(matches.findByTournamentIdOrderByScheduledAtAscIdAsc(1L))
                 .thenReturn(List.of(playedMatch(MatchPhase.GROUP, 1L, 2L, 1, 0)));
         List<Standings.Row> table = new java.util.ArrayList<>();
@@ -377,12 +532,11 @@ class MatchServiceTest {
         }
         when(standingsService.rows(1L)).thenReturn(table);
         when(matches.findMaxRoundNumber(1L)).thenReturn(3);
-        when(refereeService.list()).thenReturn(List.of());
+        when(refereeService.activeReferees()).thenReturn(List.of());
         for (int seed = 1; seed <= teamCount; seed++) {
             lenient().when(teamService.requireTeam((long) seed)).thenReturn(team((long) seed, "Team " + seed));
         }
-        when(matches.save(org.mockito.ArgumentMatchers.any()))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(matches.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     private Match givenMatch(Match match) {

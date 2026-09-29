@@ -17,7 +17,7 @@ export function MyTeamCard({ team, registration, isCaptain, isPlayer, tournament
   if (!team) {
     return (
       <Card title="Mi equipo">
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-stone-600">
           {isCaptain
             ? 'Aún no ha creado su equipo.'
             : isPlayer
@@ -50,23 +50,23 @@ export function MyTeamCard({ team, registration, isCaptain, isPlayer, tournament
     >
       <dl className="grid grid-cols-2 gap-3 text-sm">
         <div>
-          <dt className="text-gray-500">Colores</dt>
-          <dd className="font-medium text-gray-900">{team.colors}</dd>
+          <dt className="text-stone-500">Colores</dt>
+          <dd className="font-medium text-ink">{team.colors}</dd>
         </div>
         <div>
-          <dt className="text-gray-500">Integrantes</dt>
-          <dd className="font-medium text-gray-900">{team.memberCount} / 12</dd>
+          <dt className="text-stone-500">Integrantes</dt>
+          <dd className="font-medium text-ink">{team.memberCount} / 12</dd>
         </div>
         <div className="col-span-2">
-          <dt className="text-gray-500">Inscripción</dt>
+          <dt className="text-stone-500">Inscripción</dt>
           <dd className="mt-0.5 flex flex-wrap items-center gap-2">
             {registration ? (
               <>
                 <StatusBadge kind="registration" value={registration.status} />
-                <span className="text-xs text-gray-500">Enviada el {formatDate(registration.createdAt)}</span>
+                <span className="text-xs text-stone-500">Enviada el {formatDate(registration.createdAt)}</span>
               </>
             ) : (
-              <span className="text-gray-700">Sin inscripción en el torneo vigente.</span>
+              <span className="text-stone-700">Sin inscripción en el torneo vigente.</span>
             )}
           </dd>
         </div>

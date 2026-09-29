@@ -79,15 +79,15 @@ export function LineupEditor({
 
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-gray-900">Titulares</h4>
-            <span className={cn('text-xs font-medium', remaining === 0 ? 'text-emerald-700' : 'text-gray-500')}>
+            <h4 className="text-sm font-semibold text-ink">Titulares</h4>
+            <span className={cn('text-xs font-medium', remaining === 0 ? 'text-green-700' : 'text-stone-500')}>
               {starterIds.length} / {LINEUP_STARTERS} seleccionados
             </span>
           </div>
           {members.length === 0 ? (
-            <p className="text-sm text-gray-500">El equipo no tiene integrantes registrados.</p>
+            <p className="text-sm text-stone-500">El equipo no tiene integrantes registrados.</p>
           ) : (
-            <ul className="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white">
+            <ul className="divide-y divide-stone-100 rounded-2xl border border-stone-200 bg-white">
               {members.map((member) => {
                 const selected = starterIds.includes(member.userId)
                 const blocked = !selected && remaining <= 0
@@ -96,23 +96,23 @@ export function LineupEditor({
                     <label
                       className={cn(
                         'flex cursor-pointer items-center gap-3 px-4 py-2.5',
-                        selected && 'bg-emerald-50/60',
+                        selected && 'bg-brand-50/60',
                         blocked && 'cursor-not-allowed opacity-50',
                       )}
                     >
                       <input
                         type="checkbox"
-                        className="h-4 w-4 shrink-0 rounded border-gray-300 text-emerald-600"
+                        className="h-4 w-4 shrink-0 rounded border-stone-300 accent-brand-600"
                         checked={selected}
                         disabled={blocked}
                         onChange={() => toggle(member.userId)}
                       />
                       <Avatar name={member.fullName} photoFileId={member.photoFileId} size="sm" />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-gray-900">{member.fullName}</span>
-                        <span className="block text-xs text-gray-500">{POSITION_LABELS[member.position]}</span>
+                        <span className="block truncate text-sm font-medium text-ink">{member.fullName}</span>
+                        <span className="block text-xs text-stone-500">{POSITION_LABELS[member.position]}</span>
                       </span>
-                      <span className="shrink-0 text-sm font-semibold tabular-nums text-gray-500">#{member.jerseyNumber}</span>
+                      <span className="shrink-0 text-sm font-semibold tabular-nums text-stone-500">#{member.jerseyNumber}</span>
                     </label>
                   </li>
                 )
@@ -120,7 +120,7 @@ export function LineupEditor({
             </ul>
           )}
           {validationError && (
-            <p role="alert" className="mt-2 text-xs font-medium text-red-600">
+            <p role="alert" className="mt-2 text-xs font-medium text-brand-600">
               {validationError}
             </p>
           )}
@@ -134,7 +134,7 @@ export function LineupEditor({
       </div>
 
       <div>
-        <h4 className="mb-2 text-sm font-semibold text-gray-900">Vista previa</h4>
+        <h4 className="mb-2 text-sm font-semibold text-ink">Vista previa</h4>
         <LineupPitch formation={formation} starters={starters} />
       </div>
     </form>

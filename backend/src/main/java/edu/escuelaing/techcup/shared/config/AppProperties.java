@@ -1,6 +1,7 @@
 package edu.escuelaing.techcup.shared.config;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Positive;
@@ -19,7 +20,9 @@ public record AppProperties(
         @Valid Jwt jwt,
         @NotEmpty List<String> corsOrigins,
         @NotEmpty List<String> institutionalDomains,
-        @Valid Storage storage) {
+        @NotBlank String timeZone,
+        @Valid Storage storage,
+        @Valid Bootstrap bootstrap) {
 
     public record Jwt(
             @NotBlank @Size(min = 32, message = "JWT secret must be at least 32 bytes") String secret,
@@ -27,5 +30,11 @@ public record AppProperties(
     }
 
     public record Storage(@Positive long maxFileSizeBytes) {
+    }
+
+    /** Credentials of the administrator created on first start (see {@code AdminBootstrap}). */
+    public record Bootstrap(
+            @NotBlank @Email String adminEmail,
+            @NotBlank @Size(min = 8, max = 72) String adminPassword) {
     }
 }

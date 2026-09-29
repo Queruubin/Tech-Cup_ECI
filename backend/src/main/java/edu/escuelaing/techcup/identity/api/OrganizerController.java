@@ -57,8 +57,8 @@ public class OrganizerController {
     }
 
     @GetMapping("/referees")
-    @Operation(summary = "List referees")
-    public List<UserResponse> referees() {
-        return refereeService.list();
+    @Operation(summary = "List referees (organizers do not receive identity documents)")
+    public List<UserResponse> referees(@CurrentUser AuthenticatedUser actor) {
+        return refereeService.list(actor);
     }
 }

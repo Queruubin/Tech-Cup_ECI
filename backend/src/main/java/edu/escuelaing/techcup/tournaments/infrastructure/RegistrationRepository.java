@@ -15,6 +15,8 @@ public interface RegistrationRepository extends JpaRepository<Registration, Long
 
     List<Registration> findByTournamentIdOrderByCreatedAtAscIdAsc(Long tournamentId);
 
+    List<Registration> findByTournamentIdAndStatusOrderByIdAsc(Long tournamentId, RegistrationStatus status);
+
     /** The live (UNDER_REVIEW or APPROVED) registration of a team for a tournament, if any. */
     Optional<Registration> findFirstByTournamentIdAndTeamIdAndStatusInOrderByIdDesc(
             Long tournamentId, Long teamId, Collection<RegistrationStatus> statuses);

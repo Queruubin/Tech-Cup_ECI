@@ -18,7 +18,7 @@ export function Spinner({ size = 'md', className, label = 'Cargando' }: SpinnerP
       role="status"
       aria-label={label}
       className={cn(
-        'inline-block animate-spin rounded-full border-current border-t-transparent text-emerald-600',
+        'inline-block animate-spin rounded-full border-current border-t-transparent text-brand-600',
         SIZE_CLASSES[size],
         className,
       )}

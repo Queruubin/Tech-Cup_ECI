@@ -57,11 +57,14 @@ public class PlayerController {
     }
 
     @GetMapping("/{userId}/profile")
+    @PreAuthorize("hasAnyRole('CAPTAIN', 'ORGANIZER')")
+    @Operation(summary = "A player's sport profile (captains and organizers, who recruit and review teams)")
     public PlayerProfileResponse profile(@PathVariable Long userId) {
         return profileService.get(userId);
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('CAPTAIN', 'ORGANIZER')")
     @Operation(summary = "Search players; available=true returns free agents (profile, no active team)")
     public List<PlayerProfileResponse> search(@RequestParam(required = false) Position position,
                                               @RequestParam(defaultValue = "false") boolean available) {

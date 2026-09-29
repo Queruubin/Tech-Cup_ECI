@@ -28,4 +28,9 @@ public class UserFactsAdapter implements UserFactsPort {
     public boolean isLockedByTournament(Long userId) {
         return query.isLockedByTournament(userId);
     }
+
+    @Override
+    public boolean captainsActiveTeam(Long userId) {
+        return query.captainsActiveTeam(userId);
+    }
 }

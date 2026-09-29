@@ -45,22 +45,22 @@ export function FormField({ label, error, hint, required, id, className, childre
 
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
-      <label htmlFor={controlId} className="text-sm font-medium text-gray-800">
+      <label htmlFor={controlId} className="text-sm font-medium text-stone-800">
         {label}
         {required && (
-          <span className="ml-0.5 text-red-600" aria-hidden="true">
+          <span className="ml-0.5 text-brand-600" aria-hidden="true">
             *
           </span>
         )}
       </label>
       {control}
       {hint && !error && (
-        <p id={hintId} className="text-xs text-gray-500">
+        <p id={hintId} className="text-xs text-stone-500">
           {hint}
         </p>
       )}
       {error && (
-        <p id={errorId} role="alert" className="text-xs font-medium text-red-600">
+        <p id={errorId} role="alert" className="text-xs font-medium text-brand-600">
           {error}
         </p>
       )}

@@ -7,17 +7,18 @@ import { Alert } from '@/components/molecules/Alert'
 import { Card } from '@/components/molecules/Card'
 import { PageHeader } from '@/components/molecules/PageHeader'
 import { QueryState } from '@/components/molecules/QueryState'
+import { authApi } from '@/features/auth/api'
+import { ChangePasswordForm } from '@/features/auth/components/ChangePasswordForm'
 import { useAuth } from '@/features/auth/hooks/useAuth'
+import { IMAGE_ACCEPT, IMAGE_HINT, MAX_UPLOAD_BYTES } from '@/lib/uploads'
 import { useMutation } from '@/lib/useQuery'
 import { useAuthStore } from '@/store/auth.store'
 import { toast } from '@/store/ui.store'
-import type { UpdateUserRequest, UpsertProfileRequest } from '@/types/api'
+import type { ChangePasswordRequest, UpdateUserRequest, UpsertProfileRequest } from '@/types/api'
 import { playersApi } from '../api'
 import { BasicInfoForm } from '../components/BasicInfoForm'
 import { ProfileForm } from '../components/ProfileForm'
 import { useMyProfile } from '../hooks/usePlayers'
-
-const MAX_PHOTO_BYTES = 5 * 1024 * 1024
 
 export function ProfilePage() {
   const { user, hasRole, refreshMe } = useAuth()
@@ -25,7 +26,8 @@ export function ProfilePage() {
   const profileQuery = useMyProfile(isPlayer)
   const profile = profileQuery.data
   const [photo, setPhoto] = useState<File | null>(null)
-  const [photoError, setPhotoError] = useState<string | null>(null)
+  // Remounts the password form (clearing its fields) after a successful change.
+  const [passwordFormKey, setPasswordFormKey] = useState(0)
 
   const inTeam = !!(profile?.teamId ?? user?.teamId)
 
@@ -49,6 +51,8 @@ export function ProfilePage() {
     return updated
   })
 
+  const changePassword = useMutation((payload: ChangePasswordRequest) => authApi.changePassword(payload))
+
   const handleSaveProfile = (payload: UpsertProfileRequest) => {
     saveProfile
       .mutate(payload)
@@ -56,14 +60,14 @@ export function ProfilePage() {
       .catch(() => undefined)
   }
 
-  const handlePhotoChange = (file: File | null) => {
-    setPhotoError(null)
-    if (file && file.size > MAX_PHOTO_BYTES) {
-      setPhotoError('La foto no puede superar 5 MB.')
-      setPhoto(null)
-      return
-    }
-    setPhoto(file)
+  const handleChangePassword = (payload: ChangePasswordRequest) => {
+    changePassword
+      .mutate(payload)
+      .then(() => {
+        toast.success('Contraseña actualizada.')
+        setPasswordFormKey((value) => value + 1)
+      })
+      .catch(() => undefined)
   }
 
   const handleUploadPhoto = () => {
@@ -123,16 +127,15 @@ export function ProfilePage() {
                     <Avatar name={profile.fullName} photoFileId={profile.photoFileId} size="xl" />
                     <div className="flex flex-1 flex-col gap-2">
                       <FileInput
-                        accept="image/*"
+                        accept={IMAGE_ACCEPT}
+                        maxBytes={MAX_UPLOAD_BYTES}
                         value={photo}
-                        onChange={handlePhotoChange}
+                        onChange={setPhoto}
                         disabled={inTeam}
-                        invalid={!!photoError}
-                        hint="PNG o JPG, máximo 5 MB"
+                        invalid={!!uploadPhoto.error}
+                        hint={IMAGE_HINT}
                       />
-                      {(photoError || uploadPhoto.error) && (
-                        <p className="text-xs font-medium text-red-600">{photoError ?? uploadPhoto.error}</p>
-                      )}
+                      {uploadPhoto.error && <p className="text-xs font-medium text-brand-600">{uploadPhoto.error}</p>}
                       <div>
                         <Button
                           size="sm"
@@ -151,7 +154,7 @@ export function ProfilePage() {
             </QueryState>
           ) : (
             <Card title="Perfil deportivo">
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-stone-600">
                 Solo los usuarios con rol de jugador tienen perfil deportivo. Si desea participar como jugador,
                 contacte al organizador del torneo.
               </p>
@@ -171,9 +174,20 @@ export function ProfilePage() {
               />
             </Card>
           )}
+          {user && (
+            <Card title="Cambiar contraseña" description="Elija una contraseña que no use en otros servicios.">
+              <ChangePasswordForm
+                key={passwordFormKey}
+                loading={changePassword.loading}
+                error={changePassword.error}
+                fieldErrors={changePassword.fieldErrors}
+                onSubmit={handleChangePassword}
+              />
+            </Card>
+          )}
           {isPlayer && !inTeam && (
             <Card title="Siguiente paso">
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-stone-600">
                 {profile
                   ? 'Ya tiene perfil deportivo. Busque un equipo y envíe su solicitud de vinculación.'
                   : 'Cree su perfil deportivo para poder solicitar unirse a un equipo.'}

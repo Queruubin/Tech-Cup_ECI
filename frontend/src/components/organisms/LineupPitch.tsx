@@ -48,7 +48,7 @@ function PlayerChip({ player, goalkeeper }: { player: LineupPlayer | null; goalk
       <span
         className={cn(
           'flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold shadow',
-          player ? (goalkeeper ? 'bg-amber-400 text-gray-900' : 'bg-white text-emerald-800') : 'border-2 border-dashed border-white/60 text-white/60',
+          player ? (goalkeeper ? 'bg-amber-400 text-ink' : 'bg-white text-emerald-800') : 'border-2 border-dashed border-white/60 text-white/60',
         )}
       >
         {player ? player.jerseyNumber : '?'}
@@ -92,7 +92,7 @@ export function LineupPitch({ formation, starters, className }: LineupPitchProps
           </div>
         </div>
       </div>
-      <p className="mt-2 text-center text-xs text-gray-500">Formación {FORMATION_LABELS[formation]}</p>
+      <p className="mt-2 text-center text-xs text-stone-500">Formación {FORMATION_LABELS[formation]}</p>
     </div>
   )
 }

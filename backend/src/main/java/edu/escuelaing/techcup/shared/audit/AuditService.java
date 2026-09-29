@@ -44,6 +44,17 @@ public class AuditService {
         record(actorUserId, action, entityType, entityId, null);
     }
 
+    /**
+     * Records the event in its own transaction, so it survives the rollback of the use case that
+     * raised it. Used for events whose whole point is that the use case failed, e.g. a rejected
+     * login attempt.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordDetached(Long actorUserId, AuditAction action, String entityType, Long entityId,
+                               Map<String, Object> details) {
+        record(actorUserId, action, entityType, entityId, details);
+    }
+
     @Transactional(readOnly = true)
     public List<AuditLogResponse> query(AuditAction action, Integer limit) {
         int size = limit == null || limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);

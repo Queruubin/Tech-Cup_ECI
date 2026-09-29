@@ -61,28 +61,30 @@ export function RegistrationsReview({ tournamentId, onDecided }: { tournamentId:
     >
       <QueryState loading={query.loading} error={query.error} onRetry={query.refetch} inline>
         {sorted.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-gray-500">Ningún equipo se ha inscrito todavía.</p>
+          <p className="px-5 py-6 text-sm text-stone-500">Ningún equipo se ha inscrito todavía.</p>
         ) : (
-          <ul className="divide-y divide-gray-100">
+          <ul className="divide-y divide-stone-100">
             {sorted.map((registration) => (
               <li key={registration.id} className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Link to={`/teams/${registration.teamId}`} className="text-sm font-medium text-gray-900 hover:text-emerald-700">
+                    <Link to={`/teams/${registration.teamId}`} className="text-sm font-medium text-ink hover:text-brand-700">
                       {registration.teamName}
                     </Link>
                     <StatusBadge kind="registration" value={registration.status} />
                   </div>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-stone-500">
                     Enviada el {formatDateTime(registration.createdAt)}
                     {registration.reviewedAt && ` · Revisada el ${formatDateTime(registration.reviewedAt)}`}
                   </p>
-                  {registration.reviewNote && <p className="mt-1 text-xs text-gray-700">Nota: {registration.reviewNote}</p>}
+                  {registration.reviewNote && <p className="mt-1 text-xs text-stone-700">Nota: {registration.reviewNote}</p>}
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => setPreview(registration)}>
-                    Ver comprobante
-                  </Button>
+                  {registration.receiptFileId && (
+                    <Button size="sm" variant="ghost" onClick={() => setPreview(registration)}>
+                      Ver comprobante
+                    </Button>
+                  )}
                   {registration.status === 'UNDER_REVIEW' && (
                     <>
                       <Button size="sm" onClick={() => setDecision({ registration, action: 'approve' })}>
@@ -126,7 +128,7 @@ export function RegistrationsReview({ tournamentId, onDecided }: { tournamentId:
           </Alert>
         )}
         {decision?.action === 'approve' && (
-          <p className="mb-3 text-sm text-gray-600">Se verificará nuevamente la capacidad del torneo antes de aprobar.</p>
+          <p className="mb-3 text-sm text-stone-600">Se verificará nuevamente la capacidad del torneo antes de aprobar.</p>
         )}
         <FormField label="Nota (opcional)" error={decide.fieldErrors.note} hint="Visible para el capitán del equipo.">
           <Textarea value={note} maxLength={300} onChange={(event) => setNote(event.target.value)} />

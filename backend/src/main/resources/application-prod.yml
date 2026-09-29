@@ -1,0 +1,13 @@
+# Production hardening, activated with SPRING_PROFILES_ACTIVE=prod.
+# ProductionGuard additionally refuses to start when JWT_SECRET or ADMIN_PASSWORD keep their
+# development defaults.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+server:
+  # The backend sits behind the frontend's nginx reverse proxy: honour X-Forwarded-* headers so
+  # the client IP seen by the login rate limiter is the real one.
+  forward-headers-strategy: framework

@@ -1,5 +1,5 @@
 import { api } from '@/lib/api'
-import type { AuditLogResponse, CreateRefereeRequest, Role, UserResponse } from '@/types/api'
+import type { AuditLogResponse, CreateRefereeRequest, ResetPasswordRequest, Role, UserResponse } from '@/types/api'
 
 export const adminApi = {
   searchUsers: (search: string, signal?: AbortSignal) =>
@@ -8,6 +8,9 @@ export const adminApi = {
   assignRole: (userId: number, role: Role) => api.post<Role[]>(`/admin/users/${userId}/roles`, { role }),
   removeRole: (userId: number, role: Role) => api.delete<Role[]>(`/admin/users/${userId}/roles/${role}`),
   inactivateUser: (userId: number) => api.post<UserResponse>(`/admin/users/${userId}/inactivate`),
+  /** ADMIN only: sets a new password for the user without knowing the current one. */
+  resetPassword: (userId: number, payload: ResetPasswordRequest) =>
+    api.post<void>(`/admin/users/${userId}/password`, payload),
 
   grantCaptain: (userId: number) => api.post<UserResponse>(`/organizer/users/${userId}/captain`),
   revokeCaptain: (userId: number) => api.delete<UserResponse>(`/organizer/users/${userId}/captain`),

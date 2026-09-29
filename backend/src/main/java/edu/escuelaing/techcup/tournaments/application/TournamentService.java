@@ -1,18 +1,22 @@
 package edu.escuelaing.techcup.tournaments.application;
 
 import edu.escuelaing.techcup.identity.application.UserService;
+import edu.escuelaing.techcup.identity.domain.AppUser;
 import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
+import edu.escuelaing.techcup.shared.storage.FileDeletionScheduler;
 import edu.escuelaing.techcup.shared.storage.FileKind;
+import edu.escuelaing.techcup.shared.storage.FileOwner;
 import edu.escuelaing.techcup.shared.storage.FileStorage;
 import edu.escuelaing.techcup.shared.storage.FileUpload;
 import edu.escuelaing.techcup.tournaments.api.dto.CreateTournamentRequest;
 import edu.escuelaing.techcup.tournaments.api.dto.TournamentResponse;
 import edu.escuelaing.techcup.tournaments.api.dto.UpdateTournamentRequest;
 import edu.escuelaing.techcup.tournaments.api.dto.VenueResponse;
+import edu.escuelaing.techcup.tournaments.domain.Registration;
 import edu.escuelaing.techcup.tournaments.domain.RegistrationStatus;
 import edu.escuelaing.techcup.tournaments.domain.Tournament;
 import edu.escuelaing.techcup.tournaments.domain.TournamentStatus;
@@ -34,15 +38,18 @@ import org.springframework.web.multipart.MultipartFile;
 /**
  * Tournament use cases (spec 7.4). Rules enforced here:
  * <ul>
- *   <li>Created in {@link TournamentStatus#DRAFT}; only a DRAFT may be edited or deleted.</li>
+ *   <li>Created in {@link TournamentStatus#DRAFT}. A DRAFT may be edited freely and deleted; an
+ *       ACTIVE tournament may only have its dates changed (registration deadline, start, end).</li>
  *   <li>Dates must be coherent: registration deadline &le; start date &le; end date.</li>
  *   <li>Activate (DRAFT &rarr; ACTIVE) requires an uploaded rulebook and at least one venue.</li>
- *   <li>Start (ACTIVE &rarr; IN_PROGRESS) is allowed only on the start date and with at least
- *       {@value #MIN_TEAMS_TO_START} approved registrations.</li>
+ *   <li>Start (ACTIVE &rarr; IN_PROGRESS) is allowed from the start date up to the end date,
+ *       with at least {@value #MIN_TEAMS_TO_START} approved registrations; registrations still
+ *       under review are cancelled at that moment, since nothing can be approved afterwards.</li>
  *   <li>Finish (IN_PROGRESS &rarr; FINISHED) is allowed once the end date has been reached or the
  *       FINAL match has been played ({@link FinalMatchPort}).</li>
  *   <li>The rulebook is a PDF and venues carry an optional image; both go through the
- *       {@link FileStorage} port. Venues may not be touched once the tournament is FINISHED.</li>
+ *       {@link FileStorage} port and the binaries they replace or orphan are deleted after the
+ *       transaction commits. Venues may not be touched once the tournament is FINISHED.</li>
  * </ul>
  * The shape of the lifecycle itself is owned by the {@link TournamentStatus} State machine; this
  * service only adds the guards that need collaborators. Every mutation is audited.
@@ -52,7 +59,10 @@ public class TournamentService {
 
     static final String ENTITY_TYPE = "TOURNAMENT";
     static final String VENUE_ENTITY_TYPE = "VENUE";
+    static final String REGISTRATION_ENTITY_TYPE = "REGISTRATION";
     static final int MIN_TEAMS_TO_START = 2;
+    static final String AUTO_CANCEL_NOTE =
+            "Inscripción cancelada automáticamente: el torneo inició sin que fuera revisada.";
 
     private static final Set<TournamentStatus> LIVE_STATUSES =
             Set.of(TournamentStatus.ACTIVE, TournamentStatus.IN_PROGRESS);
@@ -62,19 +72,21 @@ public class TournamentService {
     private final RegistrationRepository registrations;
     private final UserService userService;
     private final FileStorage fileStorage;
+    private final FileDeletionScheduler fileDeletion;
     private final FinalMatchPort finalMatch;
     private final AuditService auditService;
     private final Clock clock;
 
     public TournamentService(TournamentRepository tournaments, VenueRepository venues,
                              RegistrationRepository registrations, UserService userService,
-                             FileStorage fileStorage, FinalMatchPort finalMatch, AuditService auditService,
-                             Clock clock) {
+                             FileStorage fileStorage, FileDeletionScheduler fileDeletion, FinalMatchPort finalMatch,
+                             AuditService auditService, Clock clock) {
         this.tournaments = tournaments;
         this.venues = venues;
         this.registrations = registrations;
         this.userService = userService;
         this.fileStorage = fileStorage;
+        this.fileDeletion = fileDeletion;
         this.finalMatch = finalMatch;
         this.auditService = auditService;
         this.clock = clock;
@@ -108,6 +120,15 @@ public class TournamentService {
         return tournaments.findById(id).orElseThrow(() -> NotFoundException.of("el torneo", id));
     }
 
+    /**
+     * Loads the tournament with a database write lock; for use cases that count something about
+     * it and then create rows, so two concurrent requests cannot both pass the count.
+     */
+    @Transactional
+    public Tournament requireTournamentForUpdate(Long id) {
+        return tournaments.findByIdForUpdate(id).orElseThrow(() -> NotFoundException.of("el torneo", id));
+    }
+
     @Transactional(readOnly = true)
     public List<VenueResponse> venuesOf(Long tournamentId) {
         return venues.findByTournamentIdOrderByIdAsc(tournamentId).stream().map(VenueResponse::from).toList();
@@ -139,10 +160,22 @@ public class TournamentService {
         return toResponse(tournament);
     }
 
+    /**
+     * Partial update. Every field may change while the tournament is a DRAFT; once ACTIVE only
+     * the three dates may still be adjusted (still validated against each other).
+     */
     @Transactional
     public TournamentResponse update(AuthenticatedUser actor, Long id, UpdateTournamentRequest request) {
         Tournament tournament = requireTournament(id);
-        requireEditable(tournament);
+        boolean draft = tournament.getStatus().isEditable();
+        if (!draft && tournament.getStatus() != TournamentStatus.ACTIVE) {
+            throw new BusinessRuleException("Un torneo solo se puede modificar mientras esté en borrador o activo; "
+                    + "su estado actual es «" + tournament.getStatus().label() + "».");
+        }
+        if (!draft && changesNonDateFields(request)) {
+            throw new BusinessRuleException("Un torneo activo solo permite cambiar sus fechas; el nombre, el cupo "
+                    + "y el valor de la inscripción solo se pueden modificar mientras esté en borrador.");
+        }
 
         Map<String, Object> changes = new HashMap<>();
         if (request.name() != null && !request.name().isBlank()) {
@@ -178,10 +211,13 @@ public class TournamentService {
         return toResponse(tournament);
     }
 
+    /** Deletes a DRAFT together with its binaries (rulebook and venue images) once the row is gone. */
     @Transactional
     public void delete(AuthenticatedUser actor, Long id) {
         Tournament tournament = requireTournament(id);
         requireEditable(tournament);
+        fileDeletion.deleteAfterCommit(tournament.getRulebookFileId());
+        tournament.getVenues().forEach(venue -> fileDeletion.deleteAfterCommit(venue.getImageFileId()));
         tournaments.delete(tournament);
         auditService.record(actor.id(), AuditAction.TOURNAMENT_DELETED, ENTITY_TYPE, id,
                 Map.of("name", tournament.getName()));
@@ -202,14 +238,22 @@ public class TournamentService {
         return toResponse(tournament);
     }
 
-    /** ACTIVE &rarr; IN_PROGRESS, only on the start date and with enough approved teams. */
+    /**
+     * ACTIVE &rarr; IN_PROGRESS, between the start date and the end date (inclusive) and with
+     * enough approved teams. Registrations still under review are cancelled with a note: once the
+     * tournament is in progress nothing can be approved any more.
+     */
     @Transactional
     public TournamentResponse start(AuthenticatedUser actor, Long id) {
         Tournament tournament = requireTournament(id);
         LocalDate today = LocalDate.now(clock);
-        if (!today.equals(tournament.getStartDate())) {
-            throw new BusinessRuleException("El torneo solo se puede iniciar en su fecha de inicio ("
+        if (today.isBefore(tournament.getStartDate())) {
+            throw new BusinessRuleException("El torneo solo se puede iniciar a partir de su fecha de inicio ("
                     + tournament.getStartDate() + "); hoy es " + today + ".");
+        }
+        if (today.isAfter(tournament.getEndDate())) {
+            throw new BusinessRuleException("El torneo ya no se puede iniciar: su fecha de cierre ("
+                    + tournament.getEndDate() + ") ya pasó.");
         }
         long approved = registrations.countByTournamentIdAndStatus(id, RegistrationStatus.APPROVED);
         if (approved < MIN_TEAMS_TO_START) {
@@ -217,8 +261,21 @@ public class TournamentService {
                     + " inscripciones aprobadas para iniciar el torneo (por ahora hay " + approved + ").");
         }
         tournament.moveTo(TournamentStatus.IN_PROGRESS);
+
+        List<Registration> pending = registrations.findByTournamentIdAndStatusOrderByIdAsc(id,
+                RegistrationStatus.UNDER_REVIEW);
+        if (!pending.isEmpty()) {
+            AppUser reviewer = userService.getUser(actor.id());
+            for (Registration registration : pending) {
+                registration.moveTo(RegistrationStatus.CANCELLED, reviewer, AUTO_CANCEL_NOTE);
+                auditService.record(actor.id(), AuditAction.REGISTRATION_CANCELLED, REGISTRATION_ENTITY_TYPE,
+                        registration.getId(), Map.of("teamId", registration.getTeam().getId(),
+                                "tournamentId", id, "reason", "TOURNAMENT_STARTED"));
+            }
+        }
+
         auditService.record(actor.id(), AuditAction.TOURNAMENT_STARTED, ENTITY_TYPE, id,
-                Map.of("approvedTeams", approved));
+                Map.of("approvedTeams", approved, "cancelledRegistrations", pending.size()));
         return toResponse(tournament);
     }
 
@@ -244,14 +301,17 @@ public class TournamentService {
 
     // --- rulebook and venues ---------------------------------------------------------------
 
+    /** Stores the new PDF and, once the change is committed, deletes the one it replaces. */
     @Transactional
     public TournamentResponse uploadRulebook(AuthenticatedUser actor, Long id, MultipartFile file) {
         Tournament tournament = requireTournament(id);
         if (tournament.getStatus() != TournamentStatus.DRAFT && tournament.getStatus() != TournamentStatus.ACTIVE) {
             throw new BusinessRuleException("El reglamento solo se puede cargar mientras el torneo esté en borrador o activo.");
         }
-        String fileId = fileStorage.store(FileUpload.from(file), FileKind.PDF);
+        String previous = tournament.getRulebookFileId();
+        String fileId = fileStorage.store(FileUpload.from(file), FileKind.PDF, FileOwner.rulebook(id));
         tournament.setRulebookFileId(fileId);
+        fileDeletion.deleteAfterCommit(previous);
         auditService.record(actor.id(), AuditAction.RULEBOOK_UPLOADED, ENTITY_TYPE, id,
                 Map.of("rulebookFileId", fileId));
         return toResponse(tournament);
@@ -264,7 +324,7 @@ public class TournamentService {
         requireNotFinished(tournament, "las canchas");
         String imageFileId = image == null || image.isEmpty()
                 ? null
-                : fileStorage.store(FileUpload.from(image), FileKind.IMAGE);
+                : fileStorage.store(FileUpload.from(image), FileKind.IMAGE, FileOwner.venue(id));
         Venue venue = Venue.builder()
                 .name(name.trim())
                 .description(description == null || description.isBlank() ? null : description.trim())
@@ -286,6 +346,7 @@ public class TournamentService {
                 .orElseThrow(() -> NotFoundException.of("la cancha", venueId));
         tournament.removeVenue(venue);
         venues.delete(venue);
+        fileDeletion.deleteAfterCommit(venue.getImageFileId());
         auditService.record(actor.id(), AuditAction.VENUE_DELETED, VENUE_ENTITY_TYPE, venueId,
                 Map.of("tournamentId", id, "name", venue.getName()));
     }
@@ -310,9 +371,15 @@ public class TournamentService {
                 approved);
     }
 
+    private static boolean changesNonDateFields(UpdateTournamentRequest request) {
+        return (request.name() != null && !request.name().isBlank())
+                || request.maxTeams() != null
+                || request.fee() != null;
+    }
+
     private static void requireEditable(Tournament tournament) {
         if (!tournament.getStatus().isEditable()) {
-            throw new BusinessRuleException("Un torneo solo se puede modificar o eliminar mientras esté en borrador; "
+            throw new BusinessRuleException("Un torneo solo se puede eliminar mientras esté en borrador; "
                     + "su estado actual es «" + tournament.getStatus().label() + "».");
         }
     }

@@ -94,6 +94,25 @@ class RoleServiceTest {
     }
 
     @Test
+    void captainCannotBeRevokedWhileTheUserCaptainsAnActiveTeam() {
+        when(userService.getUser(10L)).thenReturn(user(10L, Role.PLAYER, Role.CAPTAIN));
+        when(userService.captainsActiveTeam(10L)).thenReturn(true);
+
+        assertThatThrownBy(() -> roleService.removeRole(ORGANIZER, 10L, Role.CAPTAIN))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("capitán de un equipo activo");
+        verify(auditService, never()).record(any(), any(), anyString(), anyLong(), any());
+    }
+
+    @Test
+    void captainCanBeRevokedOnceTheTeamIsGone() {
+        when(userService.getUser(10L)).thenReturn(user(10L, Role.PLAYER, Role.CAPTAIN));
+        when(userService.captainsActiveTeam(10L)).thenReturn(false);
+
+        assertThat(roleService.removeRole(ORGANIZER, 10L, Role.CAPTAIN)).containsExactly(Role.PLAYER);
+    }
+
+    @Test
     void rolesCannotBeChangedOnInactiveUsers() {
         AppUser inactive = user(10L, Role.PLAYER);
         inactive.setStatus(UserStatus.INACTIVE);

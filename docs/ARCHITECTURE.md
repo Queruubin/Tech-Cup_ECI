@@ -76,9 +76,12 @@ models would double the code for a semester project with no benefit.
 - Passwords: BCrypt.
 - Email policy: `app.institutional-domains` (default `escuelaing.edu.co, mail.escuelaing.edu.co`).
   `STUDENT|PROFESSOR|ADMINISTRATIVE|GRADUATE` must use an institutional domain; `FAMILY` must NOT.
-- Admin is seeded by Flyway (`V2__seed_admin.sql`), email `admin@escuelaing.edu.co`, password `Admin123*` (BCrypt hash in migration). Documented in README; must be changed in prod.
+- Admin is created at startup by `identity/infrastructure/AdminBootstrap` when no `ADMIN` user exists, from `ADMIN_EMAIL` / `ADMIN_PASSWORD` (dev defaults `admin@escuelaing.edu.co` / `Admin123*`, logged with a warning). The `prod` profile (`ProductionGuard`) refuses the dev admin password and the dev JWT secret.
+- Login is throttled: 5 failures per e-mail or per client IP in 15 minutes → 429, audited as `LOGIN_FAILED`. Duplicate e-mail/document at registration share one generic message (no account enumeration).
 - Public (no token): `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/files/{id}`? → **No**, files require auth. Public read-only: `GET /api/tournaments/**` (list, detail, standings, bracket, stats, matches) so anyone can see the tournament. Everything else authenticated.
-- Logout: audited, token is client-discarded (no server denylist; documented tradeoff).
+- Logout: audited, and the presented token's `jti` goes into an in-memory `TokenDenylist` until its expiry; the filter rejects denylisted tokens with 401.
+- Personal data (`email`, `birthDate`, `documentType`, `documentNumber`) is returned only to the user themself or an ADMIN (`UserService.toResponse(user, viewer)`); organizers get the e-mail in `GET /admin/users` and `GET /organizer/referees` only. `GET /players` and `GET /players/{id}/profile` require CAPTAIN or ORGANIZER.
+- Files: uploads are validated by magic bytes and stored with `kind` + owner metadata in GridFS; `GET /files/{id}` serves receipts only to ORGANIZER/ADMIN or the registering captain (`FileAccessPolicy` port implemented in `tournaments/infrastructure`), adds `X-Content-Type-Options: nosniff` and sends PDFs as attachments. Replaced/orphaned binaries are deleted after the DB transaction commits.
 
 ### 3.3 Data model (PostgreSQL, Flyway `V1__schema.sql`)
 

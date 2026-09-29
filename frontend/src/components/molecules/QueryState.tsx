@@ -17,7 +17,7 @@ export interface QueryStateProps {
 export function QueryState({ loading, error, onRetry, children, inline }: QueryStateProps) {
   if (loading) {
     return (
-      <div className={inline ? 'flex items-center gap-2 py-3 text-sm text-gray-500' : 'flex justify-center py-16'}>
+      <div className={inline ? 'flex items-center gap-2 py-3 text-sm text-stone-500' : 'flex justify-center py-16'}>
         <Spinner size={inline ? 'sm' : 'lg'} />
         {inline && <span>Cargando…</span>}
       </div>

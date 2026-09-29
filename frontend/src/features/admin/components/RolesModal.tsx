@@ -37,7 +37,7 @@ export function RolesModal({ user, roles, loading, error, isSelf, onAssign, onRe
       open={user !== null}
       onClose={onClose}
       title="Roles del usuario"
-      description={user ? `${user.fullName} · ${user.email}` : undefined}
+      description={user ? `${user.fullName} · ${user.email ?? '—'}` : undefined}
       footer={
         <Button variant="outline" onClick={onClose}>
           Cerrar
@@ -50,11 +50,11 @@ export function RolesModal({ user, roles, loading, error, isSelf, onAssign, onRe
         </Alert>
       )}
       <div className="flex flex-wrap gap-2">
-        {roles.length === 0 && <p className="text-sm text-gray-500">El usuario no tiene roles asignados.</p>}
+        {roles.length === 0 && <p className="text-sm text-stone-500">El usuario no tiene roles asignados.</p>}
         {roles.map((role) => {
           const blocked = isSelf && role === 'ADMIN'
           return (
-            <span key={role} className="inline-flex items-center gap-1 rounded-full bg-gray-50 pr-1 ring-1 ring-gray-200">
+            <span key={role} className="inline-flex items-center gap-1 rounded-full bg-stone-50 pr-1 ring-1 ring-stone-200">
               <StatusBadge kind="role" value={role} />
               <button
                 type="button"
@@ -62,7 +62,7 @@ export function RolesModal({ user, roles, loading, error, isSelf, onAssign, onRe
                 title={blocked ? 'No puede quitarse su propio rol de administrador' : 'Quitar rol'}
                 disabled={loading || blocked}
                 onClick={() => onRemove(role)}
-                className="rounded-full p-0.5 text-gray-400 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-full p-0.5 text-stone-400 hover:text-brand-600 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
                   <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -73,7 +73,7 @@ export function RolesModal({ user, roles, loading, error, isSelf, onAssign, onRe
         })}
       </div>
       <div className="mt-4 flex items-end gap-2">
-        <label className="flex flex-1 flex-col gap-1 text-sm font-medium text-gray-800">
+        <label className="flex flex-1 flex-col gap-1 text-sm font-medium text-stone-800">
           Asignar rol
           <Select
             options={options}

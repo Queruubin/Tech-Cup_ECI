@@ -14,8 +14,8 @@ import edu.escuelaing.techcup.competition.domain.Standings;
 import edu.escuelaing.techcup.competition.infrastructure.MatchRepository;
 import edu.escuelaing.techcup.identity.application.RefereeService;
 import edu.escuelaing.techcup.identity.application.UserService;
-import edu.escuelaing.techcup.identity.api.dto.UserResponse;
 import edu.escuelaing.techcup.identity.domain.AppUser;
+import edu.escuelaing.techcup.identity.domain.Role;
 import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
@@ -32,7 +32,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -40,6 +39,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
@@ -50,25 +50,32 @@ import org.springframework.transaction.annotation.Transactional;
  * <ul>
  *   <li><b>Generate</b> (ORGANIZER): the tournament must be IN_PROGRESS and have no match yet;
  *       the approved teams are drawn into a single round robin by
- *       {@link RoundRobinFixtureStrategy}. Venues and referees are handed out by cycling the
- *       available lists and each matchday kicks off at {@value #KICK_OFF_HOUR}:00, one day after
- *       the previous one, starting on the tournament's start date or on the first later day whose
- *       kick-off is still in the future (see {@link #firstAvailableMatchDay(LocalDate)}).</li>
+ *       {@link RoundRobinFixtureStrategy}. Venues and ACTIVE referees are handed out by cycling
+ *       the available lists and each matchday kicks off at {@value #KICK_OFF_HOUR}:00, one day
+ *       after the previous one, starting on the tournament's start date or on the first later
+ *       day whose kick-off is still in the future (see {@link #firstAvailableMatchDay(LocalDate)}).</li>
  *   <li><b>Advance</b> (ORGANIZER): every match of the current phase must be PLAYED or CANCELLED.
  *       Coming out of the group stage the qualified teams are taken from the standings
  *       (8 or more teams &rarr; quarter-finals, 4 to 7 &rarr; semi-finals, fewer &rarr; final);
- *       afterwards the winners move on. Both are paired by {@link KnockoutFixtureStrategy}. A
- *       knockout tie with no winner (a draw without penalties, or a cancelled match) is rejected
- *       with an explanation instead of guessing who goes through.</li>
+ *       afterwards the winners move on, a cancelled knockout match contributing its walkover
+ *       winner. Both are paired by {@link KnockoutFixtureStrategy}. A knockout draw with no
+ *       penalties is rejected with an explanation instead of guessing who goes through.</li>
  *   <li><b>Update</b> (ORGANIZER): only kick-off time, venue and referee, only while the match is
- *       SCHEDULED and its current kick-off time is still in the future.</li>
- *   <li><b>Cancel</b> (ORGANIZER): a soft delete that keeps the row with a
- *       {@link CancelReason}; cancelled matches never count for the standings.</li>
- *   <li><b>Result</b> (ORGANIZER): every event must belong to one of the two teams and to a member
- *       of that team, and the number of goals reported per team must equal its score. A knockout
- *       draw requires a decisive penalty shoot-out.</li>
+ *       SCHEDULED, its current kick-off time is still in the future and the new one is not in
+ *       the past; only ACTIVE referees may be appointed.</li>
+ *   <li><b>Cancel</b> (ORGANIZER, tournament IN_PROGRESS): a soft delete that keeps the row with
+ *       a {@link CancelReason}. A knockout match additionally needs the team that goes through
+ *       (walkover). Cancelled matches never count for the standings.</li>
+ *   <li><b>Result</b> (ORGANIZER): accepted exactly when {@link Match#isResultEditable} holds,
+ *       i.e. the tournament is IN_PROGRESS and the match is SCHEDULED, or PLAYED with no later
+ *       phase drawn from it yet (a correction replaces score, penalties and events). Every event
+ *       must belong to one of the two teams and to a member of that team, and the number of
+ *       goals reported per team must equal its score. A knockout draw requires a decisive
+ *       penalty shoot-out.</li>
  * </ul>
- * Audited as MATCHES_GENERATED / MATCH_UPDATED / MATCH_CANCELLED / MATCH_RESULT_RECORDED.
+ * Fixture generation locks the tournament row so two concurrent requests cannot both draw a
+ * phase. Audited as MATCHES_GENERATED / MATCH_UPDATED / MATCH_CANCELLED / MATCH_RESULT_RECORDED
+ * / MATCH_RESULT_CORRECTED.
  */
 @Service
 public class MatchService {
@@ -177,7 +184,7 @@ public class MatchService {
 
     @Transactional
     public List<MatchResponse> generate(AuthenticatedUser actor, Long tournamentId) {
-        Tournament tournament = tournamentService.requireTournament(tournamentId);
+        Tournament tournament = tournamentService.requireTournamentForUpdate(tournamentId);
         if (tournament.getStatus() != TournamentStatus.IN_PROGRESS) {
             throw new BusinessRuleException("El calendario solo se puede generar mientras el torneo esté en progreso; "
                     + "su estado actual es «" + tournament.getStatus().label() + "».");
@@ -202,7 +209,7 @@ public class MatchService {
 
     @Transactional
     public List<MatchResponse> advance(AuthenticatedUser actor, Long tournamentId) {
-        Tournament tournament = tournamentService.requireTournament(tournamentId);
+        Tournament tournament = tournamentService.requireTournamentForUpdate(tournamentId);
         if (tournament.getStatus() != TournamentStatus.IN_PROGRESS) {
             throw new BusinessRuleException("Las llaves solo pueden avanzar mientras el torneo esté en progreso; "
                     + "su estado actual es «" + tournament.getStatus().label() + "».");
@@ -271,14 +278,21 @@ public class MatchService {
         };
     }
 
-    /** The teams that went through, in bracket order, refusing to guess when a tie has no winner. */
+    /**
+     * The teams that went through, in bracket order: the winner of a played match, or the
+     * walkover winner of a cancelled one. Refuses to guess when a tie has no winner.
+     */
     private static List<Long> winnersOf(List<Match> phaseMatches) {
         List<Long> winners = new ArrayList<>(phaseMatches.size());
         for (Match match : phaseMatches) {
             if (match.getStatus() == MatchStatus.CANCELLED) {
-                throw new BusinessRuleException("El partido " + match.getId() + " fue cancelado por "
-                        + match.getCancelReason().label() + ", así que las llaves no tienen un ganador para él; "
-                        + "registre un resultado para ese partido antes de avanzar.");
+                if (match.getWalkoverWinnerTeam() == null) {
+                    throw new BusinessRuleException("El partido " + match.getId() + " fue cancelado por "
+                            + match.getCancelReason().label() + " sin indicar qué equipo avanza, así que las llaves "
+                            + "no tienen un ganador para él.");
+                }
+                winners.add(match.getWalkoverWinnerTeam().getId());
+                continue;
             }
             winners.add(match.winner()
                     .orElseThrow(() -> new BusinessRuleException("El partido " + match.getId()
@@ -296,7 +310,7 @@ public class MatchService {
     private List<Match> persist(Tournament tournament, MatchPhase phase, List<FixtureStrategy.Fixture> fixtures,
                                 int roundOffset, LocalDate firstMatchDay) {
         List<Venue> availableVenues = tournament.getVenues();
-        List<AppUser> availableReferees = referees();
+        List<AppUser> availableReferees = refereeService.activeReferees();
         Map<Long, Team> teamCache = new HashMap<>();
 
         List<Match> created = new ArrayList<>(fixtures.size());
@@ -322,18 +336,13 @@ public class MatchService {
         return created;
     }
 
-    private List<AppUser> referees() {
-        return refereeService.list().stream().map(UserResponse::id).map(userService::getUser).toList();
-    }
-
     /**
      * First matchday that can still be played: the preferred day, or the earliest later day whose
      * kick-off is still in the future.
      *
-     * <p>A tournament can only be started on its start date, so generating the fixture list after
-     * {@value #KICK_OFF_HOUR}:00 would otherwise place the first round in the past. Those matches
-     * could no longer be rescheduled by the organizer, and captains could no longer submit a
-     * lineup for them, leaving the round permanently stuck.
+     * <p>Generating the fixture list after {@value #KICK_OFF_HOUR}:00 would otherwise place the
+     * first round in the past. Those matches could no longer be rescheduled by the organizer, and
+     * captains could no longer submit a lineup for them, leaving the round permanently stuck.
      */
     private LocalDate firstAvailableMatchDay(LocalDate preferred) {
         LocalDate today = LocalDate.now(clock);
@@ -342,16 +351,16 @@ public class MatchService {
     }
 
     private Instant kickOff(LocalDate day) {
-        ZoneId zone = clock.getZone();
-        return day.atTime(LocalTime.of(KICK_OFF_HOUR, 0)).atZone(zone).toInstant();
+        return day.atTime(LocalTime.of(KICK_OFF_HOUR, 0)).atZone(clock.getZone()).toInstant();
     }
 
-    private static Optional<LocalDate> lastScheduledDate(List<Match> all) {
+    /** The calendar day, in the application zone, of the latest kick-off among {@code all}. */
+    private Optional<LocalDate> lastScheduledDate(List<Match> all) {
         return all.stream()
                 .map(Match::getScheduledAt)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .max(Comparator.naturalOrder())
-                .map(instant -> instant.atZone(ZoneId.systemDefault()).toLocalDate());
+                .map(instant -> instant.atZone(clock.getZone()).toLocalDate());
     }
 
     // --- match management --------------------------------------------------------------------
@@ -363,12 +372,16 @@ public class MatchService {
             throw new BusinessRuleException("Solo se puede reprogramar un partido programado; su estado actual es «"
                     + match.getStatus().label() + "».");
         }
-        if (match.getScheduledAt() != null && !match.getScheduledAt().isAfter(Instant.now(clock))) {
+        Instant now = Instant.now(clock);
+        if (match.getScheduledAt() != null && !match.getScheduledAt().isAfter(now)) {
             throw new BusinessRuleException("Este partido ya inició y no se puede reprogramar.");
         }
 
         Map<String, Object> changes = new LinkedHashMap<>();
         if (request.scheduledAt() != null) {
+            if (!request.scheduledAt().isAfter(now)) {
+                throw new BusinessRuleException("La nueva hora de inicio debe ser posterior al momento actual.");
+            }
             match.setScheduledAt(request.scheduledAt());
             changes.put("scheduledAt", request.scheduledAt().toString());
         }
@@ -383,8 +396,12 @@ public class MatchService {
         }
         if (request.refereeId() != null) {
             AppUser referee = userService.getUser(request.refereeId());
-            if (!referee.hasRole(edu.escuelaing.techcup.identity.domain.Role.REFEREE)) {
+            if (!referee.hasRole(Role.REFEREE)) {
                 throw new BusinessRuleException("El usuario " + request.refereeId() + " no es árbitro.");
+            }
+            if (!referee.isActive()) {
+                throw new BusinessRuleException("El árbitro " + referee.getFullName()
+                        + " está inactivo y no puede ser asignado.");
             }
             match.setReferee(referee);
             changes.put("refereeId", referee.getId());
@@ -397,23 +414,54 @@ public class MatchService {
         return assembler.toResponse(match);
     }
 
-    /** Soft cancellation: the row stays with its reason so the history keeps the fixture. */
+    /**
+     * Soft cancellation: the row stays with its reason so the history keeps the fixture.
+     *
+     * @param winnerTeamId the team that goes through (walkover); required for knockout matches,
+     *                     ignored for group matches
+     */
     @Transactional
-    public MatchResponse cancel(AuthenticatedUser actor, Long matchId, CancelReason reason) {
+    public MatchResponse cancel(AuthenticatedUser actor, Long matchId, CancelReason reason, Long winnerTeamId) {
         if (reason == null) {
             throw new BusinessRuleException("Debe indicar el motivo de la cancelación: descalificación o no presentación.");
         }
         Match match = requireMatch(matchId);
+        requireInProgress(match, "cancelar");
+        Team walkoverWinner = null;
+        if (match.getPhase().isKnockout()) {
+            if (winnerTeamId == null) {
+                throw new BusinessRuleException("Al cancelar un partido de " + match.getPhase().label()
+                        + " debe indicar qué equipo avanza a la siguiente fase.");
+            }
+            if (!match.involves(winnerTeamId)) {
+                throw new BusinessRuleException("El equipo " + winnerTeamId + " no juega este partido, así que no puede avanzar por él.");
+            }
+            walkoverWinner = match.getHomeTeam().getId().equals(winnerTeamId) ? match.getHomeTeam() : match.getAwayTeam();
+        }
         match.moveTo(MatchStatus.CANCELLED);
         match.setCancelReason(reason);
-        auditService.record(actor.id(), AuditAction.MATCH_CANCELLED, ENTITY_TYPE, matchId,
-                Map.of("reason", reason.name()));
+        match.setWalkoverWinnerTeam(walkoverWinner);
+
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("reason", reason.name());
+        if (walkoverWinner != null) {
+            details.put("walkoverWinnerTeamId", walkoverWinner.getId());
+        }
+        auditService.record(actor.id(), AuditAction.MATCH_CANCELLED, ENTITY_TYPE, matchId, details);
         return assembler.toResponse(match);
     }
 
+    /** Records a result, or corrects one while no later phase has been drawn from it. */
     @Transactional
     public MatchResponse recordResult(AuthenticatedUser actor, Long matchId, RecordResultRequest request) {
         Match match = requireMatch(matchId);
+        requireInProgress(match, "registrar el resultado de");
+        boolean correction = match.getStatus() == MatchStatus.PLAYED;
+        if (!match.isResultEditable(assembler.latestPhase(match.getTournament().getId()))) {
+            throw new BusinessRuleException(correction
+                    ? "El resultado ya no se puede corregir: la siguiente fase del torneo ya fue generada a partir de él."
+                    : "Un partido en estado «" + match.getStatus().label() + "» no admite resultado.");
+        }
         int homeScore = request.homeScore();
         int awayScore = request.awayScore();
 
@@ -432,7 +480,9 @@ public class MatchService {
 
         List<MatchEvent> events = buildEvents(match, request, homeScore, awayScore);
 
-        match.moveTo(MatchStatus.PLAYED);
+        if (!correction) {
+            match.moveTo(MatchStatus.PLAYED);
+        }
         match.setHomeScore(homeScore);
         match.setAwayScore(awayScore);
         match.setHomePenalties(request.homePenalties());
@@ -440,9 +490,20 @@ public class MatchService {
         match.clearEvents();
         events.forEach(match::addEvent);
 
-        auditService.record(actor.id(), AuditAction.MATCH_RESULT_RECORDED, ENTITY_TYPE, matchId,
+        auditService.record(actor.id(),
+                correction ? AuditAction.MATCH_RESULT_CORRECTED : AuditAction.MATCH_RESULT_RECORDED,
+                ENTITY_TYPE, matchId,
                 Map.of("homeScore", homeScore, "awayScore", awayScore, "events", events.size()));
         return assembler.toResponse(match);
+    }
+
+    /** @param verb the Spanish infinitive phrase of what is being attempted, e.g. {@code "cancelar"} */
+    private static void requireInProgress(Match match, String verb) {
+        TournamentStatus status = match.getTournament().getStatus();
+        if (status != TournamentStatus.IN_PROGRESS) {
+            throw new BusinessRuleException("Solo se puede " + verb + " un partido mientras el torneo esté en progreso; "
+                    + "su estado actual es «" + status.label() + "».");
+        }
     }
 
     /**

@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -12,6 +14,7 @@ import edu.escuelaing.techcup.identity.application.UserService;
 import edu.escuelaing.techcup.identity.domain.AcademicProgram;
 import edu.escuelaing.techcup.identity.domain.AppUser;
 import edu.escuelaing.techcup.players.domain.Position;
+import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.exception.ForbiddenOperationException;
@@ -45,6 +48,8 @@ class TeamServiceTest {
     private MemberProfilePort memberProfiles;
     @Mock
     private TeamLockPort teamLock;
+    @Mock
+    private TeamJoinRequestPort joinRequests;
     @Mock
     private TeamResponseAssembler assembler;
     @Mock
@@ -165,6 +170,21 @@ class TeamServiceTest {
 
         assertThatThrownBy(() -> service.update(STRANGER, 5L, new UpdateTeamRequest("New", null)))
                 .isInstanceOf(ForbiddenOperationException.class);
+    }
+
+    @Test
+    void inactivatingATeamCancelsItsPendingJoinRequests() {
+        Team team = teamWithCaptain();
+        when(teams.findById(5L)).thenReturn(Optional.of(team));
+        when(teamLock.isLocked(5L)).thenReturn(false);
+        when(joinRequests.cancelPendingRequestsOf(20L, 5L)).thenReturn(2);
+
+        service.inactivate(CAPTAIN, 5L);
+
+        assertThat(team.isActive()).isFalse();
+        verify(joinRequests).cancelPendingRequestsOf(20L, 5L);
+        verify(auditService).record(eq(20L), eq(AuditAction.TEAM_INACTIVATED), anyString(), eq(5L),
+                eq(Map.of("cancelledJoinRequests", 2)));
     }
 
     @Test

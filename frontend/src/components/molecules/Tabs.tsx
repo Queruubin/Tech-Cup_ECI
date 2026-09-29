@@ -17,7 +17,7 @@ export interface TabsProps<Id extends string = string> {
 
 export function Tabs<Id extends string>({ tabs, active, onChange, className }: TabsProps<Id>) {
   return (
-    <div className={cn('overflow-x-auto border-b border-gray-200', className)} role="tablist">
+    <div className={cn('overflow-x-auto border-b border-stone-200', className)} role="tablist">
       <div className="flex min-w-max gap-1">
         {tabs.map((tab) => {
           const selected = tab.id === active
@@ -31,13 +31,13 @@ export function Tabs<Id extends string>({ tabs, active, onChange, className }: T
               className={cn(
                 '-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
                 selected
-                  ? 'border-emerald-600 text-emerald-700'
-                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-800',
+                  ? 'border-brand-600 text-brand-700'
+                  : 'border-transparent text-stone-500 hover:border-stone-300 hover:text-stone-800',
               )}
             >
               {tab.label}
               {tab.badge !== undefined && tab.badge !== null && (
-                <span className="rounded-full bg-gray-100 px-1.5 text-xs text-gray-600">{tab.badge}</span>
+                <span className="rounded-full bg-stone-100 px-1.5 text-xs text-stone-600">{tab.badge}</span>
               )}
             </button>
           )

@@ -20,6 +20,8 @@ function makeMatch(overrides: Partial<MatchResponse> & { id: number; phase: Matc
     homePenalties: null,
     awayPenalties: null,
     cancelReason: null,
+    walkoverWinnerTeamId: null,
+    resultEditable: true,
     events: [],
     ...overrides,
   }
@@ -115,6 +117,12 @@ describe('BracketView', () => {
     expect(matchWinnerId(decided)).toBe(10)
     expect(matchWinnerId(onPenalties)).toBe(20)
     expect(matchWinnerId(makeMatch({ id: 9, phase: 'GROUP' }))).toBeNull()
+  })
+
+  it('treats the walkover winner of a cancelled knockout match as the winner', () => {
+    const walkover = makeMatch({ id: 5, phase: 'SEMIFINAL', status: 'CANCELLED', cancelReason: 'NO_SHOW', walkoverWinnerTeamId: 20 })
+    expect(matchWinnerId(walkover)).toBe(20)
+    expect(matchWinnerId(makeMatch({ id: 6, phase: 'GROUP', status: 'CANCELLED', cancelReason: 'NO_SHOW' }))).toBeNull()
   })
 })
 

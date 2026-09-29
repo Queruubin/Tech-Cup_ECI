@@ -23,7 +23,8 @@ spring:
 
   data:
     mongodb:
-      uri: ${MONGO_URI:mongodb://127.0.0.1:27018/techcup}
+      # docker-compose.yml starts MongoDB with authentication enabled and this dev root user.
+      uri: ${MONGO_URI:mongodb://techcup:techcup@127.0.0.1:27018/techcup?authSource=admin}
 
   servlet:
     multipart:
@@ -42,13 +43,20 @@ server:
 
 app:
   jwt:
-    # Must be at least 32 bytes for HS256. Override in every non-dev environment.
+    # Must be at least 32 bytes for HS256. The "prod" profile refuses to start with this value.
     secret: ${JWT_SECRET:techcup-dev-only-secret-change-me-please-0123456789abcdef}
     expiration-minutes: ${JWT_EXPIRATION_MINUTES:480}
   cors-origins: ${CORS_ORIGINS:http://localhost:5173}
   institutional-domains: ${APP_INSTITUTIONAL_DOMAINS:escuelaing.edu.co,mail.escuelaing.edu.co}
+  # Zone used for every "today" / "now" business rule (tournament dates, kick-off times).
+  time-zone: ${APP_TIME_ZONE:America/Bogota}
   storage:
     max-file-size-bytes: 5242880
+  bootstrap:
+    # The administrator is created at startup when no ADMIN user exists yet.
+    # The "prod" profile refuses to start with the default password.
+    admin-email: ${ADMIN_EMAIL:admin@escuelaing.edu.co}
+    admin-password: ${ADMIN_PASSWORD:Admin123*}
 
 springdoc:
   swagger-ui:

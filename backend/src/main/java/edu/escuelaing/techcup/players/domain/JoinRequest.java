@@ -14,6 +14,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -57,6 +58,10 @@ public class JoinRequest {
 
     @Column(name = "resolved_at")
     private Instant resolvedAt;
+
+    /** Optimistic lock: an accept and a cancel racing on the same request cannot both win. */
+    @Version
+    private Long version;
 
     public boolean isPending() {
         return status == JoinRequestStatus.PENDING;

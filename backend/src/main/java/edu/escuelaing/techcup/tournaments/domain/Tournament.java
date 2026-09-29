@@ -17,6 +17,7 @@ import jakarta.persistence.OrderBy;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -81,6 +82,10 @@ public class Tournament {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    /** Optimistic lock: two organizers editing the same tournament cannot silently overwrite each other. */
+    @Version
+    private Long version;
 
     public boolean hasRulebook() {
         return rulebookFileId != null && !rulebookFileId.isBlank();

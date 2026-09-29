@@ -116,17 +116,21 @@ export interface ApiErrorBody {
 // Identity
 // ---------------------------------------------------------------------------
 
+/**
+ * Personal fields (`email`, `birthDate`, `documentType`, `documentNumber`) are `null` when the
+ * viewer is neither the same user nor an ADMIN; organizer listings also omit document/birth data.
+ */
 export interface UserResponse {
   id: number
   fullName: string
-  email: string
+  email: string | null
   schoolRelation: SchoolRelation
   academicProgram: AcademicProgram
   semester: number | null
   status: UserStatus
-  birthDate: string
-  documentType: DocumentType
-  documentNumber: string
+  birthDate: string | null
+  documentType: DocumentType | null
+  documentNumber: string | null
   roles: Role[]
   hasProfile: boolean
   teamId?: number | null
@@ -165,6 +169,17 @@ export interface UpdateUserRequest {
 
 export interface AssignRoleRequest {
   role: Role
+}
+
+/** `POST /auth/password` (self-service). Password rule: 8–72 chars, at least one letter and one digit. */
+export interface ChangePasswordRequest {
+  currentPassword: string
+  newPassword: string
+}
+
+/** `POST /admin/users/{id}/password` (ADMIN). Same password rule as `ChangePasswordRequest`. */
+export interface ResetPasswordRequest {
+  newPassword: string
 }
 
 export interface CreateRefereeRequest {
@@ -308,7 +323,8 @@ export interface RegistrationResponse {
   tournamentId: number
   teamId: number
   teamName: string
-  receiptFileId: string
+  /** `null` when the viewer may not see the receipt (e.g. non-captain in `HomeResponse`). */
+  receiptFileId: string | null
   status: RegistrationStatus
   reviewNote: string | null
   createdAt: string
@@ -359,6 +375,10 @@ export interface MatchResponse {
   homePenalties: number | null
   awayPenalties: number | null
   cancelReason: CancelReason | null
+  /** Team that advances when a knockout match is cancelled (walkover); `null` otherwise. */
+  walkoverWinnerTeamId: number | null
+  /** True when `POST /matches/{id}/result` is currently allowed (first result or a correction). */
+  resultEditable: boolean
   events: MatchEvent[]
 }
 

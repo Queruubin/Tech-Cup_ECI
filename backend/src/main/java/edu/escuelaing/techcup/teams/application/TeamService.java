@@ -34,7 +34,8 @@ import org.springframework.transaction.annotation.Transactional;
  *       has a profile, jersey number unique within the team, player not in another active team.</li>
  *   <li>Update name/colors, remove a member, inactivate: only by the team captain (or ADMIN) and
  *       only while the team is not locked by an approved registration in an ACTIVE or
- *       IN_PROGRESS tournament ({@link TeamLockPort}). The captain cannot be removed.</li>
+ *       IN_PROGRESS tournament ({@link TeamLockPort}). The captain cannot be removed.
+ *       Inactivating a team also cancels its pending join requests ({@link TeamJoinRequestPort}).</li>
  *   <li>Eligibility (7 to 12 members, unique jerseys, program majority, profiles) is delegated
  *       to the pure domain rule {@link TeamEligibility}.</li>
  * </ul>
@@ -49,15 +50,18 @@ public class TeamService {
     private final UserService userService;
     private final MemberProfilePort memberProfiles;
     private final TeamLockPort teamLock;
+    private final TeamJoinRequestPort joinRequests;
     private final TeamResponseAssembler assembler;
     private final AuditService auditService;
 
     public TeamService(TeamRepository teams, UserService userService, MemberProfilePort memberProfiles,
-                       TeamLockPort teamLock, TeamResponseAssembler assembler, AuditService auditService) {
+                       TeamLockPort teamLock, TeamJoinRequestPort joinRequests, TeamResponseAssembler assembler,
+                       AuditService auditService) {
         this.teams = teams;
         this.userService = userService;
         this.memberProfiles = memberProfiles;
         this.teamLock = teamLock;
+        this.joinRequests = joinRequests;
         this.assembler = assembler;
         this.auditService = auditService;
     }
@@ -147,6 +151,7 @@ public class TeamService {
         return assembler.toResponse(team);
     }
 
+    /** Inactivates the team and closes the join requests still waiting for it. */
     @Transactional
     public TeamResponse inactivate(AuthenticatedUser actor, Long teamId) {
         Team team = requireTeam(teamId);
@@ -156,7 +161,9 @@ public class TeamService {
             throw new BusinessRuleException("El equipo ya está inactivo.");
         }
         team.setStatus(TeamStatus.INACTIVE);
-        auditService.record(actor.id(), AuditAction.TEAM_INACTIVATED, ENTITY_TYPE, teamId);
+        int cancelled = joinRequests.cancelPendingRequestsOf(actor.id(), teamId);
+        auditService.record(actor.id(), AuditAction.TEAM_INACTIVATED, ENTITY_TYPE, teamId,
+                Map.of("cancelledJoinRequests", cancelled));
         return assembler.toResponse(team);
     }
 
@@ -177,7 +184,8 @@ public class TeamService {
 
     /**
      * Adds a player to a team enforcing the membership rules. Called by the join-request flow of
-     * the players module through {@code TeamGateway}.
+     * the players module through {@code TeamGateway}, which locks the player's row first so the
+     * "not in another team" check cannot be raced by a second acceptance.
      */
     @Transactional
     public void addMember(Long teamId, Long userId) {

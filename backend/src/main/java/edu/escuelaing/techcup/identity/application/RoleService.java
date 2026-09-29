@@ -20,7 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>An ADMIN may assign or remove any role, except their own ADMIN role.</li>
  *   <li>An ORGANIZER may only grant or revoke CAPTAIN; never ADMIN nor ORGANIZER
  *       ("the organizer cannot raise anybody to administrator").</li>
- *   <li>CAPTAIN can only be granted to a PLAYER, since a captain plays in the team.</li>
+ *   <li>CAPTAIN can only be granted to a PLAYER, since a captain plays in the team, and cannot
+ *       be revoked while the user still captains an ACTIVE team (the team would be headless).</li>
  *   <li>Roles can only be changed on ACTIVE users.</li>
  * </ul>
  * Audited as ROLE_ASSIGNED / ROLE_REMOVED.
@@ -62,6 +63,10 @@ public class RoleService {
             throw new BusinessRuleException("No puede quitarse a sí mismo el rol de administrador.");
         }
         AppUser user = requireActiveUser(userId);
+        if (role == Role.CAPTAIN && userService.captainsActiveTeam(userId)) {
+            throw new BusinessRuleException("El usuario es capitán de un equipo activo; "
+                    + "inactive el equipo antes de quitarle el rol de capitán.");
+        }
         if (!user.getRoles().remove(role)) {
             throw new NotFoundException("El usuario " + userId + " no tiene el rol de " + role.label() + ".");
         }
@@ -73,13 +78,13 @@ public class RoleService {
     @Transactional
     public UserResponse grantCaptain(AuthenticatedUser actor, Long userId) {
         assignRole(actor, userId, Role.CAPTAIN);
-        return userService.getResponse(userId);
+        return userService.getResponse(userId, actor);
     }
 
     @Transactional
     public UserResponse revokeCaptain(AuthenticatedUser actor, Long userId) {
         removeRole(actor, userId, Role.CAPTAIN);
-        return userService.getResponse(userId);
+        return userService.getResponse(userId, actor);
     }
 
     private static void requireAuthority(AuthenticatedUser actor, Role role, Action action) {

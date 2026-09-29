@@ -17,6 +17,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -63,6 +64,10 @@ public class Team {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    /** Optimistic lock: concurrent membership changes cannot silently overwrite each other. */
+    @Version
+    private Long version;
 
     public boolean isActive() {
         return status == TeamStatus.ACTIVE;

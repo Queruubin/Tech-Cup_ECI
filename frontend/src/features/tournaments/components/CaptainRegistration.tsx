@@ -9,7 +9,8 @@ import { ConfirmDialog, Modal } from '@/components/molecules/Modal'
 import { QueryState } from '@/components/molecules/QueryState'
 import { EligibilityPanel } from '@/features/teams/components/EligibilityPanel'
 import { useEligibility, useMyTeam } from '@/features/teams/hooks/useTeams'
-import { formatDate, formatDateTime, formatMoney, todayIso } from '@/lib/format'
+import { formatDate, formatDateTime, formatMoney } from '@/lib/format'
+import { MAX_UPLOAD_BYTES, RECEIPT_ACCEPT, RECEIPT_HINT } from '@/lib/uploads'
 import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
 import type { TournamentResponse } from '@/types/api'
@@ -43,11 +44,11 @@ export function CaptainRegistration({ tournament, onRegistered }: CaptainRegistr
   })
 
   const isOpen = tournament.status === 'ACTIVE'
-  const deadlinePassed = tournament.registrationDeadline < todayIso()
   const full = tournament.approvedTeams >= tournament.maxTeams
+  // The registration deadline is not enforced here on purpose: the server owns that rule and
+  // answers 409 with an explanatory message, which avoids clock/time-zone disagreements.
   const blockers = [
     !isOpen && 'El torneo no está abierto a inscripciones.',
-    isOpen && deadlinePassed && `El plazo de inscripción cerró el ${formatDate(tournament.registrationDeadline)}.`,
     isOpen && full && 'El torneo alcanzó su cupo máximo de equipos.',
     eligibility.data && !eligibility.data.eligible && 'El equipo aún no cumple los requisitos de elegibilidad.',
   ].filter((item): item is string => typeof item === 'string')
@@ -59,7 +60,7 @@ export function CaptainRegistration({ tournament, onRegistered }: CaptainRegistr
     <QueryState loading={teamQuery.loading} error={teamQuery.error} onRetry={teamQuery.refetch}>
       {!team ? (
         <Card title="Inscripción">
-          <p className="text-sm text-gray-600">Debe crear su equipo antes de inscribirlo en un torneo.</p>
+          <p className="text-sm text-stone-600">Debe crear su equipo antes de inscribirlo en un torneo.</p>
           <Link to="/my-team" className="mt-3 inline-block">
             <Button size="sm">Crear equipo</Button>
           </Link>
@@ -80,15 +81,17 @@ export function CaptainRegistration({ tournament, onRegistered }: CaptainRegistr
                     </Alert>
                   )}
                   {current.status === 'UNDER_REVIEW' && (
-                    <p className="mb-3 text-sm text-gray-600">El organizador revisará el comprobante y aprobará o rechazará la inscripción.</p>
+                    <p className="mb-3 text-sm text-stone-600">El organizador revisará el comprobante y aprobará o rechazará la inscripción.</p>
                   )}
                   {current.status === 'APPROVED' && (
-                    <p className="mb-3 text-sm text-gray-600">Su equipo participa en el torneo. Mientras el torneo esté activo o en progreso, la plantilla queda bloqueada.</p>
+                    <p className="mb-3 text-sm text-stone-600">Su equipo participa en el torneo. Mientras el torneo esté activo o en progreso, la plantilla queda bloqueada.</p>
                   )}
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => setPreviewOpen(true)}>
-                      Ver comprobante
-                    </Button>
+                    {current.receiptFileId && (
+                      <Button size="sm" variant="ghost" onClick={() => setPreviewOpen(true)}>
+                        Ver comprobante
+                      </Button>
+                    )}
                     {current.status === 'UNDER_REVIEW' && (
                       <Button size="sm" variant="outline" onClick={() => setCancelOpen(true)}>
                         Cancelar inscripción
@@ -103,6 +106,11 @@ export function CaptainRegistration({ tournament, onRegistered }: CaptainRegistr
                   title="Inscribir mi equipo"
                   description={`Costo de inscripción: ${formatMoney(tournament.fee)}. El pago se realiza por fuera de la plataforma; cargue el comprobante de consignación.`}
                 >
+                  {isOpen && (
+                    <p className="mb-3 text-xs text-stone-500">
+                      Plazo de inscripción: hasta el {formatDate(tournament.registrationDeadline)}.
+                    </p>
+                  )}
                   {blockers.length > 0 && (
                     <Alert kind="warning" className="mb-4">
                       <ul className="list-disc pl-5">
@@ -118,13 +126,14 @@ export function CaptainRegistration({ tournament, onRegistered }: CaptainRegistr
                     </Alert>
                   )}
                   <FileInput
-                    accept="image/*,application/pdf"
+                    accept={RECEIPT_ACCEPT}
+                    maxBytes={MAX_UPLOAD_BYTES}
                     value={receipt}
                     onChange={setReceipt}
-                    hint="Imagen o PDF del comprobante de pago"
+                    hint={RECEIPT_HINT}
                     invalid={!!submit.fieldErrors.file}
                   />
-                  {submit.fieldErrors.file && <p className="mt-1 text-xs font-medium text-red-600">{submit.fieldErrors.file}</p>}
+                  {submit.fieldErrors.file && <p className="mt-1 text-xs font-medium text-brand-600">{submit.fieldErrors.file}</p>}
                   <div className="mt-4">
                     <Button
                       disabled={!receipt || blockers.length > 0}

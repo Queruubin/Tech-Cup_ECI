@@ -10,10 +10,13 @@ export interface UsersTableProps {
   canManageRoles: boolean
   canManageCaptains: boolean
   canInactivate: boolean
+  /** ADMIN only: shows the "Restablecer contraseña" action. */
+  canResetPassword?: boolean
   busyUserId: number | null
   onManageRoles: (user: UserResponse) => void
   onToggleCaptain: (user: UserResponse) => void
   onInactivate: (user: UserResponse) => void
+  onResetPassword?: (user: UserResponse) => void
 }
 
 export function UsersTable({
@@ -22,10 +25,12 @@ export function UsersTable({
   canManageRoles,
   canManageCaptains,
   canInactivate,
+  canResetPassword = false,
   busyUserId,
   onManageRoles,
   onToggleCaptain,
   onInactivate,
+  onResetPassword,
 }: UsersTableProps) {
   const columns: Column<UserResponse>[] = [
     {
@@ -33,8 +38,8 @@ export function UsersTable({
       header: 'Usuario',
       cell: (user) => (
         <div className="min-w-0">
-          <p className="truncate font-medium text-gray-900">{user.fullName}</p>
-          <p className="truncate text-xs text-gray-500">{user.email}</p>
+          <p className="truncate font-medium text-ink">{user.fullName}</p>
+          <p className="truncate text-xs text-stone-500">{user.email ?? '—'}</p>
         </div>
       ),
     },
@@ -45,7 +50,7 @@ export function UsersTable({
       cell: (user) => (
         <div>
           <p>{SCHOOL_RELATION_LABELS[user.schoolRelation]}</p>
-          <p className="text-xs text-gray-500">{ACADEMIC_PROGRAM_LABELS[user.academicProgram]}</p>
+          <p className="text-xs text-stone-500">{ACADEMIC_PROGRAM_LABELS[user.academicProgram]}</p>
         </div>
       ),
     },
@@ -87,11 +92,15 @@ export function UsersTable({
                 {isCaptain ? 'Revocar capitán' : 'Otorgar capitán'}
               </Button>
             )}
+            {canResetPassword && onResetPassword && !inactive && (
+              <Button size="sm" variant="outline" onClick={() => onResetPassword(user)} disabled={busy}>
+                Restablecer contraseña
+              </Button>
+            )}
             {canInactivate && !inactive && !isSelf && (
               <Button
                 size="sm"
-                variant="ghost"
-                className="text-red-600 hover:bg-red-50"
+                variant="danger"
                 onClick={() => onInactivate(user)}
                 disabled={busy}
               >

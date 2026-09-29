@@ -5,10 +5,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import edu.escuelaing.techcup.identity.api.dto.LoginRequest;
 import edu.escuelaing.techcup.identity.api.dto.RegisterRequest;
 import edu.escuelaing.techcup.identity.domain.AcademicProgram;
 import edu.escuelaing.techcup.identity.domain.AppUser;
@@ -21,19 +24,32 @@ import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.exception.ConflictException;
+import edu.escuelaing.techcup.shared.exception.LoginRateLimitException;
+import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.shared.security.JwtService;
+import edu.escuelaing.techcup.shared.security.TokenDenylist;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
+
+    private static final Instant NOW = Instant.parse("2026-03-10T10:00:00Z");
+    private static final String IP = "10.0.0.1";
 
     @Mock
     private AppUserRepository users;
@@ -46,13 +62,21 @@ class AuthServiceTest {
     @Mock
     private AuditService auditService;
 
+    private TokenDenylist denylist;
+    private LoginAttemptService loginAttempts;
     private AuthService authService;
 
     @BeforeEach
     void setUp() {
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         EmailDomainPolicy policy = new EmailDomainPolicy(List.of("escuelaing.edu.co"));
-        authService = new AuthService(users, passwordEncoder, policy, jwtService, userService, auditService);
+        denylist = new TokenDenylist(clock);
+        loginAttempts = new LoginAttemptService(clock);
+        authService = new AuthService(users, passwordEncoder, policy, jwtService, denylist, loginAttempts,
+                userService, auditService);
     }
+
+    // --- register -----------------------------------------------------------------------------
 
     @Test
     void registersAnActiveStudentWithTheChosenRole() {
@@ -116,7 +140,95 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.register(
                 request(SchoolRelation.STUDENT, 5, "ana@escuelaing.edu.co", Role.PLAYER)))
                 .isInstanceOf(ConflictException.class)
-                .hasMessageContaining("correo");
+                .hasMessage(AuthService.DUPLICATE_ACCOUNT_MESSAGE);
+    }
+
+    @Test
+    void aDuplicateDocumentGetsTheSameMessageAsADuplicateEmail() {
+        when(users.existsByEmailIgnoreCase("ana@escuelaing.edu.co")).thenReturn(false);
+        when(users.existsByDocumentTypeAndDocumentNumber(DocumentType.CC, "1001")).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.register(
+                request(SchoolRelation.STUDENT, 5, "ana@escuelaing.edu.co", Role.PLAYER)))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage(AuthService.DUPLICATE_ACCOUNT_MESSAGE);
+    }
+
+    // --- login --------------------------------------------------------------------------------
+
+    @Test
+    void aFailedLoginIsAuditedInItsOwnTransaction() {
+        when(users.findByEmailIgnoreCase("ana@escuelaing.edu.co")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.login(new LoginRequest("Ana@escuelaing.edu.co", "wrong"), IP))
+                .isInstanceOf(BadCredentialsException.class);
+
+        verify(auditService).recordDetached(isNull(), eq(AuditAction.LOGIN_FAILED), anyString(), isNull(), any());
+        verify(jwtService, never()).issue(any(), any(), any());
+    }
+
+    @Test
+    void theSixthFailedAttemptIsThrottledWithoutTouchingTheAccount() {
+        when(users.findByEmailIgnoreCase("ana@escuelaing.edu.co")).thenReturn(Optional.empty());
+        LoginRequest request = new LoginRequest("ana@escuelaing.edu.co", "wrong");
+        for (int attempt = 0; attempt < 5; attempt++) {
+            assertThatThrownBy(() -> authService.login(request, IP)).isInstanceOf(BadCredentialsException.class);
+        }
+
+        assertThatThrownBy(() -> authService.login(request, IP)).isInstanceOf(LoginRateLimitException.class);
+
+        verify(users, times(5)).findByEmailIgnoreCase("ana@escuelaing.edu.co");
+    }
+
+    @Test
+    void aSuccessfulLoginIssuesATokenAndClearsTheCounter() {
+        AppUser user = activeUser();
+        when(users.findByEmailIgnoreCase("ana@escuelaing.edu.co")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("wrong", "hash")).thenReturn(false);
+        when(passwordEncoder.matches("Secret123*", "hash")).thenReturn(true);
+        when(jwtService.issue(eq(10L), eq("ana@escuelaing.edu.co"), any()))
+                .thenReturn(new JwtService.IssuedToken("jwt", NOW.plusSeconds(3600)));
+        for (int attempt = 0; attempt < 4; attempt++) {
+            assertThatThrownBy(() -> authService.login(new LoginRequest("ana@escuelaing.edu.co", "wrong"), IP))
+                    .isInstanceOf(BadCredentialsException.class);
+        }
+
+        var response = authService.login(new LoginRequest("ana@escuelaing.edu.co", "Secret123*"), IP);
+
+        assertThat(response.token()).isEqualTo("jwt");
+        assertThat(loginAttempts.isBlocked(LoginAttemptService.emailKey("ana@escuelaing.edu.co"))).isFalse();
+        verify(auditService).record(10L, AuditAction.LOGIN, "USER", 10L);
+    }
+
+    // --- logout -------------------------------------------------------------------------------
+
+    @Test
+    void logoutRevokesThePresentedToken() {
+        AuthenticatedUser actor = new AuthenticatedUser(10L, "ana@escuelaing.edu.co", Set.of("PLAYER"));
+        when(jwtService.parse("jwt")).thenReturn(Optional.of(new JwtService.TokenClaims(10L,
+                "ana@escuelaing.edu.co", List.of("PLAYER"), "token-id", NOW.plusSeconds(3600))));
+
+        authService.logout(actor, "jwt");
+
+        assertThat(denylist.isDenied("token-id")).isTrue();
+        verify(auditService).record(10L, AuditAction.LOGOUT, "USER", 10L);
+    }
+
+    @Test
+    void logoutWithoutAReadableTokenStillAudits() {
+        AuthenticatedUser actor = new AuthenticatedUser(10L, "ana@escuelaing.edu.co", Set.of("PLAYER"));
+
+        authService.logout(actor, null);
+
+        verify(jwtService, never()).parse(any());
+        verify(auditService).record(10L, AuditAction.LOGOUT, "USER", 10L);
+    }
+
+    // --- helpers ------------------------------------------------------------------------------
+
+    private static AppUser activeUser() {
+        return AppUser.builder().id(10L).email("ana@escuelaing.edu.co").passwordHash("hash")
+                .status(UserStatus.ACTIVE).roles(new HashSet<>(Set.of(Role.PLAYER))).build();
     }
 
     private static RegisterRequest request(SchoolRelation relation, Integer semester, String email, Role role) {

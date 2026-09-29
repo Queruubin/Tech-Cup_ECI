@@ -220,8 +220,7 @@ export function MyTeamPage() {
                         member.userId !== team.captain.id ? (
                           <Button
                             size="sm"
-                            variant="ghost"
-                            className="text-red-600 hover:bg-red-50"
+                            variant="danger"
                             disabled={team.locked}
                             onClick={() => setPending({ kind: 'remove', member })}
                           >
@@ -251,7 +250,7 @@ export function MyTeamPage() {
                 />
                 {team.memberCount < 12 && (
                   <Card title="¿Faltan jugadores?">
-                    <p className="text-sm text-gray-600">Consulte los jugadores disponibles por posición.</p>
+                    <p className="text-sm text-stone-600">Consulte los jugadores disponibles por posición.</p>
                     <Link to="/players" className="mt-3 inline-block">
                       <Button size="sm" variant="outline">
                         Ver jugadores disponibles

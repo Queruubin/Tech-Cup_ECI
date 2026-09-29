@@ -7,9 +7,10 @@ import { QueryState } from '@/components/molecules/QueryState'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
-import type { CreateRefereeRequest, Role, UserResponse } from '@/types/api'
+import type { CreateRefereeRequest, ResetPasswordRequest, Role, UserResponse } from '@/types/api'
 import { adminApi } from '../api'
 import { CreateRefereeForm } from '../components/CreateRefereeForm'
+import { ResetPasswordModal } from '../components/ResetPasswordModal'
 import { RolesModal } from '../components/RolesModal'
 import { UsersTable } from '../components/UsersTable'
 import { useDebouncedValue, useUsers } from '../hooks/useAdmin'
@@ -27,6 +28,7 @@ export function UsersAdminPage() {
   const [rolesList, setRolesList] = useState<Role[]>([])
   const [toInactivate, setToInactivate] = useState<UserResponse | null>(null)
   const [refereeOpen, setRefereeOpen] = useState(false)
+  const [resetUser, setResetUser] = useState<UserResponse | null>(null)
   const [busyUserId, setBusyUserId] = useState<number | null>(null)
 
   const replaceUser = (updated: UserResponse) => {
@@ -68,6 +70,15 @@ export function UsersAdminPage() {
     usersQuery.refetch()
     return created
   })
+
+  const resetPassword = useMutation((input: { userId: number; payload: ResetPasswordRequest }) =>
+    adminApi.resetPassword(input.userId, input.payload),
+  )
+
+  const closeResetPassword = () => {
+    setResetUser(null)
+    resetPassword.reset()
+  }
 
   const openRoles = (user: UserResponse) => {
     setRolesUser(user)
@@ -139,12 +150,33 @@ export function UsersAdminPage() {
           canManageRoles={isAdmin}
           canManageCaptains={canManageCaptains}
           canInactivate={isAdmin}
+          canResetPassword={isAdmin}
           busyUserId={busyUserId}
           onManageRoles={openRoles}
           onToggleCaptain={handleToggleCaptain}
           onInactivate={setToInactivate}
+          onResetPassword={setResetUser}
         />
       </QueryState>
+
+      <ResetPasswordModal
+        key={resetUser?.id ?? 'none'}
+        user={resetUser}
+        loading={resetPassword.loading}
+        error={resetPassword.error}
+        fieldErrors={resetPassword.fieldErrors}
+        onClose={closeResetPassword}
+        onSubmit={(payload) =>
+          resetUser &&
+          resetPassword
+            .mutate({ userId: resetUser.id, payload })
+            .then(() => {
+              toast.success(`Contraseña de ${resetUser.fullName} restablecida.`)
+              closeResetPassword()
+            })
+            .catch(() => undefined)
+        }
+      />
 
       <RolesModal
         key={rolesUser?.id ?? 'none'}

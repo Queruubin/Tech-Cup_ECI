@@ -36,7 +36,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="presentation">
-      <div className="absolute inset-0 bg-gray-900/50" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-ink/50" onClick={onClose} aria-hidden="true" />
       <div
         role="dialog"
         aria-modal="true"
@@ -48,16 +48,16 @@ export function Modal({ open, onClose, title, description, children, footer, siz
       >
         <header className="flex items-start justify-between gap-4 px-5 pt-5">
           <div>
-            <h2 id={titleId} className="text-lg font-semibold text-gray-900">
+            <h2 id={titleId} className="text-lg font-semibold text-ink">
               {title}
             </h2>
-            {description && <p className="mt-1 text-sm text-gray-500">{description}</p>}
+            {description && <p className="mt-1 text-sm text-stone-500">{description}</p>}
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Cerrar"
-            className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="rounded-lg p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-600"
           >
             <svg viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5" aria-hidden="true">
               <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />

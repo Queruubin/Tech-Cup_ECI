@@ -42,11 +42,9 @@ public class RefereeService {
     @Transactional
     public UserResponse create(AuthenticatedUser actor, CreateRefereeRequest request) {
         String email = AuthService.normalizeEmail(request.email());
-        if (users.existsByEmailIgnoreCase(email)) {
-            throw new ConflictException("El correo ya está registrado.");
-        }
-        if (users.existsByDocumentTypeAndDocumentNumber(request.documentType(), request.documentNumber().trim())) {
-            throw new ConflictException("El documento de identidad ya está registrado.");
+        if (users.existsByEmailIgnoreCase(email)
+                || users.existsByDocumentTypeAndDocumentNumber(request.documentType(), request.documentNumber().trim())) {
+            throw new ConflictException(AuthService.DUPLICATE_ACCOUNT_MESSAGE);
         }
         AppUser referee = users.save(AppUser.builder()
                 .fullName(request.fullName().trim())
@@ -60,13 +58,20 @@ public class RefereeService {
                 .build());
         auditService.record(actor.id(), AuditAction.REFEREE_CREATED, UserService.ENTITY_TYPE, referee.getId(),
                 Map.of("email", referee.getEmail()));
-        return userService.toResponse(referee);
+        return userService.toDirectoryResponse(referee, actor);
     }
 
+    /** Every referee account, as the viewer may see it (organizers get no identity documents). */
     @Transactional(readOnly = true)
-    public List<UserResponse> list() {
+    public List<UserResponse> list(AuthenticatedUser viewer) {
         return users.findByRolesContainingOrderByFullNameAsc(Role.REFEREE).stream()
-                .map(userService::toResponse)
+                .map(referee -> userService.toDirectoryResponse(referee, viewer))
                 .toList();
+    }
+
+    /** The referees that can still be appointed to a match: ACTIVE accounts only. */
+    @Transactional(readOnly = true)
+    public List<AppUser> activeReferees() {
+        return users.findByRolesContainingAndStatusOrderByFullNameAsc(Role.REFEREE, UserStatus.ACTIVE);
     }
 }

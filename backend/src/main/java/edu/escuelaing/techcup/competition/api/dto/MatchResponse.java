@@ -10,7 +10,8 @@ import java.util.List;
 /**
  * A match as the frontend consumes it: teams, venue and referee are denormalised so a match card
  * can be rendered without extra requests. {@code venue} and {@code referee} are null until an
- * organizer assigns them.
+ * organizer assigns them. {@code walkoverWinnerTeamId} is set only on cancelled knockout matches;
+ * {@code resultEditable} tells whether {@code POST /matches/{id}/result} would be accepted.
  */
 public record MatchResponse(
         Long id,
@@ -28,6 +29,8 @@ public record MatchResponse(
         Integer homePenalties,
         Integer awayPenalties,
         CancelReason cancelReason,
+        Long walkoverWinnerTeamId,
+        boolean resultEditable,
         List<Event> events) {
 
     public record TeamRef(Long id, String name, String colors) {

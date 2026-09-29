@@ -1,12 +1,14 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { MatchPhase, MatchResponse, TeamMember } from '@/types/api'
+import { CancelMatchDialog } from './components/CancelMatchDialog'
 import { LineupEditor } from './components/LineupEditor'
 import { ResultForm } from './components/ResultForm'
 import {
   EMPTY_RESULT_VALUES,
   LINEUP_STARTERS,
+  resultValuesFromMatch,
   toResultRequest,
   validateLineup,
   validateResult,
@@ -21,7 +23,7 @@ import {
 const HOME_TEAM = { id: 10, name: 'Leones FC', colors: 'Rojo y negro' }
 const AWAY_TEAM = { id: 20, name: 'Aguilas FC', colors: 'Azul' }
 
-function makeMatch(phase: MatchPhase = 'GROUP'): MatchResponse {
+function makeMatch(phase: MatchPhase = 'GROUP', overrides: Partial<MatchResponse> = {}): MatchResponse {
   return {
     id: 7,
     tournamentId: 1,
@@ -38,8 +40,27 @@ function makeMatch(phase: MatchPhase = 'GROUP'): MatchResponse {
     homePenalties: null,
     awayPenalties: null,
     cancelReason: null,
+    walkoverWinnerTeamId: null,
+    resultEditable: true,
     events: [],
+    ...overrides,
   }
+}
+
+/** A knockout match already PLAYED, as returned by the API before a correction. */
+function playedFinal(): MatchResponse {
+  return makeMatch('FINAL', {
+    status: 'PLAYED',
+    homeScore: 1,
+    awayScore: 1,
+    homePenalties: 4,
+    awayPenalties: 2,
+    events: [
+      { id: 501, teamId: HOME_TEAM.id, playerId: 2, playerName: 'Daniel Soto', type: 'GOAL', minute: 12 },
+      { id: 502, teamId: AWAY_TEAM.id, playerId: 11, playerName: 'Mateo Vargas', type: 'GOAL', minute: null },
+      { id: 503, teamId: AWAY_TEAM.id, playerId: 12, playerName: 'Nicolas Pardo', type: 'YELLOW_CARD', minute: 70 },
+    ],
+  })
 }
 
 function goal(key: string, side: 'home' | 'away', playerId: string): ResultEventDraft {
@@ -169,16 +190,47 @@ describe('validateResult', () => {
 })
 
 // ---------------------------------------------------------------------------
+// resultValuesFromMatch (pre-fill for corrections)
+// ---------------------------------------------------------------------------
+
+describe('resultValuesFromMatch', () => {
+  it('maps a PLAYED match back into form values, resolving each event side by team id', () => {
+    const values = resultValuesFromMatch(playedFinal())
+    expect(values).toEqual({
+      homeScore: '1',
+      awayScore: '1',
+      homePenalties: '4',
+      awayPenalties: '2',
+      events: [
+        { key: 'existing-501', side: 'home', playerId: '2', type: 'GOAL', minute: '12' },
+        { key: 'existing-502', side: 'away', playerId: '11', type: 'GOAL', minute: '' },
+        { key: 'existing-503', side: 'away', playerId: '12', type: 'YELLOW_CARD', minute: '70' },
+      ],
+    })
+    // The pre-filled values are consistent, so they can be resubmitted as-is.
+    expect(validateResult(values, 'FINAL').valid).toBe(true)
+  })
+
+  it('leaves the penalties empty when the match had none', () => {
+    const values = resultValuesFromMatch(makeMatch('GROUP', { status: 'PLAYED', homeScore: 0, awayScore: 0 }))
+    expect(values.homePenalties).toBe('')
+    expect(values.awayPenalties).toBe('')
+    expect(values.events).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // ResultForm
 // ---------------------------------------------------------------------------
 
 describe('ResultForm', () => {
-  function renderForm(phase: MatchPhase = 'GROUP') {
+  function renderForm(phase: MatchPhase = 'GROUP', match: MatchResponse = makeMatch(phase), initial?: ResultFormValues) {
     const onSubmit = vi.fn()
     render(
       <ResultForm
-        match={makeMatch(phase)}
+        match={match}
         rosters={{ home: HOME_ROSTER, away: AWAY_ROSTER }}
+        initial={initial}
         loading={false}
         error={null}
         fieldErrors={{}}
@@ -187,6 +239,40 @@ describe('ResultForm', () => {
     )
     return { onSubmit }
   }
+
+  it('pre-fills score, penalties and events from a PLAYED match and submits a correction', async () => {
+    const user = userEvent.setup()
+    const match = playedFinal()
+    const { onSubmit } = renderForm('FINAL', match, resultValuesFromMatch(match))
+
+    expect(screen.getByLabelText(/^Goles de Leones FC/)).toHaveValue(1)
+    expect(screen.getByLabelText(/^Goles de Aguilas FC/)).toHaveValue(1)
+    expect(screen.getByLabelText(/^Penales de Leones FC/)).toHaveValue(4)
+    expect(screen.getByLabelText(/^Penales de Aguilas FC/)).toHaveValue(2)
+
+    const rows = screen.getAllByRole('listitem')
+    expect(rows).toHaveLength(3)
+    const firstRow = rows[0] as HTMLElement
+    expect(within(firstRow).getByLabelText('Equipo')).toHaveValue('home')
+    expect(within(firstRow).getByLabelText('Jugador')).toHaveValue('2')
+    expect(within(firstRow).getByLabelText('Tipo')).toHaveValue('GOAL')
+    expect(within(firstRow).getByLabelText('Minuto')).toHaveValue(12)
+
+    expect(screen.queryByRole('button', { name: 'Registrar resultado' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Corregir resultado' }))
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      homeScore: 1,
+      awayScore: 1,
+      homePenalties: 4,
+      awayPenalties: 2,
+      events: [
+        { teamId: HOME_TEAM.id, playerId: 2, type: 'GOAL', minute: 12 },
+        { teamId: AWAY_TEAM.id, playerId: 11, type: 'GOAL' },
+        { teamId: AWAY_TEAM.id, playerId: 12, type: 'YELLOW_CARD', minute: 70 },
+      ],
+    })
+  })
 
   it('blocks the submission when the goals do not match the score', async () => {
     const user = userEvent.setup()
@@ -228,6 +314,49 @@ describe('ResultForm', () => {
   it('only offers the penalties inputs in knockout phases', () => {
     renderForm('GROUP')
     expect(screen.queryByLabelText(/^Penales de Leones FC/)).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// CancelMatchDialog
+// ---------------------------------------------------------------------------
+
+describe('CancelMatchDialog', () => {
+  function renderDialog(phase: MatchPhase) {
+    const onConfirm = vi.fn()
+    render(
+      <CancelMatchDialog open match={makeMatch(phase)} loading={false} error={null} onConfirm={onConfirm} onClose={() => undefined} />,
+    )
+    return { onConfirm }
+  }
+
+  it('only asks for the reason in the group stage', async () => {
+    const user = userEvent.setup()
+    const { onConfirm } = renderDialog('GROUP')
+
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancelar partido' }))
+    expect(onConfirm).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent('Seleccione el motivo')
+
+    await user.selectOptions(screen.getByLabelText(/Motivo/), 'NO_SHOW')
+    await user.click(screen.getByRole('button', { name: 'Cancelar partido' }))
+    expect(onConfirm).toHaveBeenCalledWith({ reason: 'NO_SHOW' })
+  })
+
+  it('requires the walkover winner in knockout phases and sends its team id', async () => {
+    const user = userEvent.setup()
+    const { onConfirm } = renderDialog('SEMIFINAL')
+
+    expect(screen.getByText(/avanza a la siguiente fase/)).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText(/Motivo/), 'DISQUALIFIED')
+    await user.click(screen.getByRole('button', { name: 'Cancelar partido' }))
+    expect(onConfirm).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent('Seleccione el equipo que avanza.')
+
+    await user.click(screen.getByRole('radio', { name: AWAY_TEAM.name }))
+    await user.click(screen.getByRole('button', { name: 'Cancelar partido' }))
+    expect(onConfirm).toHaveBeenCalledWith({ reason: 'DISQUALIFIED', winnerTeamId: AWAY_TEAM.id })
   })
 })
 

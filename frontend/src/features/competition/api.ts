@@ -13,8 +13,13 @@ import type {
 export const competitionApi = {
   getMatch: (id: number, signal?: AbortSignal) => api.get<MatchResponse>(`/matches/${id}`, undefined, signal),
   updateMatch: (id: number, payload: UpdateMatchRequest) => api.patch<MatchResponse>(`/matches/${id}`, payload),
-  /** Soft cancellation: the match keeps its record with status CANCELLED. */
-  cancelMatch: (id: number, reason: CancelReason) => api.delete<MatchResponse>(`/matches/${id}`, { reason }),
+  /**
+   * Soft cancellation: the match keeps its record with status CANCELLED. Knockout matches require
+   * `winnerTeamId` (walkover); the query helper drops it when undefined.
+   */
+  cancelMatch: (id: number, reason: CancelReason, winnerTeamId?: number) =>
+    api.delete<MatchResponse>(`/matches/${id}`, { reason, winnerTeamId }),
+  /** Records a first result or corrects an existing one (allowed while `resultEditable` is true). */
   recordResult: (id: number, payload: MatchResultRequest) => api.post<MatchResponse>(`/matches/${id}/result`, payload),
 
   upsertLineup: (matchId: number, payload: UpsertLineupRequest) =>

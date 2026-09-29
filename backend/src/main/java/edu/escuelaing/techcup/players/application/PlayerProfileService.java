@@ -12,7 +12,9 @@ import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
+import edu.escuelaing.techcup.shared.storage.FileDeletionScheduler;
 import edu.escuelaing.techcup.shared.storage.FileKind;
+import edu.escuelaing.techcup.shared.storage.FileOwner;
 import edu.escuelaing.techcup.shared.storage.FileStorage;
 import edu.escuelaing.techcup.shared.storage.FileUpload;
 import java.util.List;
@@ -27,7 +29,7 @@ import org.springframework.web.multipart.MultipartFile;
  * <ul>
  *   <li>A profile is created once and can never be deleted.</li>
  *   <li>Position, jersey number and photo may be changed only while the player is not a member
- *       of an ACTIVE team.</li>
+ *       of an ACTIVE team. A replaced photo is deleted once the change is committed.</li>
  *   <li>Free-agent search returns active users with a profile and no active team.</li>
  * </ul>
  * Audited as PROFILE_CREATED / PROFILE_UPDATED. Photos go to the {@link FileStorage} port.
@@ -41,14 +43,17 @@ public class PlayerProfileService {
     private final UserService userService;
     private final TeamGateway teamGateway;
     private final FileStorage fileStorage;
+    private final FileDeletionScheduler fileDeletion;
     private final AuditService auditService;
 
     public PlayerProfileService(PlayerProfileRepository profiles, UserService userService, TeamGateway teamGateway,
-                                FileStorage fileStorage, AuditService auditService) {
+                                FileStorage fileStorage, FileDeletionScheduler fileDeletion,
+                                AuditService auditService) {
         this.profiles = profiles;
         this.userService = userService;
         this.teamGateway = teamGateway;
         this.fileStorage = fileStorage;
+        this.fileDeletion = fileDeletion;
         this.auditService = auditService;
     }
 
@@ -86,12 +91,15 @@ public class PlayerProfileService {
         return toResponse(profile);
     }
 
+    /** Stores the new photo and, once the change is committed, deletes the one it replaces. */
     @Transactional
     public PlayerProfileResponse uploadPhoto(AuthenticatedUser actor, MultipartFile file) {
         PlayerProfile profile = requireProfile(actor.id());
         ensureNotInActiveTeam(actor.id());
-        String fileId = fileStorage.store(FileUpload.from(file), FileKind.IMAGE);
+        String previous = profile.getPhotoFileId();
+        String fileId = fileStorage.store(FileUpload.from(file), FileKind.IMAGE, FileOwner.photo(actor.id()));
         profile.setPhotoFileId(fileId);
+        fileDeletion.deleteAfterCommit(previous);
         auditService.record(actor.id(), AuditAction.PROFILE_UPDATED, ENTITY_TYPE, profile.getUserId(),
                 Map.of("photoFileId", fileId));
         return toResponse(profile);

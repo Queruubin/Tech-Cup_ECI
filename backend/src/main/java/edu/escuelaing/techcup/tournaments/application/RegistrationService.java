@@ -9,6 +9,7 @@ import edu.escuelaing.techcup.shared.exception.Messages;
 import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.shared.storage.FileKind;
+import edu.escuelaing.techcup.shared.storage.FileOwner;
 import edu.escuelaing.techcup.shared.storage.FileStorage;
 import edu.escuelaing.techcup.shared.storage.FileUpload;
 import edu.escuelaing.techcup.teams.application.TeamService;
@@ -41,8 +42,9 @@ import org.springframework.web.multipart.MultipartFile;
  *   <li>A team may hold only one live (UNDER_REVIEW or APPROVED) registration per tournament; a
  *       rejected or cancelled attempt may be replaced by a new one.</li>
  *   <li>A payment receipt (image or PDF) is mandatory and stored through the {@link FileStorage} port.</li>
- *   <li>Approve / reject are organizer-only and start from UNDER_REVIEW; approval re-checks the
- *       capacity because several registrations may be waiting at the same time. Cancel is
+ *   <li>Approve / reject are organizer-only and start from UNDER_REVIEW; approval requires the
+ *       tournament to still be ACTIVE and re-checks the capacity under a lock on the tournament
+ *       row, because several registrations may be waiting at the same time. Cancel is
  *       captain-only and also starts from UNDER_REVIEW.</li>
  * </ul>
  * The legal transitions themselves belong to the {@link RegistrationStatus} State machine.
@@ -139,7 +141,8 @@ public class RegistrationService {
                     + String.join(" ", eligibility.problems()));
         }
 
-        String receiptFileId = fileStorage.store(FileUpload.from(receipt), FileKind.IMAGE_OR_PDF);
+        String receiptFileId = fileStorage.store(FileUpload.from(receipt), FileKind.IMAGE_OR_PDF,
+                FileOwner.receipt(team.getId()));
         Registration registration = registrations.save(Registration.builder()
                 .tournament(tournament)
                 .team(team)
@@ -167,11 +170,20 @@ public class RegistrationService {
 
     // --- organizer use cases -----------------------------------------------------------------
 
+    /**
+     * Approves a registration under review. The tournament row is locked first: several
+     * registrations may be under review at once and two organizers approving concurrently must
+     * not both pass the capacity check.
+     */
     @Transactional
     public RegistrationResponse approve(AuthenticatedUser actor, Long registrationId, String note) {
         Registration registration = requireRegistration(registrationId);
-        // Several registrations may be under review at once, so capacity is checked again here.
-        requireCapacity(registration.getTournament());
+        Tournament tournament = tournamentService.requireTournamentForUpdate(registration.getTournament().getId());
+        if (tournament.getStatus() != TournamentStatus.ACTIVE) {
+            throw new BusinessRuleException("Solo se pueden aprobar inscripciones mientras el torneo esté activo; "
+                    + "su estado actual es «" + tournament.getStatus().label() + "».");
+        }
+        requireCapacity(tournament);
         registration.moveTo(RegistrationStatus.APPROVED, userService.getUser(actor.id()), note);
         auditService.record(actor.id(), AuditAction.REGISTRATION_APPROVED, ENTITY_TYPE, registrationId,
                 Map.of("teamId", registration.getTeam().getId(),
