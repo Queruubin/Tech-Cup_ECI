@@ -34,14 +34,19 @@ export function RegistrationsReview({ tournamentId, onDecided }: { tournamentId:
     return updated
   })
 
+  // Closing the modal (confirm, cancel, Escape, overlay) always drops the note so it never leaks to another team.
+  const closeDecision = () => {
+    setDecision(null)
+    setNote('')
+  }
+
   const confirmDecision = () => {
     if (!decision) return
     decide
       .mutate({ ...decision, note })
       .then((updated) => {
         toast.success(decision.action === 'approve' ? `Inscripción de ${updated.teamName} aprobada.` : `Inscripción de ${updated.teamName} rechazada.`)
-        setDecision(null)
-        setNote('')
+        closeDecision()
         onDecided?.()
       })
       .catch(() => undefined)
@@ -108,12 +113,12 @@ export function RegistrationsReview({ tournamentId, onDecided }: { tournamentId:
 
       <Modal
         open={decision !== null}
-        onClose={() => setDecision(null)}
+        onClose={closeDecision}
         title={decision?.action === 'approve' ? 'Aprobar inscripción' : 'Rechazar inscripción'}
         description={decision ? `Equipo: ${decision.registration.teamName}` : undefined}
         footer={
           <>
-            <Button variant="outline" onClick={() => setDecision(null)} disabled={decide.loading}>
+            <Button variant="outline" onClick={closeDecision} disabled={decide.loading}>
               Cancelar
             </Button>
             <Button variant={decision?.action === 'approve' ? 'primary' : 'danger'} onClick={confirmDecision} loading={decide.loading}>
@@ -131,7 +136,7 @@ export function RegistrationsReview({ tournamentId, onDecided }: { tournamentId:
           <p className="mb-3 text-sm text-stone-600">Se verificará nuevamente la capacidad del torneo antes de aprobar.</p>
         )}
         <FormField label="Nota (opcional)" error={decide.fieldErrors.note} hint="Visible para el capitán del equipo.">
-          <Textarea value={note} maxLength={300} onChange={(event) => setNote(event.target.value)} />
+          <Textarea value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} />
         </FormField>
       </Modal>
     </Card>

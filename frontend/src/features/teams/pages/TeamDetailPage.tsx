@@ -142,7 +142,7 @@ export function TeamDetailPage() {
           </Alert>
         )}
         <FormField label="Mensaje (opcional)" error={joinRequest.fieldErrors.message} hint="Preséntese brevemente al capitán.">
-          <Textarea value={message} maxLength={300} onChange={(event) => setMessage(event.target.value)} />
+          <Textarea value={message} maxLength={500} onChange={(event) => setMessage(event.target.value)} />
         </FormField>
       </Modal>
     </>

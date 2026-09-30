@@ -34,7 +34,8 @@ and opens the app in the browser.
 1. Copy `.env.example` to `.env` and fill in `JWT_SECRET` (for example the output of
    `openssl rand -base64 48`) and `ADMIN_PASSWORD`. The full stack runs the backend with the
    production profile, which refuses to start with the development defaults, and Docker Compose
-   stops early if the file is missing.
+   stops early if the file is missing. When the site is served under a public domain, also set
+   `CORS_ORIGINS` to that URL (for example `https://techcup.escuelaing.edu.co`).
 2. **Windows:** double-click `start.bat`, or run it from a terminal in the project folder.
    **macOS / Linux:** run `bash start.sh` from the project folder.
 

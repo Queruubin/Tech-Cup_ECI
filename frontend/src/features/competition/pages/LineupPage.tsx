@@ -31,7 +31,9 @@ export function LineupPage() {
   const viewerTeamId = myTeam?.id ?? user?.teamId ?? null
   const isParticipant = !!match && (viewerTeamId === match.homeTeam.id || viewerTeamId === match.awayTeam.id)
   const isCaptain = hasRole('CAPTAIN') && !!myTeam && !!user && myTeam.captain.id === user.id
-  const canSwitchTeams = hasRole('ORGANIZER', 'REFEREE')
+  // Only the referee assigned to this match may browse both lineups; other referees are ordinary users.
+  const isAssignedReferee = hasRole('REFEREE') && !!match && !!user && match.referee?.id === user.id
+  const canSwitchTeams = hasRole('ORGANIZER') || isAssignedReferee
 
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null)
   const defaultTeamId = isParticipant ? viewerTeamId : (match?.homeTeam.id ?? null)

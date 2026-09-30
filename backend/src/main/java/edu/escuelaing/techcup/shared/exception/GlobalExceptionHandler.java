@@ -12,9 +12,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -47,6 +50,7 @@ public class GlobalExceptionHandler {
     static final String MISSING_PARAMETER = "Falta un parámetro obligatorio en la solicitud.";
     static final String MISSING_PART = "Falta un archivo o campo obligatorio en la solicitud.";
     static final String AUTHENTICATION_FAILED = "No fue posible autenticar la solicitud.";
+    static final String ACCESS_DENIED = "No tiene permiso para realizar esta acción.";
     static final String CONCURRENT_MODIFICATION =
             "La información fue modificada por otra persona mientras usted la editaba. Intente de nuevo.";
 
@@ -62,12 +66,23 @@ public class GlobalExceptionHandler {
         return respond(HttpStatus.CONFLICT, ex.getMessage(), request, null);
     }
 
-    @ExceptionHandler({ForbiddenOperationException.class, AccessDeniedException.class})
-    public ResponseEntity<ApiError> forbidden(RuntimeException ex, HttpServletRequest request) {
-        String message = ex instanceof ForbiddenOperationException
-                ? ex.getMessage()
-                : "No tiene permiso para realizar esta acción.";
-        return respond(HttpStatus.FORBIDDEN, message, request, null);
+    @ExceptionHandler(ForbiddenOperationException.class)
+    public ResponseEntity<ApiError> forbidden(ForbiddenOperationException ex, HttpServletRequest request) {
+        return respond(HttpStatus.FORBIDDEN, ex.getMessage(), request, null);
+    }
+
+    /**
+     * {@code @PreAuthorize} failures. Under a {@code permitAll} path prefix (for example
+     * {@code GET /api/tournaments/**}) an anonymous request reaches the controller and the method
+     * guard throws this instead of the entry point answering first, so the caller must be told to
+     * authenticate (401) rather than that its account lacks the role (403).
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiError> accessDenied(AccessDeniedException ex, HttpServletRequest request) {
+        if (!isAuthenticated(SecurityContextHolder.getContext().getAuthentication())) {
+            return respond(HttpStatus.UNAUTHORIZED, AUTHENTICATION_FAILED, request, null);
+        }
+        return respond(HttpStatus.FORBIDDEN, ACCESS_DENIED, request, null);
     }
 
     @ExceptionHandler({InvalidRequestException.class, InvalidFileException.class})
@@ -193,6 +208,13 @@ public class GlobalExceptionHandler {
             cause = cause.getCause();
         }
         return "unknown";
+    }
+
+    /** Anonymous requests carry either no authentication or the framework's anonymous token. */
+    private static boolean isAuthenticated(Authentication authentication) {
+        return authentication != null
+                && authentication.isAuthenticated()
+                && !(authentication instanceof AnonymousAuthenticationToken);
     }
 
     private static String parameterName(String name, int index) {

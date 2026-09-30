@@ -25,4 +25,10 @@ public class FinalMatchAdapter implements FinalMatchPort {
     public boolean isFinalMatchPlayed(Long tournamentId) {
         return matches.existsByTournamentIdAndPhaseAndStatus(tournamentId, MatchPhase.FINAL, MatchStatus.PLAYED);
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasScheduledMatches(Long tournamentId) {
+        return matches.existsByTournamentIdAndStatus(tournamentId, MatchStatus.SCHEDULED);
+    }
 }

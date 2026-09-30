@@ -1,11 +1,13 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { Badge, StatusBadge } from './atoms/Badge'
 import { Button } from './atoms/Button'
 import { FileInput } from './atoms/FileInput'
 import { Input } from './atoms/Input'
 import { FormField } from './molecules/FormField'
+import { Modal } from './molecules/Modal'
 
 describe('Button', () => {
   it('renders its label and handles clicks', async () => {
@@ -92,6 +94,100 @@ describe('FileInput', () => {
 
     expect(onChange).toHaveBeenCalledWith(valid)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('clears the native input when the parent resets the value, so the same file can be picked again', async () => {
+    const onChange = vi.fn()
+    function Harness() {
+      const [file, setFile] = useState<File | null>(null)
+      return (
+        <>
+          <FileInput
+            accept="application/pdf"
+            value={file}
+            onChange={(next) => {
+              onChange(next)
+              setFile(next)
+            }}
+          />
+          <button type="button" onClick={() => setFile(null)}>
+            Simular carga
+          </button>
+        </>
+      )
+    }
+    render(<Harness />)
+    const input = screen.getByLabelText('Elegir archivo') as HTMLInputElement
+    const file = makeFile('reglamento.pdf', 'application/pdf', 512)
+
+    await userEvent.upload(input, file)
+    expect(input.files).toHaveLength(1)
+    expect(screen.getByText('reglamento.pdf')).toBeInTheDocument()
+
+    // The parent clears the value after a successful upload.
+    await userEvent.click(screen.getByRole('button', { name: 'Simular carga' }))
+    expect(input.value).toBe('')
+    expect(screen.queryByText('reglamento.pdf')).not.toBeInTheDocument()
+
+    await userEvent.upload(input, file)
+    expect(onChange).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('reglamento.pdf')).toBeInTheDocument()
+  })
+})
+
+describe('Modal', () => {
+  function Harness() {
+    const [open, setOpen] = useState(false)
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          Abrir
+        </button>
+        <Modal open={open} onClose={() => setOpen(false)} title="Diálogo de prueba">
+          <label>
+            Nota
+            <input />
+          </label>
+        </Modal>
+      </>
+    )
+  }
+
+  it('moves focus into the dialog on open and restores it on close', async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    const trigger = screen.getByRole('button', { name: 'Abrir' })
+    trigger.focus()
+    expect(trigger).toHaveFocus()
+
+    await user.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: 'Diálogo de prueba' })
+    expect(dialog.contains(document.activeElement)).toBe(true)
+    expect(screen.getByLabelText('Nota')).toHaveFocus()
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('falls back to the dialog element when there is nothing focusable inside', async () => {
+    const user = userEvent.setup()
+    function Empty() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Abrir
+          </button>
+          <Modal open={open} onClose={() => setOpen(false)} title="Sin controles">
+            <p>Solo texto</p>
+          </Modal>
+        </>
+      )
+    }
+    render(<Empty />)
+    await user.click(screen.getByRole('button', { name: 'Abrir' }))
+    expect(screen.getByRole('dialog', { name: 'Sin controles' })).toHaveFocus()
   })
 })
 

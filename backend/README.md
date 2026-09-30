@@ -68,7 +68,7 @@ Every setting in `src/main/resources/application.yml` has an environment-variabl
 | `JWT_EXPIRATION_MINUTES` | `480` | Token lifetime |
 | `ADMIN_EMAIL` | `admin@escuelaing.edu.co` | Administrator created on first start |
 | `ADMIN_PASSWORD` | `Admin123*` (refused by `prod`) | Its password |
-| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
+| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins. In production set it to the public URL of the site (e.g. `https://techcup.escuelaing.edu.co`). |
 | `APP_INSTITUTIONAL_DOMAINS` | `escuelaing.edu.co,mail.escuelaing.edu.co` | Domains that count as institutional e-mail |
 | `APP_TIME_ZONE` | `America/Bogota` | Zone for every date rule (tournament start/end, 18:00 kick-offs) |
 | `SPRING_PROFILES_ACTIVE` | *(none)* | `prod` enables the production hardening above |

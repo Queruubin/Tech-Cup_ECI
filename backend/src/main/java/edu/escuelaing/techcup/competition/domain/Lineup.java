@@ -18,7 +18,9 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -65,9 +67,29 @@ public class Lineup {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /**
+     * Makes the collection match {@code newPlayers} as a <em>delta</em>: rows of players that are
+     * still listed are updated in place (only their {@code starter} flag can change), rows of
+     * players no longer listed are removed (orphan removal deletes them) and only genuinely new
+     * players are added.
+     *
+     * <p>A naive {@code clear()} followed by {@code addAll()} does not work here: the child key
+     * {@code (lineup_id, player_user_id)} is natural, so re-saving a lineup for the same roster
+     * would put a removed row and a brand-new row with the same primary key into one persistence
+     * context. Hibernate then either issues the INSERT before the orphan DELETE (unique-key
+     * violation, surfacing as a 409) or refuses the second instance outright
+     * ({@code NonUniqueObjectException}). Updating in place never creates a duplicate identity.
+     */
     public void replacePlayers(List<LineupPlayer> newPlayers) {
-        players.clear();
-        newPlayers.forEach(player -> {
+        Map<Long, LineupPlayer> wanted = new LinkedHashMap<>();
+        newPlayers.forEach(player -> wanted.put(player.playerId(), player));
+
+        players.removeIf(existing -> !wanted.containsKey(existing.playerId()));
+        for (LineupPlayer existing : players) {
+            LineupPlayer incoming = wanted.remove(existing.playerId());
+            existing.setStarter(incoming.isStarter());
+        }
+        wanted.values().forEach(player -> {
             player.setLineup(this);
             players.add(player);
         });

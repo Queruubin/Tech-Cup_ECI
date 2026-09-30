@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { MatchPhase, MatchResponse, TeamMember } from '@/types/api'
 import { CancelMatchDialog } from './components/CancelMatchDialog'
 import { LineupEditor } from './components/LineupEditor'
-import { ResultForm } from './components/ResultForm'
+import { ResultForm, eventErrorsByIndex } from './components/ResultForm'
 import {
   EMPTY_RESULT_VALUES,
   LINEUP_STARTERS,
@@ -314,6 +314,39 @@ describe('ResultForm', () => {
   it('only offers the penalties inputs in knockout phases', () => {
     renderForm('GROUP')
     expect(screen.queryByLabelText(/^Penales de Leones FC/)).not.toBeInTheDocument()
+  })
+
+  it('shows backend per-event field errors next to the matching row', () => {
+    const match = playedFinal()
+    render(
+      <ResultForm
+        match={match}
+        rosters={{ home: HOME_ROSTER, away: AWAY_ROSTER }}
+        initial={resultValuesFromMatch(match)}
+        loading={false}
+        error={null}
+        fieldErrors={{ 'events[1].minute': 'debe ser menor o igual a 130', 'events[2].playerId': 'no pertenece al equipo' }}
+        onSubmit={vi.fn()}
+      />,
+    )
+    const rows = screen.getAllByRole('listitem')
+    expect(within(rows[0] as HTMLElement).queryByRole('alert')).not.toBeInTheDocument()
+    expect(within(rows[1] as HTMLElement).getByRole('alert')).toHaveTextContent('Minuto: debe ser menor o igual a 130')
+    expect(within(rows[2] as HTMLElement).getByRole('alert')).toHaveTextContent('Jugador: no pertenece al equipo')
+  })
+})
+
+describe('eventErrorsByIndex', () => {
+  it('groups events[n].field errors by row index and ignores unrelated fields', () => {
+    expect(
+      eventErrorsByIndex({
+        homeScore: 'x',
+        'events[0].minute': 'inválido',
+        'events[0].playerId': 'segundo error ignorado',
+        'events[3]': 'fila inválida',
+        'events[abc].minute': 'no coincide',
+      }),
+    ).toEqual({ 0: 'Minuto: inválido', 3: 'fila inválida' })
   })
 })
 

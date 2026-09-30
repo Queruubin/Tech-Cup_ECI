@@ -17,13 +17,19 @@ export function RequireAuth({ children }: { children?: ReactNode }) {
 
 export interface RequireRoleProps {
   roles: Role[]
+  /**
+   * Personal-scope pages ("Mi equipo", "Mis solicitudes", "Arbitraje"): the user must literally hold
+   * one of the roles; ADMIN does not imply them. Management pages keep the default ADMIN implication.
+   */
+  exact?: boolean
   children?: ReactNode
 }
 
-/** Renders a 403 state when the user lacks all of the given roles (ADMIN implies every role). */
-export function RequireRole({ roles, children }: RequireRoleProps) {
-  const { hasRole } = useAuth()
-  if (!hasRole(...roles)) {
+/** Renders a 403 state when the user lacks all of the given roles (ADMIN implies every role unless `exact`). */
+export function RequireRole({ roles, exact = false, children }: RequireRoleProps) {
+  const { hasRole, hasExactRole } = useAuth()
+  const allowed = exact ? hasExactRole(...roles) : hasRole(...roles)
+  if (!allowed) {
     return (
       <EmptyState
         title="Sin permisos"

@@ -72,7 +72,9 @@ services:
       DB_USER: techcup
       DB_PASSWORD: ${DB_PASSWORD:-techcup}
       MONGO_URI: mongodb://${MONGO_USER:-techcup}:${MONGO_PASSWORD:-techcup}@mongo:27017/techcup?authSource=admin
-      CORS_ORIGINS: http://localhost:5173
+      # Behind nginx the browser and the API share one origin, so CORS is normally not
+      # consulted; still, set this to the public URL (https://...) of the site when deploying.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       # Containers default to UTC. Date rules ("start on the start date", 18:00 kick-offs)
       # use the tournament's local time through app.time-zone.
       APP_TIME_ZONE: ${APP_TIME_ZONE:-America/Bogota}

@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router'
+import { Alert } from '@/components/molecules/Alert'
 import { AuthLayout } from '@/components/templates/AuthLayout'
+import { clearSessionExpired, peekSessionExpired } from '@/lib/session'
 import { useMutation } from '@/lib/useQuery'
 import { LoginForm } from '../components/LoginForm'
 import { useAuth } from '../hooks/useAuth'
@@ -12,7 +15,13 @@ export function LoginPage() {
   const { isAuthenticated, login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const from = (location.state as LocationState | null)?.from ?? '/'
+  // Capture the one-shot marker on the first render and clear it after mount: StrictMode may run
+  // the initializer more than once, so the read must not clear the store by itself.
+  const [expiredSession] = useState(() => peekSessionExpired())
+  useEffect(() => {
+    clearSessionExpired()
+  }, [])
+  const from = (location.state as LocationState | null)?.from ?? expiredSession.returnTo ?? '/'
 
   const mutation = useMutation(async (values: { email: string; password: string }) => {
     await login(values.email, values.password)
@@ -42,6 +51,11 @@ export function LoginPage() {
         </span>
       }
     >
+      {expiredSession.expired && (
+        <Alert kind="warning" className="mb-4">
+          Su sesión expiró. Inicie sesión de nuevo.
+        </Alert>
+      )}
       <LoginForm
         loading={mutation.loading}
         error={mutation.error}

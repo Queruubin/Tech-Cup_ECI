@@ -9,6 +9,7 @@ export function useAuth() {
   const logout = useAuthStore((state) => state.logout)
   const refreshMe = useAuthStore((state) => state.refreshMe)
   const hasRole = useAuthStore((state) => state.hasRole)
+  const hasExactRole = useAuthStore((state) => state.hasExactRole)
 
   return {
     token,
@@ -19,5 +20,6 @@ export function useAuth() {
     logout,
     refreshMe,
     hasRole,
+    hasExactRole,
   }
 }

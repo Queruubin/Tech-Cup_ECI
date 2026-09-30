@@ -3,7 +3,6 @@ package edu.escuelaing.techcup.tournaments.infrastructure;
 import edu.escuelaing.techcup.tournaments.domain.Tournament;
 import edu.escuelaing.techcup.tournaments.domain.TournamentStatus;
 import jakarta.persistence.LockModeType;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -15,8 +14,11 @@ public interface TournamentRepository extends JpaRepository<Tournament, Long> {
 
     List<Tournament> findAllByOrderByStartDateDescIdDesc();
 
-    /** Latest live tournament; backs {@code GET /tournaments/current}. */
-    Optional<Tournament> findFirstByStatusInOrderByStartDateDescIdDesc(Collection<TournamentStatus> statuses);
+    /**
+     * Latest tournament in one status; {@code GET /tournaments/current} asks for IN_PROGRESS first
+     * and falls back to ACTIVE, so the precedence between statuses lives in the service.
+     */
+    Optional<Tournament> findFirstByStatusOrderByStartDateDescIdDesc(TournamentStatus status);
 
     /**
      * Loads the tournament with a database write lock. Use cases that count and then create

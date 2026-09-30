@@ -21,8 +21,9 @@ import { ProfileForm } from '../components/ProfileForm'
 import { useMyProfile } from '../hooks/usePlayers'
 
 export function ProfilePage() {
-  const { user, hasRole, refreshMe } = useAuth()
-  const isPlayer = hasRole('PLAYER')
+  const { user, hasExactRole, refreshMe } = useAuth()
+  // Personal scope: an ADMIN without the PLAYER role has no sports profile to create.
+  const isPlayer = hasExactRole('PLAYER')
   const profileQuery = useMyProfile(isPlayer)
   const profile = profileQuery.data
   const [photo, setPhoto] = useState<File | null>(null)

@@ -25,6 +25,7 @@ import {
   EMPTY_REGISTER_VALUES,
   INSTITUTIONAL_DOMAINS,
   PASSWORD_MIN_LENGTH,
+  SEMESTER_MAX,
   requiresInstitutionalEmail,
   validateRegister,
   type RegisterFormErrors,
@@ -134,7 +135,7 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
             <Input
               type="number"
               min={1}
-              max={12}
+              max={SEMESTER_MAX}
               inputMode="numeric"
               value={values.semester}
               onChange={(event) => update('semester', event.target.value)}

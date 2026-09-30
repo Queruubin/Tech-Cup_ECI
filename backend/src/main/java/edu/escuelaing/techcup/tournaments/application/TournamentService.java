@@ -30,7 +30,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -46,7 +45,8 @@ import org.springframework.web.multipart.MultipartFile;
  *       with at least {@value #MIN_TEAMS_TO_START} approved registrations; registrations still
  *       under review are cancelled at that moment, since nothing can be approved afterwards.</li>
  *   <li>Finish (IN_PROGRESS &rarr; FINISHED) is allowed once the end date has been reached or the
- *       FINAL match has been played ({@link FinalMatchPort}).</li>
+ *       FINAL match has been played, and never while a match is still SCHEDULED, since no result
+ *       can be recorded afterwards ({@link FinalMatchPort}).</li>
  *   <li>The rulebook is a PDF and venues carry an optional image; both go through the
  *       {@link FileStorage} port and the binaries they replace or orphan are deleted after the
  *       transaction commits. Venues may not be touched once the tournament is FINISHED.</li>
@@ -64,8 +64,12 @@ public class TournamentService {
     static final String AUTO_CANCEL_NOTE =
             "Inscripción cancelada automáticamente: el torneo inició sin que fuera revisada.";
 
-    private static final Set<TournamentStatus> LIVE_STATUSES =
-            Set.of(TournamentStatus.ACTIVE, TournamentStatus.IN_PROGRESS);
+    /**
+     * Which live tournament the platform shows as "current", in order of precedence: one being
+     * played always wins over one still taking registrations, even when the latter starts later.
+     */
+    private static final List<TournamentStatus> CURRENT_STATUS_PRECEDENCE =
+            List.of(TournamentStatus.IN_PROGRESS, TournamentStatus.ACTIVE);
 
     private final TournamentRepository tournaments;
     private final VenueRepository venues;
@@ -104,7 +108,10 @@ public class TournamentService {
         return toResponse(requireTournament(id));
     }
 
-    /** The latest ACTIVE or IN_PROGRESS tournament, i.e. the one the platform is showing today. */
+    /**
+     * The tournament the platform is showing today: the latest IN_PROGRESS one, or else the latest
+     * ACTIVE one (see {@link #CURRENT_STATUS_PRECEDENCE}).
+     */
     @Transactional(readOnly = true)
     public Optional<TournamentResponse> findCurrent() {
         return currentTournament().map(this::toResponse);
@@ -112,7 +119,13 @@ public class TournamentService {
 
     @Transactional(readOnly = true)
     public Optional<Tournament> currentTournament() {
-        return tournaments.findFirstByStatusInOrderByStartDateDescIdDesc(LIVE_STATUSES);
+        for (TournamentStatus status : CURRENT_STATUS_PRECEDENCE) {
+            Optional<Tournament> found = tournaments.findFirstByStatusOrderByStartDateDescIdDesc(status);
+            if (found.isPresent()) {
+                return found;
+            }
+        }
+        return Optional.empty();
     }
 
     @Transactional(readOnly = true)
@@ -282,6 +295,8 @@ public class TournamentService {
     /**
      * IN_PROGRESS &rarr; FINISHED. Allowed once the end date has been reached, or earlier when the
      * FINAL match has already been played (the competition is over, whatever the calendar says).
+     * Refused while any match is still SCHEDULED: the organizer must record or cancel it first,
+     * because a FINISHED tournament accepts no more results.
      */
     @Transactional
     public TournamentResponse finish(AuthenticatedUser actor, Long id) {
@@ -292,6 +307,10 @@ public class TournamentService {
         if (!endDateReached && !finalPlayed) {
             throw new BusinessRuleException("El torneo no se puede finalizar antes de su fecha de cierre ("
                     + tournament.getEndDate() + ") a menos que ya se haya jugado la final.");
+        }
+        if (finalMatch.hasScheduledMatches(id)) {
+            throw new BusinessRuleException("El torneo todavía tiene partidos programados; registre su resultado "
+                    + "o cancélelos antes de finalizarlo.");
         }
         tournament.moveTo(TournamentStatus.FINISHED);
         auditService.record(actor.id(), AuditAction.TOURNAMENT_FINISHED, ENTITY_TYPE, id,

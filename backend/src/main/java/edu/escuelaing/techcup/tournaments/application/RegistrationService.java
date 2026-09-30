@@ -43,9 +43,10 @@ import org.springframework.web.multipart.MultipartFile;
  *       rejected or cancelled attempt may be replaced by a new one.</li>
  *   <li>A payment receipt (image or PDF) is mandatory and stored through the {@link FileStorage} port.</li>
  *   <li>Approve / reject are organizer-only and start from UNDER_REVIEW; approval requires the
- *       tournament to still be ACTIVE and re-checks the capacity under a lock on the tournament
- *       row, because several registrations may be waiting at the same time. Cancel is
- *       captain-only and also starts from UNDER_REVIEW.</li>
+ *       tournament to still be ACTIVE, re-checks the capacity under a lock on the tournament
+ *       row, because several registrations may be waiting at the same time, and re-runs the
+ *       eligibility rule on a team that must still be ACTIVE (the roster is not locked while the
+ *       registration is under review). Cancel is captain-only and also starts from UNDER_REVIEW.</li>
  * </ul>
  * The legal transitions themselves belong to the {@link RegistrationStatus} State machine.
  * Approving a registration is what "locks" a team (see {@code teams.application.TeamLockPort}):
@@ -184,6 +185,7 @@ public class RegistrationService {
                     + "su estado actual es «" + tournament.getStatus().label() + "».");
         }
         requireCapacity(tournament);
+        requireStillEligible(registration.getTeam());
         registration.moveTo(RegistrationStatus.APPROVED, userService.getUser(actor.id()), note);
         auditService.record(actor.id(), AuditAction.REGISTRATION_APPROVED, ENTITY_TYPE, registrationId,
                 Map.of("teamId", registration.getTeam().getId(),
@@ -206,6 +208,23 @@ public class RegistrationService {
     private Registration requireRegistration(Long registrationId) {
         return registrations.findById(registrationId)
                 .orElseThrow(() -> NotFoundException.of("la inscripción", registrationId));
+    }
+
+    /**
+     * The eligibility gate runs again at approval time: a registration may sit UNDER_REVIEW for
+     * days, and the team lock only starts once it is APPROVED, so in between the roster can shrink
+     * below the minimum, lose a profile, or the team itself can be inactivated.
+     */
+    private void requireStillEligible(Team team) {
+        if (!team.isActive()) {
+            throw new BusinessRuleException("El equipo '" + team.getName() + "' ya no está activo; "
+                    + "no se puede aprobar su inscripción.");
+        }
+        TeamEligibility.Result eligibility = teamService.eligibility(team.getId());
+        if (!eligibility.eligible()) {
+            throw new BusinessRuleException("El equipo '" + team.getName() + "' ya no cumple los requisitos "
+                    + "para participar: " + String.join(" ", eligibility.problems()));
+        }
     }
 
     private void requireCapacity(Tournament tournament) {

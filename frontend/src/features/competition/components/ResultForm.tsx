@@ -19,6 +19,31 @@ import {
 
 const EVENT_TYPE_OPTIONS = toOptions(EVENT_TYPES, EVENT_TYPE_LABELS)
 
+const EVENT_FIELD_PATTERN = /^events\[(\d+)\](?:\.(\w+))?$/
+const EVENT_FIELD_LABELS: Record<string, string> = {
+  teamId: 'Equipo',
+  playerId: 'Jugador',
+  type: 'Tipo',
+  minute: 'Minuto',
+}
+
+/**
+ * Groups backend field errors of the shape `events[n].field` (or `events[n]`) by row index, so each
+ * message can be shown next to its event row. Keeps the first message per row.
+ */
+export function eventErrorsByIndex(fieldErrors: Record<string, string>): Record<number, string> {
+  const byIndex: Record<number, string> = {}
+  for (const [field, message] of Object.entries(fieldErrors)) {
+    const match = EVENT_FIELD_PATTERN.exec(field)
+    if (!match) continue
+    const index = Number(match[1])
+    if (index in byIndex) continue
+    const label = match[2] ? EVENT_FIELD_LABELS[match[2]] : undefined
+    byIndex[index] = label ? `${label}: ${message}` : message
+  }
+  return byIndex
+}
+
 export interface ResultFormProps {
   match: MatchResponse
   /** Rosters used to pick the player of each event, keyed by side. */
@@ -83,6 +108,8 @@ export function ResultForm({ match, rosters, initial, loading, error, fieldError
   // untouched, empty form would flag every field in red before any interaction.
   const errorFor = (field: 'homeScore' | 'awayScore' | 'homePenalties' | 'awayPenalties') =>
     (submitted ? validation.errors[field] : undefined) ?? fieldErrors[field]
+  // Backend per-event errors arrive as `events[n].minute`, `events[n].playerId`, ... keyed by index.
+  const serverEventErrors = eventErrorsByIndex(fieldErrors)
 
   const homeGoals = goalsFor(values.events, 'home')
   const awayGoals = goalsFor(values.events, 'away')
@@ -155,13 +182,13 @@ export function ResultForm({ match, rosters, initial, loading, error, fieldError
           </p>
         ) : (
           <ul className="flex flex-col gap-3">
-            {values.events.map((event) => {
+            {values.events.map((event, index) => {
               const roster = event.side === 'away' ? rosters.away : event.side === 'home' ? rosters.home : []
               const playerOptions = roster.map((member) => ({
                 value: String(member.userId),
                 label: `#${member.jerseyNumber} ${member.fullName}`,
               }))
-              const rowError = submitted ? validation.eventErrors[event.key] : undefined
+              const rowError = (submitted ? validation.eventErrors[event.key] : undefined) ?? serverEventErrors[index]
               return (
                 <li key={event.key} className="rounded-xl border border-stone-200 bg-stone-50 p-3">
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_1fr_5rem_auto] sm:items-end">

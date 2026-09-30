@@ -11,9 +11,20 @@ export interface MyTeamCardProps {
   isCaptain: boolean
   isPlayer: boolean
   tournamentOpen: boolean
+  /** Current tournament, used to deep-link the captain to its registration tab. */
+  tournamentId?: number | null
 }
 
-export function MyTeamCard({ team, registration, isCaptain, isPlayer, tournamentOpen }: MyTeamCardProps) {
+/** A rejected or cancelled registration may be submitted again. */
+export function canRegisterAgain(registration: RegistrationResponse | null): boolean {
+  return registration === null || registration.status === 'REJECTED' || registration.status === 'CANCELLED'
+}
+
+export function registrationHref(tournamentId: number | null | undefined): string {
+  return tournamentId ? `/tournaments/${tournamentId}?tab=register` : '/tournaments'
+}
+
+export function MyTeamCard({ team, registration, isCaptain, isPlayer, tournamentOpen, tournamentId = null }: MyTeamCardProps) {
   if (!team) {
     return (
       <Card title="Mi equipo">
@@ -41,6 +52,8 @@ export function MyTeamCard({ team, registration, isCaptain, isPlayer, tournament
       </Card>
     )
   }
+
+  const showRegisterCta = isCaptain && tournamentOpen && canRegisterAgain(registration)
 
   return (
     <Card
@@ -77,9 +90,9 @@ export function MyTeamCard({ team, registration, isCaptain, isPlayer, tournament
             {isCaptain ? 'Gestionar equipo' : 'Ver equipo'}
           </Button>
         </Link>
-        {isCaptain && !registration && tournamentOpen && (
-          <Link to="/tournaments">
-            <Button size="sm">Inscribir equipo</Button>
+        {showRegisterCta && (
+          <Link to={registrationHref(tournamentId)}>
+            <Button size="sm">{registration ? 'Inscribir equipo de nuevo' : 'Inscribir equipo'}</Button>
           </Link>
         )}
       </div>

@@ -29,6 +29,7 @@ final class SanctionRule {
                        int accumulatedYellows) {
     }
 
+    /** @param reason user-facing Spanish sentence, shown verbatim by the frontend */
     record Sanction(Long userId, String fullName, String reason) {
     }
 
@@ -40,10 +41,10 @@ final class SanctionRule {
         for (PlayerFacts player : players) {
             if (player.sentOff()) {
                 sanctions.put(player.userId(),
-                        new Sanction(player.userId(), player.fullName(), "Sent off in the previous match"));
+                        new Sanction(player.userId(), player.fullName(), "Expulsado en el partido anterior"));
             } else if (player.bookedInPreviousMatch() && reachedAccumulation(player.accumulatedYellows())) {
                 sanctions.put(player.userId(), new Sanction(player.userId(), player.fullName(),
-                        "Accumulated " + player.accumulatedYellows() + " yellow cards"));
+                        "Acumuló " + player.accumulatedYellows() + " tarjetas amarillas"));
             }
         }
         return List.copyOf(new ArrayList<>(sanctions.values()));

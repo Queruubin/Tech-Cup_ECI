@@ -4,6 +4,7 @@ import { Input } from '@/components/atoms/Input'
 import { Select } from '@/components/atoms/Select'
 import { Alert } from '@/components/molecules/Alert'
 import { FormField } from '@/components/molecules/FormField'
+import { SEMESTER_MAX, SEMESTER_MIN, validateSemester } from '@/features/auth/validation'
 import { ACADEMIC_PROGRAM_LABELS, SCHOOL_RELATION_LABELS, toOptions } from '@/lib/labels'
 import {
   ACADEMIC_PROGRAMS,
@@ -38,8 +39,9 @@ export function BasicInfoForm({ user, loading, error, fieldErrors, onSubmit }: B
     const errors: { fullName?: string; semester?: string } = {}
     if (fullName.trim().length < 3) errors.fullName = 'Ingrese su nombre completo.'
     const semesterNumber = Number(semester)
-    if (schoolRelation === 'STUDENT' && (!semester.trim() || !Number.isInteger(semesterNumber) || semesterNumber < 1)) {
-      errors.semester = 'Ingrese un semestre válido.'
+    if (schoolRelation === 'STUDENT') {
+      const semesterError = validateSemester(semester)
+      if (semesterError) errors.semester = semesterError
     }
     setLocalErrors(errors)
     if (Object.keys(errors).length > 0) return
@@ -77,7 +79,7 @@ export function BasicInfoForm({ user, loading, error, fieldErrors, onSubmit }: B
         </FormField>
         {schoolRelation === 'STUDENT' && (
           <FormField label="Semestre" required error={localErrors.semester ?? fieldErrors.semester}>
-            <Input type="number" min={1} max={12} value={semester} onChange={(event) => setSemester(event.target.value)} />
+            <Input type="number" min={SEMESTER_MIN} max={SEMESTER_MAX} value={semester} onChange={(event) => setSemester(event.target.value)} />
           </FormField>
         )}
       </div>

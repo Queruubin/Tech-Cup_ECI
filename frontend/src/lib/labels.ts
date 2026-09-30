@@ -6,6 +6,7 @@ import type {
   Formation,
   InitialRole,
   JoinRequestStatus,
+  KnownAuditAction,
   MatchPhase,
   MatchStatus,
   Position,
@@ -125,15 +126,23 @@ export const FORMATION_LABELS: Record<Formation, string> = {
   F_1_3_2: '1-3-2',
 }
 
-/** Human-readable labels for known audit actions. Unknown actions fall back to the raw value. */
-export const AUDIT_ACTION_LABELS: Record<string, string> = {
+/** Human-readable labels for every known audit action. Unknown actions fall back to the raw value. */
+export const AUDIT_ACTION_LABELS: Record<KnownAuditAction, string> = {
   USER_REGISTERED: 'Registro de usuario',
   LOGIN: 'Inicio de sesión',
+  LOGIN_FAILED: 'Inicio de sesión fallido',
   LOGOUT: 'Cierre de sesión',
-  USER_UPDATED: 'Actualización de usuario',
+  PASSWORD_CHANGED: 'Cambio de contraseña',
+  PASSWORD_RESET_BY_ADMIN: 'Contraseña restablecida por administrador',
+  ROLE_ASSIGNED: 'Rol asignado',
+  ROLE_REMOVED: 'Rol removido',
+  REFEREE_CREATED: 'Creación de árbitro',
   USER_INACTIVATED: 'Inactivación de usuario',
+  USER_UPDATED: 'Actualización de usuario',
   PROFILE_CREATED: 'Creación de perfil deportivo',
   PROFILE_UPDATED: 'Actualización de perfil deportivo',
+  JOIN_REQUEST_CREATED: 'Solicitud de vinculación enviada',
+  JOIN_REQUEST_CANCELLED: 'Solicitud de vinculación cancelada',
   JOIN_REQUEST_ACCEPTED: 'Solicitud de vinculación aceptada',
   JOIN_REQUEST_REJECTED: 'Solicitud de vinculación rechazada',
   TEAM_CREATED: 'Creación de equipo',
@@ -146,18 +155,23 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   TOURNAMENT_ACTIVATED: 'Activación de torneo',
   TOURNAMENT_STARTED: 'Inicio de torneo',
   TOURNAMENT_FINISHED: 'Finalización de torneo',
+  RULEBOOK_UPLOADED: 'Reglamento cargado',
+  VENUE_CREATED: 'Creación de cancha',
+  VENUE_DELETED: 'Eliminación de cancha',
   REGISTRATION_CREATED: 'Inscripción creada',
   REGISTRATION_APPROVED: 'Inscripción aprobada',
   REGISTRATION_REJECTED: 'Inscripción rechazada',
   REGISTRATION_CANCELLED: 'Inscripción cancelada',
-  MATCH_CREATED: 'Creación de partido',
+  MATCHES_GENERATED: 'Fixture generado',
   MATCH_UPDATED: 'Actualización de partido',
-  MATCH_DELETED: 'Eliminación de partido',
+  MATCH_CANCELLED: 'Partido cancelado',
   MATCH_RESULT_RECORDED: 'Resultado registrado',
+  MATCH_RESULT_CORRECTED: 'Resultado corregido',
+  LINEUP_SAVED: 'Alineación guardada',
 }
 
 export function auditActionLabel(action: string): string {
-  return AUDIT_ACTION_LABELS[action] ?? action
+  return (AUDIT_ACTION_LABELS as Record<string, string | undefined>)[action] ?? action
 }
 
 /** Builds `{ value, label }` options from a label map, preserving the given key order. */

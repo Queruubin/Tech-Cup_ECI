@@ -4,6 +4,7 @@ import { useAuthStore } from '@/store/auth.store'
 /**
  * On startup, revalidates a persisted session against `GET /auth/me`.
  * A 401 is handled by the API client (session cleared + redirect).
+ * Later refreshes (route changes, tab visibility) live in `useSessionRefresh` within `AppLayout`.
  */
 export function SessionBootstrap({ children }: { children: ReactNode }) {
   const token = useAuthStore((state) => state.token)

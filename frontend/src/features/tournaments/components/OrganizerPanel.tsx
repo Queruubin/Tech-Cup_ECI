@@ -22,9 +22,12 @@ import { VenueGallery } from './VenueGallery'
 type Lifecycle = 'activate' | 'start' | 'finish' | 'delete' | 'generate' | 'advance'
 type Pending = { kind: Lifecycle } | { kind: 'deleteVenue'; venue: VenueResponse }
 
+export type TournamentUpdate = TournamentResponse | ((previous: TournamentResponse) => TournamentResponse)
+
 export interface OrganizerPanelProps {
   tournament: TournamentResponse
-  onUpdated: (tournament: TournamentResponse) => void
+  /** Accepts the new entity or a functional updater (used for venue add/remove to avoid stale closures). */
+  onUpdated: (update: TournamentUpdate) => void
 }
 
 const LIFECYCLE_COPY: Record<Lifecycle, { title: string; description: string; confirm: string; danger?: boolean }> = {
@@ -41,7 +44,8 @@ const LIFECYCLE_COPY: Record<Lifecycle, { title: string; description: string; co
   },
   finish: {
     title: 'Finalizar torneo',
-    description: 'Se permite cuando la fecha final es igual o posterior a hoy o cuando la final ya fue jugada.',
+    description:
+      'Se puede finalizar cuando la fecha de cierre ya llegó o cuando la final ya se jugó, y no queden partidos programados.',
     confirm: 'Finalizar',
   },
   delete: {
@@ -68,6 +72,8 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
   const [editing, setEditing] = useState(false)
   const [pending, setPending] = useState<Pending | null>(null)
   const [rulebook, setRulebook] = useState<File | null>(null)
+  // Remounts (clears) the venue form only after a successful create, never on delete.
+  const [venueFormKey, setVenueFormKey] = useState(0)
   const matches = useTournamentMatches(tournament.id, '', tournament.status === 'IN_PROGRESS' || tournament.status === 'FINISHED')
   const matchCount = matches.data?.length ?? 0
 
@@ -124,12 +130,12 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
   })
   const createVenue = useMutation(async (values: { name: string; description: string; file: File | null }) => {
     const venue = await tournamentsApi.createVenue(tournament.id, values)
-    onUpdated({ ...tournament, venues: [...tournament.venues, venue] })
+    onUpdated((previous) => ({ ...previous, venues: [...previous.venues, venue] }))
     return venue
   })
   const deleteVenue = useMutation(async (venue: VenueResponse) => {
     await tournamentsApi.deleteVenue(tournament.id, venue.id)
-    onUpdated({ ...tournament, venues: tournament.venues.filter((item) => item.id !== venue.id) })
+    onUpdated((previous) => ({ ...previous, venues: previous.venues.filter((item) => item.id !== venue.id) }))
   })
 
   const confirmPending = () => {
@@ -308,14 +314,17 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
             <p className="text-sm text-stone-500">El torneo finalizó; no se pueden agregar canchas.</p>
           ) : (
             <VenueForm
-              key={tournament.venues.length}
+              key={venueFormKey}
               loading={createVenue.loading}
               error={createVenue.error}
               fieldErrors={createVenue.fieldErrors}
               onSubmit={(values) =>
                 createVenue
                   .mutate(values)
-                  .then(() => toast.success('Cancha agregada.'))
+                  .then(() => {
+                    toast.success('Cancha agregada.')
+                    setVenueFormKey((value) => value + 1)
+                  })
                   .catch(() => undefined)
               }
             />

@@ -402,6 +402,23 @@ class MatchServiceTest {
     }
 
     @Test
+    void generatingTheGroupStageIsAuditedOnTheTournament() {
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
+        when(matches.existsByTournamentId(1L)).thenReturn(false);
+        when(tournamentService.approvedTeamIds(1L)).thenReturn(List.of(1L, 2L));
+        when(refereeService.activeReferees()).thenReturn(List.of());
+        when(teamService.requireTeam(1L)).thenReturn(team(1L, "Team 1"));
+        when(teamService.requireTeam(2L)).thenReturn(team(2L, "Team 2"));
+        when(matches.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var created = service.generate(ORGANIZER, 1L);
+
+        assertThat(created).isNotEmpty();
+        verify(auditService).record(eq(ORGANIZER.id()), eq(AuditAction.MATCHES_GENERATED), eq("TOURNAMENT"), eq(1L),
+                any());
+    }
+
+    @Test
     void advanceRefusesWhileTheCurrentPhaseIsUnfinished() {
         when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
         when(matches.findByTournamentIdOrderByScheduledAtAscIdAsc(1L))
@@ -434,6 +451,8 @@ class MatchServiceTest {
                 .containsExactly(1L, 2L, 3L, 4L);
         assertThat(created).extracting(response -> response.awayTeam().id())
                 .containsExactly(8L, 7L, 6L, 5L);
+        verify(auditService).record(eq(ORGANIZER.id()), eq(AuditAction.MATCHES_GENERATED), eq("TOURNAMENT"), eq(1L),
+                any());
     }
 
     @Test

@@ -19,7 +19,7 @@ class SanctionRuleTest {
 
         assertThat(sanctions).singleElement().satisfies(sanction -> {
             assertThat(sanction.userId()).isEqualTo(1L);
-            assertThat(sanction.reason()).contains("Sent off");
+            assertThat(sanction.reason()).isEqualTo("Expulsado en el partido anterior");
         });
     }
 
@@ -29,7 +29,7 @@ class SanctionRuleTest {
                 new PlayerFacts(2L, "Bruno", false, true, 2)));
 
         assertThat(sanctions).singleElement().satisfies(sanction ->
-                assertThat(sanction.reason()).isEqualTo("Accumulated 2 yellow cards"));
+                assertThat(sanction.reason()).isEqualTo("Acumuló 2 tarjetas amarillas"));
     }
 
     @Test
@@ -48,7 +48,7 @@ class SanctionRuleTest {
                 new PlayerFacts(2L, "Bruno", false, true, 4)));
 
         assertThat(sanctions).singleElement().satisfies(sanction ->
-                assertThat(sanction.reason()).isEqualTo("Accumulated 4 yellow cards"));
+                assertThat(sanction.reason()).isEqualTo("Acumuló 4 tarjetas amarillas"));
     }
 
     @Test
@@ -63,7 +63,7 @@ class SanctionRuleTest {
                 new PlayerFacts(3L, "Carla", true, true, 2)));
 
         assertThat(sanctions).singleElement().satisfies(sanction ->
-                assertThat(sanction.reason()).contains("Sent off"));
+                assertThat(sanction.reason()).isEqualTo("Expulsado en el partido anterior"));
     }
 
     @Test

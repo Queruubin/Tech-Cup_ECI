@@ -11,6 +11,8 @@ export interface NavItem {
   label: string
   /** Roles allowed to see the link. Empty means any authenticated user. */
   roles?: Role[]
+  /** When true the user must literally hold one of `roles` (ADMIN does not imply them). */
+  exactRoles?: boolean
   end?: boolean
 }
 
@@ -18,9 +20,20 @@ export interface NavbarProps {
   user: UserResponse | null
   /** Role check resolved by the container (ADMIN implies all). */
   hasRole: (...roles: Role[]) => boolean
+  /** Literal role check for personal-scope items (no ADMIN implication). Falls back to `hasRole`. */
+  hasExactRole?: (...roles: Role[]) => boolean
   items: NavItem[]
   onLogout: () => void
   loggingOut?: boolean
+}
+
+export function isNavItemVisible(
+  item: NavItem,
+  hasRole: (...roles: Role[]) => boolean,
+  hasExactRole: (...roles: Role[]) => boolean = hasRole,
+): boolean {
+  if (!item.roles || item.roles.length === 0) return true
+  return item.exactRoles ? hasExactRole(...item.roles) : hasRole(...item.roles)
 }
 
 function Brand() {
@@ -44,9 +57,9 @@ function linkClasses(isActive: boolean, mobile = false): string {
 }
 
 /** Role-aware top navigation. Presentational: receives the user and the visible items. */
-export function Navbar({ user, hasRole, items, onLogout, loggingOut }: NavbarProps) {
+export function Navbar({ user, hasRole, hasExactRole, items, onLogout, loggingOut }: NavbarProps) {
   const [open, setOpen] = useState(false)
-  const visible = items.filter((item) => !item.roles || item.roles.length === 0 || hasRole(...item.roles))
+  const visible = items.filter((item) => isNavItemVisible(item, hasRole, hasExactRole))
 
   return (
     <header className="sticky top-0 z-40 border-b border-stone-800 bg-ink text-white">

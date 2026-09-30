@@ -189,6 +189,7 @@ class RegistrationServiceTest {
         when(registrations.findById(9L)).thenReturn(Optional.of(registration));
         givenLockedTournament(TournamentStatus.ACTIVE);
         givenApprovedCount(1L);
+        givenEligible(true);
         when(userService.getUser(ORGANIZER.id())).thenReturn(user(ORGANIZER.id()));
 
         var response = service.approve(ORGANIZER, 9L, "Payment verified");
@@ -223,6 +224,37 @@ class RegistrationServiceTest {
     }
 
     @Test
+    void approvingReValidatesTheTeamEligibility() {
+        Registration registration = registration(RegistrationStatus.UNDER_REVIEW);
+        when(registrations.findById(9L)).thenReturn(Optional.of(registration));
+        givenLockedTournament(TournamentStatus.ACTIVE);
+        givenApprovedCount(1L);
+        givenEligible(false);
+
+        assertThatThrownBy(() -> service.approve(ORGANIZER, 9L, null))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("ya no cumple los requisitos")
+                .hasMessageContaining("al menos 7");
+        assertThat(registration.getStatus()).isEqualTo(RegistrationStatus.UNDER_REVIEW);
+        verify(auditService, never()).record(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void approvingRefusesAnInactiveTeam() {
+        Registration registration = registration(RegistrationStatus.UNDER_REVIEW);
+        registration.getTeam().setStatus(TeamStatus.INACTIVE);
+        when(registrations.findById(9L)).thenReturn(Optional.of(registration));
+        givenLockedTournament(TournamentStatus.ACTIVE);
+        givenApprovedCount(1L);
+
+        assertThatThrownBy(() -> service.approve(ORGANIZER, 9L, null))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("ya no está activo");
+        assertThat(registration.getStatus()).isEqualTo(RegistrationStatus.UNDER_REVIEW);
+        verify(teamService, never()).eligibility(any());
+    }
+
+    @Test
     void anApprovedRegistrationCannotBeRejected() {
         when(registrations.findById(9L)).thenReturn(Optional.of(registration(RegistrationStatus.APPROVED)));
         lenient().when(userService.getUser(ORGANIZER.id())).thenReturn(user(ORGANIZER.id()));
@@ -237,6 +269,7 @@ class RegistrationServiceTest {
         when(registrations.findById(9L)).thenReturn(Optional.of(registration(RegistrationStatus.APPROVED)));
         givenLockedTournament(TournamentStatus.ACTIVE);
         givenApprovedCount(1L);
+        givenEligible(true);
         lenient().when(userService.getUser(ORGANIZER.id())).thenReturn(user(ORGANIZER.id()));
 
         assertThatThrownBy(() -> service.approve(ORGANIZER, 9L, null))

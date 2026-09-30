@@ -32,7 +32,11 @@ export function MatchDetailPage() {
 
   const query = useMatch(matchId)
   const match = query.data
+  // Rescheduling only makes sense before kick-off.
   const editable = !!match && match.status === 'SCHEDULED' && isFuture(match.scheduledAt)
+  // Cancelling (e.g. NO_SHOW) happens after kick-off too: the server only requires a SCHEDULED match
+  // of a tournament in progress.
+  const cancellable = !!match && match.status === 'SCHEDULED'
   // The server decides when a result can be recorded or corrected.
   const canRecordResult = !!match && match.resultEditable
   const isCorrection = !!match && match.status === 'PLAYED'
@@ -100,14 +104,18 @@ export function MatchDetailPage() {
                 description={
                   editable
                     ? 'Puede reprogramar el partido y reasignar cancha y árbitro mientras no haya comenzado.'
-                    : 'La programación solo se puede editar mientras la fecha del partido sea futura y el partido esté programado.'
+                    : cancellable
+                      ? 'La fecha ya pasó: solo es posible cancelar el partido (por ejemplo, por no presentación).'
+                      : 'La programación solo se puede editar mientras la fecha del partido sea futura y el partido esté programado.'
                 }
                 actions={
-                  editable && (
+                  cancellable && (
                     <div className="flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={() => setEditing((value) => !value)}>
-                        {editing ? 'Cerrar edición' : 'Editar'}
-                      </Button>
+                      {editable && (
+                        <Button size="sm" variant="outline" onClick={() => setEditing((value) => !value)}>
+                          {editing ? 'Cerrar edición' : 'Editar'}
+                        </Button>
+                      )}
                       <Button size="sm" variant="danger" onClick={() => setCancelOpen(true)}>
                         Cancelar partido
                       </Button>
@@ -149,7 +157,9 @@ export function MatchDetailPage() {
                   <p className="text-sm text-stone-500">
                     {editable
                       ? 'Seleccione “Editar” para modificar la fecha, la cancha o el árbitro.'
-                      : 'No hay acciones de programación disponibles para este partido.'}
+                      : cancellable
+                        ? 'El partido ya no se puede reprogramar. Si un equipo no se presentó, cancélelo con el motivo correspondiente.'
+                        : 'No hay acciones de programación disponibles para este partido.'}
                   </p>
                 )}
               </Card>

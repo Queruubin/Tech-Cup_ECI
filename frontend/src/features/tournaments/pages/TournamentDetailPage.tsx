@@ -95,7 +95,14 @@ export function TournamentDetailPage() {
           {active === 'matches' && <MatchesTab tournamentId={tournament.id} highlightTeamId={user?.teamId ?? null} />}
           {active === 'stats' && <StatsTab tournamentId={tournament.id} />}
           {active === 'register' && isCaptain && <CaptainRegistration tournament={tournament} onRegistered={query.refetch} />}
-          {active === 'manage' && isOrganizer && <OrganizerPanel tournament={tournament} onUpdated={(updated) => query.setData(updated)} />}
+          {active === 'manage' && isOrganizer && (
+            <OrganizerPanel
+              tournament={tournament}
+              onUpdated={(update) =>
+                query.setData((previous) => (typeof update === 'function' ? (previous ? update(previous) : previous) : update))
+              }
+            />
+          )}
         </>
       )}
     </QueryState>

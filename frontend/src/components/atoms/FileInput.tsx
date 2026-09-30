@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useId, useRef, useState, type ChangeEvent } from 'react'
 import { cn } from '@/lib/cn'
 import { formatSize, validateFile } from '@/lib/uploads'
 
@@ -39,6 +39,12 @@ export function FileInput({
   const resetInput = () => {
     if (inputRef.current) inputRef.current.value = ''
   }
+
+  // When the parent clears the value (e.g. after a successful upload) the native input must be
+  // cleared too; otherwise picking the same file again does not fire `change`.
+  useEffect(() => {
+    if (value === null) resetInput()
+  }, [value])
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null

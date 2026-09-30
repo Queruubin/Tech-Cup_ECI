@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UserResponse } from '@/types/api'
-import { AUTH_STORAGE_KEY, useAuthStore, userHasRole } from './auth.store'
+import { SESSION_EXPIRED_KEY, SESSION_RETURN_TO_KEY } from '@/lib/session'
+import { AUTH_STORAGE_KEY, handleUnauthorized, useAuthStore, userHasExactRole, userHasRole } from './auth.store'
 
 const baseUser: UserResponse = {
   id: 7,
@@ -57,6 +58,54 @@ describe('auth.store', () => {
     it('returns true for an empty role list when authenticated', () => {
       expect(userHasRole(baseUser, [])).toBe(true)
       expect(userHasRole(null, [])).toBe(false)
+    })
+
+    it('hasExactRole does not let ADMIN imply personal-scope roles', () => {
+      expect(userHasExactRole({ ...baseUser, roles: ['ADMIN'] }, ['PLAYER'])).toBe(false)
+      expect(userHasExactRole({ ...baseUser, roles: ['ADMIN'] }, ['ADMIN'])).toBe(true)
+      expect(userHasExactRole({ ...baseUser, roles: ['ADMIN', 'CAPTAIN'] }, ['CAPTAIN'])).toBe(true)
+      expect(userHasExactRole({ ...baseUser, roles: ['PLAYER'] }, ['CAPTAIN', 'PLAYER'])).toBe(true)
+      expect(userHasExactRole(null, ['PLAYER'])).toBe(false)
+
+      useAuthStore.setState({ token: 't', user: { ...baseUser, roles: ['ADMIN'] } })
+      expect(useAuthStore.getState().hasRole('PLAYER')).toBe(true)
+      expect(useAuthStore.getState().hasExactRole('PLAYER')).toBe(false)
+    })
+  })
+
+  describe('handleUnauthorized', () => {
+    beforeEach(() => {
+      sessionStorage.clear()
+      window.history.replaceState(null, '', '/tournaments/5?tab=matches')
+    })
+
+    it('clears the session, stores the expiry marker with the return path and redirects to /login', () => {
+      useAuthStore.setState({ token: 'jwt-123', expiresAt: 'x', user: baseUser })
+      const redirect = vi.fn()
+
+      handleUnauthorized(redirect)
+
+      expect(useAuthStore.getState().token).toBeNull()
+      expect(useAuthStore.getState().user).toBeNull()
+      expect(sessionStorage.getItem(SESSION_EXPIRED_KEY)).toBe('1')
+      expect(sessionStorage.getItem(SESSION_RETURN_TO_KEY)).toBe('/tournaments/5?tab=matches')
+      expect(redirect).toHaveBeenCalledWith('/login')
+    })
+
+    it('does nothing without a session (e.g. a failed login attempt)', () => {
+      const redirect = vi.fn()
+      handleUnauthorized(redirect)
+      expect(redirect).not.toHaveBeenCalled()
+      expect(sessionStorage.getItem(SESSION_EXPIRED_KEY)).toBeNull()
+    })
+
+    it('does not redirect again when already on /login', () => {
+      window.history.replaceState(null, '', '/login')
+      useAuthStore.setState({ token: 'jwt-123', expiresAt: 'x', user: baseUser })
+      const redirect = vi.fn()
+      handleUnauthorized(redirect)
+      expect(useAuthStore.getState().token).toBeNull()
+      expect(redirect).not.toHaveBeenCalled()
     })
   })
 

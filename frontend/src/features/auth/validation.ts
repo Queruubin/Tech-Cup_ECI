@@ -1,4 +1,17 @@
+import { todayIso } from '@/lib/format'
 import type { AcademicProgram, DocumentType, InitialRole, RegisterRequest, SchoolRelation } from '@/types/api'
+
+/** Semester range accepted by the backend for students. */
+export const SEMESTER_MIN = 1
+export const SEMESTER_MAX = 20
+
+export function validateSemester(raw: string): string | undefined {
+  const semester = Number(raw)
+  if (!raw.trim() || !Number.isInteger(semester) || semester < SEMESTER_MIN || semester > SEMESTER_MAX) {
+    return `Ingrese un semestre válido (${SEMESTER_MIN} a ${SEMESTER_MAX}).`
+  }
+  return undefined
+}
 
 /** Institutional email domains accepted for non-family members (mirrors `app.institutional-domains`). */
 export const INSTITUTIONAL_DOMAINS = ['escuelaing.edu.co', 'mail.escuelaing.edu.co'] as const
@@ -123,15 +136,14 @@ export function validateRegister(values: RegisterFormValues): RegisterFormErrors
   if (!values.academicProgram) errors.academicProgram = 'Seleccione un programa académico.'
 
   if (values.schoolRelation === 'STUDENT') {
-    const semester = Number(values.semester)
-    if (!values.semester.trim() || !Number.isInteger(semester) || semester < 1 || semester > 12) {
-      errors.semester = 'Ingrese un semestre válido (1 a 12).'
-    }
+    const semesterError = validateSemester(values.semester)
+    if (semesterError) errors.semester = semesterError
   }
 
   if (!values.birthDate) {
     errors.birthDate = 'Ingrese su fecha de nacimiento.'
-  } else if (new Date(values.birthDate) >= new Date()) {
+  } else if (values.birthDate >= todayIso()) {
+    // ISO `YYYY-MM-DD` strings compare lexicographically; today and future dates are rejected.
     errors.birthDate = 'La fecha de nacimiento debe ser anterior a hoy.'
   }
 

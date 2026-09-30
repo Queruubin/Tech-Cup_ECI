@@ -81,6 +81,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class MatchService {
 
     static final String ENTITY_TYPE = "MATCH";
+    /** Fixture generation is an event of the tournament, not of any single match. */
+    static final String TOURNAMENT_ENTITY_TYPE = "TOURNAMENT";
     static final int KICK_OFF_HOUR = 18;
     private static final int TEAMS_FOR_QUARTERFINALS = 8;
     private static final int TEAMS_FOR_SEMIFINALS = 4;
@@ -201,7 +203,7 @@ public class MatchService {
         List<Match> created = persist(tournament, MatchPhase.GROUP, roundRobinStrategy.generate(teamIds),
                 0, firstAvailableMatchDay(tournament.getStartDate()));
 
-        auditService.record(actor.id(), AuditAction.MATCHES_GENERATED, ENTITY_TYPE, tournamentId,
+        auditService.record(actor.id(), AuditAction.MATCHES_GENERATED, TOURNAMENT_ENTITY_TYPE, tournamentId,
                 Map.of("tournamentId", tournamentId, "phase", MatchPhase.GROUP.name(),
                         "matches", created.size(), "teams", teamIds.size()));
         return assembler.toResponses(created);
@@ -250,7 +252,7 @@ public class MatchService {
         List<Match> created = persist(tournament, nextPhase, knockoutStrategy.generate(qualified),
                 roundOffset, firstAvailableMatchDay(lastDate.plusDays(1)));
 
-        auditService.record(actor.id(), AuditAction.MATCHES_GENERATED, ENTITY_TYPE, tournamentId,
+        auditService.record(actor.id(), AuditAction.MATCHES_GENERATED, TOURNAMENT_ENTITY_TYPE, tournamentId,
                 Map.of("tournamentId", tournamentId, "phase", nextPhase.name(), "matches", created.size()));
         return assembler.toResponses(created);
     }

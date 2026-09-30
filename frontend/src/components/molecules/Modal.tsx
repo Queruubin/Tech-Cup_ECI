@@ -1,7 +1,18 @@
-import { useEffect, useId, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/atoms/Button'
 import { cn } from '@/lib/cn'
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/** First focusable element inside the dialog body/footer (skipping the close "x"), or the dialog itself. */
+function initialFocusTarget(dialog: HTMLElement): HTMLElement {
+  const candidates = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (element) => element.getAttribute('aria-label') !== 'Cerrar',
+  )
+  return candidates[0] ?? dialog
+}
 
 export interface ModalProps {
   open: boolean
@@ -17,6 +28,7 @@ const SIZE_CLASSES = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl' } as cons
 
 export function Modal({ open, onClose, title, description, children, footer, size = 'md' }: ModalProps) {
   const titleId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -32,15 +44,28 @@ export function Modal({ open, onClose, title, description, children, footer, siz
     }
   }, [open, onClose])
 
+  // Focus management: move focus into the dialog on open and give it back on close.
+  useEffect(() => {
+    if (!open) return
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const dialog = dialogRef.current
+    if (dialog) initialFocusTarget(dialog).focus()
+    return () => {
+      if (previouslyFocused && previouslyFocused.isConnected) previouslyFocused.focus()
+    }
+  }, [open])
+
   if (!open) return null
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="presentation">
       <div className="absolute inset-0 bg-ink/50" onClick={onClose} aria-hidden="true" />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        tabIndex={-1}
         className={cn(
           'relative m-0 w-full rounded-t-2xl bg-white shadow-xl sm:m-4 sm:rounded-2xl',
           SIZE_CLASSES[size],

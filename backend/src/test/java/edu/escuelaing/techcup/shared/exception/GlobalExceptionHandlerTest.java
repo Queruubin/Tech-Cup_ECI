@@ -3,14 +3,21 @@ package edu.escuelaing.techcup.shared.exception;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.sql.SQLException;
+import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.InsufficientAuthenticationException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
@@ -19,6 +26,11 @@ class GlobalExceptionHandlerTest {
 
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
     private final MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/matches/abc");
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
 
     @Test
     void typeMismatchAnswersWithAConstantMessageAndTheParameterName() {
@@ -82,6 +94,41 @@ class GlobalExceptionHandlerTest {
                 request).getBody().message()).isEqualTo("El correo o la contraseña no son correctos.");
         assertThat(handler.unauthorized(new InsufficientAuthenticationException("Full authentication is required"),
                 request).getBody().message()).isEqualTo(GlobalExceptionHandler.AUTHENTICATION_FAILED);
+    }
+
+    // --- access denied ----------------------------------------------------------------------
+
+    @Test
+    void accessDeniedWithoutAnyAuthenticationIsAnUnauthorized() {
+        SecurityContextHolder.clearContext();
+
+        ResponseEntity<ApiError> response = handler.accessDenied(new AccessDeniedException("Access Denied"), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(response.getBody().message()).isEqualTo(GlobalExceptionHandler.AUTHENTICATION_FAILED);
+    }
+
+    @Test
+    void accessDeniedForAnAnonymousCallerIsAnUnauthorized() {
+        SecurityContextHolder.getContext().setAuthentication(new AnonymousAuthenticationToken("key", "anonymousUser",
+                List.of(new SimpleGrantedAuthority("ROLE_ANONYMOUS"))));
+
+        ResponseEntity<ApiError> response = handler.accessDenied(new AccessDeniedException("Access Denied"), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(response.getBody().message()).isEqualTo(GlobalExceptionHandler.AUTHENTICATION_FAILED);
+    }
+
+    @Test
+    void accessDeniedForAnAuthenticatedCallerStaysAForbidden() {
+        SecurityContextHolder.getContext().setAuthentication(UsernamePasswordAuthenticationToken.authenticated(
+                "player@escuelaing.edu.co", null, List.of(new SimpleGrantedAuthority("ROLE_PLAYER"))));
+
+        ResponseEntity<ApiError> response = handler.accessDenied(new AccessDeniedException("Access Denied"), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody().message()).isEqualTo(GlobalExceptionHandler.ACCESS_DENIED);
+        assertThat(response.getBody().message()).doesNotContain("Access Denied");
     }
 
     @Test

@@ -1,8 +1,48 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { todayIso } from '@/lib/format'
 import { ChangePasswordForm } from './components/ChangePasswordForm'
-import { validateNewPassword, validatePasswordChange } from './validation'
+import { EMPTY_REGISTER_VALUES, validateNewPassword, validatePasswordChange, validateRegister, validateSemester } from './validation'
+
+describe('validateRegister', () => {
+  const valid = {
+    ...EMPTY_REGISTER_VALUES,
+    fullName: 'Ana Pérez',
+    email: 'ana.perez@escuelaing.edu.co',
+    password: 'Clave1234',
+    confirmPassword: 'Clave1234',
+    schoolRelation: 'STUDENT' as const,
+    academicProgram: 'SYSTEMS_ENGINEERING' as const,
+    semester: '5',
+    birthDate: '2003-04-10',
+    documentType: 'CC' as const,
+    documentNumber: '1001',
+  }
+
+  it('accepts semesters from 1 to 20 (backend range) and rejects the rest', () => {
+    expect(validateSemester('1')).toBeUndefined()
+    expect(validateSemester('20')).toBeUndefined()
+    expect(validateSemester('0')).toMatch(/1 a 20/)
+    expect(validateSemester('21')).toMatch(/1 a 20/)
+    expect(validateSemester('2.5')).toMatch(/1 a 20/)
+    expect(validateSemester('')).toMatch(/1 a 20/)
+    expect(validateRegister({ ...valid, semester: '15' }).semester).toBeUndefined()
+    expect(validateRegister({ ...valid, semester: '21' }).semester).toMatch(/1 a 20/)
+  })
+
+  it('rejects a birth date of today or later', () => {
+    const today = todayIso()
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const tomorrowIso = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`
+
+    expect(validateRegister({ ...valid, birthDate: today }).birthDate).toMatch(/anterior a hoy/)
+    expect(validateRegister({ ...valid, birthDate: tomorrowIso }).birthDate).toMatch(/anterior a hoy/)
+    expect(validateRegister({ ...valid, birthDate: '2003-04-10' }).birthDate).toBeUndefined()
+    expect(validateRegister(valid)).toEqual({})
+  })
+})
 
 describe('validateNewPassword', () => {
   it('accepts 8 to 72 characters with at least one letter and one digit', () => {

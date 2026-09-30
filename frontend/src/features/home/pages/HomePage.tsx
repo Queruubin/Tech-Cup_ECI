@@ -12,12 +12,13 @@ import { TournamentSummary } from '../components/TournamentSummary'
 import { useHome } from '../hooks/useHome'
 
 export function HomePage() {
-  const { user, hasRole } = useAuth()
+  const { user, hasRole, hasExactRole } = useAuth()
   const { data, loading, error, refetch } = useHome()
 
   const firstName = user?.fullName.split(' ')[0] ?? ''
-  const isCaptain = hasRole('CAPTAIN')
-  const isPlayer = hasRole('PLAYER')
+  // Personal scope ("Mi equipo" card): ADMIN does not imply being a captain or a player.
+  const isCaptain = hasExactRole('CAPTAIN')
+  const isPlayer = hasExactRole('PLAYER')
 
   return (
     <>
@@ -52,6 +53,7 @@ export function HomePage() {
                   isCaptain={isCaptain}
                   isPlayer={isPlayer}
                   tournamentOpen={data.tournament?.status === 'ACTIVE'}
+                  tournamentId={data.tournament?.id ?? null}
                 />
               </div>
 

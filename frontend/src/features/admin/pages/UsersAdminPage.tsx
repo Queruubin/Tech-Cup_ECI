@@ -16,7 +16,7 @@ import { UsersTable } from '../components/UsersTable'
 import { useDebouncedValue, useUsers } from '../hooks/useAdmin'
 
 export function UsersAdminPage() {
-  const { user: me, hasRole } = useAuth()
+  const { user: me, hasRole, refreshMe } = useAuth()
   const isAdmin = hasRole('ADMIN')
   const canManageCaptains = hasRole('ORGANIZER')
 
@@ -48,6 +48,8 @@ export function UsersAdminPage() {
         : await adminApi.removeRole(input.userId, input.role)
     setRolesList(roles)
     usersQuery.setData((previous) => previous?.map((item) => (item.id === input.userId ? { ...item, roles } : item)) ?? null)
+    // Editing one's own roles must be reflected in the session (nav items, guards) right away.
+    if (input.userId === me?.id) await refreshMe().catch(() => null)
     return roles
   })
 
@@ -56,6 +58,7 @@ export function UsersAdminPage() {
       ? await adminApi.revokeCaptain(user.id)
       : await adminApi.grantCaptain(user.id)
     replaceUser(updated)
+    if (updated.id === me?.id) await refreshMe().catch(() => null)
     return updated
   })
 

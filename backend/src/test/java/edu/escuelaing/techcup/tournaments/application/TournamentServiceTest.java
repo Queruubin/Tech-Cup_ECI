@@ -252,6 +252,35 @@ class TournamentServiceTest {
     }
 
     @Test
+    void finishIsRefusedWhileAMatchIsStillScheduled() {
+        Tournament tournament = withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file");
+        tournament.setEndDate(TODAY);
+        given(tournament);
+        when(finalMatch.isFinalMatchPlayed(1L)).thenReturn(false);
+        when(finalMatch.hasScheduledMatches(1L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.finish(ORGANIZER, 1L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("partidos programados");
+        assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.IN_PROGRESS);
+        verify(auditService, never()).record(any(), eq(AuditAction.TOURNAMENT_FINISHED), any(), any(), any());
+    }
+
+    @Test
+    void finishIsRefusedAfterTheFinalWhileAnotherMatchIsStillScheduled() {
+        Tournament tournament = withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file");
+        tournament.setEndDate(TODAY.plusDays(5));
+        given(tournament);
+        when(finalMatch.isFinalMatchPlayed(1L)).thenReturn(true);
+        when(finalMatch.hasScheduledMatches(1L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.finish(ORGANIZER, 1L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("partidos programados");
+        assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.IN_PROGRESS);
+    }
+
+    @Test
     void anActiveTournamentCannotBeFinished() {
         Tournament tournament = withStatus(TournamentStatus.ACTIVE, "rulebook-file");
         tournament.setEndDate(TODAY);
@@ -261,6 +290,36 @@ class TournamentServiceTest {
         assertThatThrownBy(() -> service.finish(ORGANIZER, 1L))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("«activo»");
+    }
+
+    // --- current ------------------------------------------------------------------------------
+
+    @Test
+    void theCurrentTournamentIsTheOneInProgressEvenWhenAnActiveOneStartsLater() {
+        Tournament inProgress = withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file");
+        when(tournaments.findFirstByStatusOrderByStartDateDescIdDesc(TournamentStatus.IN_PROGRESS))
+                .thenReturn(Optional.of(inProgress));
+
+        assertThat(service.currentTournament()).contains(inProgress);
+        verify(tournaments, never()).findFirstByStatusOrderByStartDateDescIdDesc(TournamentStatus.ACTIVE);
+    }
+
+    @Test
+    void theCurrentTournamentFallsBackToTheLatestActiveOne() {
+        Tournament active = withStatus(TournamentStatus.ACTIVE, "rulebook-file");
+        when(tournaments.findFirstByStatusOrderByStartDateDescIdDesc(TournamentStatus.IN_PROGRESS))
+                .thenReturn(Optional.empty());
+        when(tournaments.findFirstByStatusOrderByStartDateDescIdDesc(TournamentStatus.ACTIVE))
+                .thenReturn(Optional.of(active));
+
+        assertThat(service.currentTournament()).contains(active);
+    }
+
+    @Test
+    void thereIsNoCurrentTournamentWithoutALiveOne() {
+        when(tournaments.findFirstByStatusOrderByStartDateDescIdDesc(any())).thenReturn(Optional.empty());
+
+        assertThat(service.currentTournament()).isEmpty();
     }
 
     // --- edits --------------------------------------------------------------------------------

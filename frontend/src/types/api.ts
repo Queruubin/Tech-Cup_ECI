@@ -62,14 +62,23 @@ export type Formation = (typeof FORMATIONS)[number]
 export const INITIAL_ROLES = ['PLAYER', 'GUEST'] as const
 export type InitialRole = (typeof INITIAL_ROLES)[number]
 
+/** Mirrors the backend `AuditAction` enum exactly; the audit filter sends these values verbatim. */
 export const AUDIT_ACTIONS = [
   'USER_REGISTERED',
   'LOGIN',
+  'LOGIN_FAILED',
   'LOGOUT',
-  'USER_UPDATED',
+  'PASSWORD_CHANGED',
+  'PASSWORD_RESET_BY_ADMIN',
+  'ROLE_ASSIGNED',
+  'ROLE_REMOVED',
+  'REFEREE_CREATED',
   'USER_INACTIVATED',
+  'USER_UPDATED',
   'PROFILE_CREATED',
   'PROFILE_UPDATED',
+  'JOIN_REQUEST_CREATED',
+  'JOIN_REQUEST_CANCELLED',
   'JOIN_REQUEST_ACCEPTED',
   'JOIN_REQUEST_REJECTED',
   'TEAM_CREATED',
@@ -82,17 +91,23 @@ export const AUDIT_ACTIONS = [
   'TOURNAMENT_ACTIVATED',
   'TOURNAMENT_STARTED',
   'TOURNAMENT_FINISHED',
+  'RULEBOOK_UPLOADED',
+  'VENUE_CREATED',
+  'VENUE_DELETED',
   'REGISTRATION_CREATED',
   'REGISTRATION_APPROVED',
   'REGISTRATION_REJECTED',
   'REGISTRATION_CANCELLED',
-  'MATCH_CREATED',
+  'MATCHES_GENERATED',
   'MATCH_UPDATED',
-  'MATCH_DELETED',
+  'MATCH_CANCELLED',
   'MATCH_RESULT_RECORDED',
+  'MATCH_RESULT_CORRECTED',
+  'LINEUP_SAVED',
 ] as const
+export type KnownAuditAction = (typeof AUDIT_ACTIONS)[number]
 /** Known audit actions. The backend may emit others; treat as an open string. */
-export type AuditAction = (typeof AUDIT_ACTIONS)[number] | (string & {})
+export type AuditAction = KnownAuditAction | (string & {})
 
 // ---------------------------------------------------------------------------
 // Errors

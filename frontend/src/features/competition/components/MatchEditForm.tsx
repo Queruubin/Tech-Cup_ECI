@@ -55,14 +55,15 @@ export function MatchEditForm({ match, venues, referees, loading, error, fieldEr
         <FormField label="Fecha y hora" error={localError ?? fieldErrors.scheduledAt}>
           <Input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
         </FormField>
+        {/* An empty select means "keep the current value": the API cannot unassign a venue or referee. */}
         <FormField
           label="Cancha"
           error={fieldErrors.venueId}
-          hint={venues.length === 0 ? 'El torneo no tiene canchas registradas.' : undefined}
+          hint={venues.length === 0 ? 'El torneo no tiene canchas registradas.' : 'Deje “Sin cambios” para conservar la actual.'}
         >
           <Select
             options={venueOptions}
-            placeholder="Sin asignar"
+            placeholder="Sin cambios"
             value={venueId}
             onChange={(event) => setVenueId(event.target.value)}
             disabled={venues.length === 0}
@@ -71,11 +72,11 @@ export function MatchEditForm({ match, venues, referees, loading, error, fieldEr
         <FormField
           label="Árbitro"
           error={fieldErrors.refereeId}
-          hint={referees.length === 0 ? 'No hay árbitros registrados.' : undefined}
+          hint={referees.length === 0 ? 'No hay árbitros registrados.' : 'Deje “Sin cambios” para conservar el actual.'}
         >
           <Select
             options={refereeOptions}
-            placeholder="Sin asignar"
+            placeholder="Sin cambios"
             value={refereeId}
             onChange={(event) => setRefereeId(event.target.value)}
             disabled={referees.length === 0}

@@ -15,6 +15,8 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
 
     boolean existsByTournamentIdAndPhaseAndStatus(Long tournamentId, MatchPhase phase, MatchStatus status);
 
+    boolean existsByTournamentIdAndStatus(Long tournamentId, MatchStatus status);
+
     List<Match> findByTournamentIdOrderByScheduledAtAscIdAsc(Long tournamentId);
 
     List<Match> findByTournamentIdAndPhaseOrderByIdAsc(Long tournamentId, MatchPhase phase);
