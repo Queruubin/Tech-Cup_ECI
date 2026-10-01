@@ -4,7 +4,10 @@
 # at least JWT_SECRET and ADMIN_PASSWORD; the backend refuses to start with the dev defaults.
 #
 # Every published port is bound to 127.0.0.1 so the databases and the API are never reachable
-# from other machines; only the frontend (5173) is exposed.
+# from other machines; only the frontend is exposed. Host ports can be changed from .env to
+# avoid clashes with other applications on the same server: WEB_PORT (default 5173),
+# BACKEND_HOST_PORT (8080), POSTGRES_HOST_PORT (5433) and MONGO_HOST_PORT (27018). The
+# containers talk to each other on Docker's internal network, so only WEB_PORT matters.
 services:
   postgres:
     image: postgres:16-alpine
@@ -17,7 +20,7 @@ services:
     # Host port 5433 on purpose: many machines already run a native PostgreSQL on
     # 5432, which would silently win the connection and fail authentication.
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - techcup_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -37,7 +40,7 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-techcup}
     # Host port 27018 for the same reason as PostgreSQL above.
     ports:
-      - "127.0.0.1:27018:27017"
+      - "127.0.0.1:${MONGO_HOST_PORT:-27018}:27017"
     volumes:
       - techcup_mongodata:/data/db
     healthcheck:
@@ -86,7 +89,7 @@ services:
       APP_PLAYER_MIN_AGE: ${APP_PLAYER_MIN_AGE:-5}
       APP_PLAYER_MAX_AGE: ${APP_PLAYER_MAX_AGE:-100}
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8080}:8080"
 
   frontend:
     build: ./frontend
@@ -96,7 +99,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "5173:80"
+      - "${WEB_PORT:-5173}:80"
 
 volumes:
   techcup_pgdata:

@@ -47,7 +47,7 @@ and opens the app in the browser.
 |---|---|
 | Docker | Docker Desktop on Windows and macOS, or Docker Engine with the Compose v2 plugin on Linux. It must be **running** before you launch. |
 | curl | Used to wait for the backend. Built into Windows 10 and 11, macOS and most Linux distributions. |
-| Free ports | `5173` (web), `8080` (API), `5433` (PostgreSQL) and `27018` (MongoDB). Only `5173` is reachable from other machines; the rest bind to `127.0.0.1`. |
+| Free ports | `5173` (web), `8080` (API), `5433` (PostgreSQL) and `27018` (MongoDB). Only `5173` is reachable from other machines; the rest bind to `127.0.0.1`. To avoid clashes with other applications, set `WEB_PORT`, `BACKEND_HOST_PORT`, `POSTGRES_HOST_PORT` and `MONGO_HOST_PORT` in `.env`. |
 | `.env` file | Copied from `.env.example` with `JWT_SECRET` and `ADMIN_PASSWORD` set (see below). |
 | Internet | Only for the first run, to download the base images and the Maven and pnpm dependencies. |
 | Resources | Around 4 GB of RAM available to Docker and 3 GB of free disk. |
