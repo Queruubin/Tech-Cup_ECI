@@ -69,7 +69,7 @@ class AuthServiceTest {
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        EmailDomainPolicy policy = new EmailDomainPolicy(List.of("escuelaing.edu.co"));
+        PlayerAgePolicy policy = new PlayerAgePolicy(5, 100, clock);
         denylist = new TokenDenylist(clock);
         loginAttempts = new LoginAttemptService(clock);
         authService = new AuthService(users, passwordEncoder, policy, jwtService, denylist, loginAttempts,
@@ -127,10 +127,40 @@ class AuthServiceTest {
     }
 
     @Test
-    void appliesEmailDomainPolicy() {
-        assertThatThrownBy(() -> authService.register(
-                request(SchoolRelation.FAMILY, null, "uncle@escuelaing.edu.co", Role.GUEST)))
-                .isInstanceOf(BusinessRuleException.class);
+    void anyEmailDomainMayRegisterWhateverTheSchoolRelation() {
+        stubSuccessfulSave();
+
+        authService.register(request(SchoolRelation.FAMILY, null, "uncle@escuelaing.edu.co", Role.PLAYER));
+        authService.register(request(SchoolRelation.STUDENT, 5, "ana@gmail.com", Role.PLAYER));
+
+        verify(users, times(2)).save(any());
+    }
+
+    @Test
+    void aPlayerOlderThanTheRangeIsRefused() {
+        assertThatThrownBy(() -> authService.register(request(SchoolRelation.STUDENT, 5, "ana@escuelaing.edu.co",
+                Role.PLAYER, LocalDate.of(1920, 3, 4))))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Para ser jugador la edad debe estar entre 5 y 100 años.");
+        verify(users, never()).save(any());
+    }
+
+    @Test
+    void aPlayerYoungerThanTheRangeIsRefused() {
+        assertThatThrownBy(() -> authService.register(request(SchoolRelation.FAMILY, null, "kid@gmail.com",
+                Role.PLAYER, LocalDate.of(2022, 1, 1))))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("entre 5 y 100 años");
+    }
+
+    @Test
+    void guestsHaveNoAgeLimit() {
+        stubSuccessfulSave();
+
+        authService.register(request(SchoolRelation.PROFESSOR, null, "profe@escuelaing.edu.co",
+                Role.GUEST, LocalDate.of(1970, 5, 1)));
+
+        verify(users).save(any());
     }
 
     @Test
@@ -165,6 +195,19 @@ class AuthServiceTest {
 
         verify(auditService).recordDetached(isNull(), eq(AuditAction.LOGIN_FAILED), anyString(), isNull(), any());
         verify(jwtService, never()).issue(any(), any(), any());
+    }
+
+    /**
+     * A login must not hold a connection for the whole attempt while the detached failure audit
+     * asks for a second one: under a burst of failures that exhausted the pool.
+     */
+    @Test
+    void loginDoesNotRunInsideASurroundingTransaction() throws NoSuchMethodException {
+        var login = AuthService.class.getMethod("login", LoginRequest.class, String.class);
+
+        assertThat(login.isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class)).isFalse();
+        assertThat(AuthService.class.isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class))
+                .isFalse();
     }
 
     @Test
@@ -231,8 +274,24 @@ class AuthServiceTest {
                 .status(UserStatus.ACTIVE).roles(new HashSet<>(Set.of(Role.PLAYER))).build();
     }
 
+    private void stubSuccessfulSave() {
+        when(users.existsByEmailIgnoreCase(anyString())).thenReturn(false);
+        when(users.existsByDocumentTypeAndDocumentNumber(any(), anyString())).thenReturn(false);
+        when(users.save(any())).thenAnswer(inv -> {
+            AppUser u = inv.getArgument(0);
+            u.setId(7L);
+            return u;
+        });
+    }
+
+    /** A ten-year-old on the fixed clock date, inside the default 5 to 13 player range. */
     private static RegisterRequest request(SchoolRelation relation, Integer semester, String email, Role role) {
+        return request(relation, semester, email, role, LocalDate.of(2016, 3, 4));
+    }
+
+    private static RegisterRequest request(SchoolRelation relation, Integer semester, String email, Role role,
+                                           LocalDate birthDate) {
         return new RegisterRequest("Ana Diaz", email, "Secret123*", relation, AcademicProgram.SYSTEMS_ENGINEERING,
-                semester, LocalDate.of(2002, 3, 4), DocumentType.CC, "1001", role);
+                semester, birthDate, DocumentType.CC, "1001", role);
     }
 }

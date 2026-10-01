@@ -11,7 +11,8 @@ public interface FileStorage {
     /**
      * Validates the upload against {@code kind} (declared content type <b>and</b> the actual
      * magic bytes) and the configured size limit, stores it tagged with its {@code owner} and
-     * returns its opaque id.
+     * returns its opaque id. When called inside a database transaction, the stored file is
+     * deleted again if that transaction rolls back, so a refused use case leaves no orphan.
      *
      * @throws InvalidFileException when the file is empty, too large, of an unsupported type or
      *                              when its content does not match the declared type

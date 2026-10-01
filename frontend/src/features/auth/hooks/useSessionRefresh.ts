@@ -7,7 +7,7 @@ export const SESSION_REFRESH_DEBOUNCE_MS = 400
 
 /**
  * Keeps `auth.store.user` (roles, teamId, hasProfile) fresh while the app is open:
- * - on every route change (debounced), so a player accepted into a team or granted CAPTAIN sees the
+ * - on every route change (debounced), so a player who joins a team or becomes CAPTAIN sees the
  *   new nav items and permissions without re-login;
  * - when the tab becomes visible again.
  * Failures are ignored: a 401 is handled globally by the API client, network errors keep the cache.

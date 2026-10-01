@@ -18,7 +18,7 @@ export function RequireAuth({ children }: { children?: ReactNode }) {
 export interface RequireRoleProps {
   roles: Role[]
   /**
-   * Personal-scope pages ("Mi equipo", "Mis solicitudes", "Arbitraje"): the user must literally hold
+   * Personal-scope pages ("Mi equipo", "Solicitudes", "Arbitraje"): the user must literally hold
    * one of the roles; ADMIN does not imply them. Management pages keep the default ADMIN implication.
    */
   exact?: boolean

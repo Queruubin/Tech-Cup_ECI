@@ -69,7 +69,8 @@ Every setting in `src/main/resources/application.yml` has an environment-variabl
 | `ADMIN_EMAIL` | `admin@escuelaing.edu.co` | Administrator created on first start |
 | `ADMIN_PASSWORD` | `Admin123*` (refused by `prod`) | Its password |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins. In production set it to the public URL of the site (e.g. `https://techcup.escuelaing.edu.co`). |
-| `APP_INSTITUTIONAL_DOMAINS` | `escuelaing.edu.co,mail.escuelaing.edu.co` | Domains that count as institutional e-mail |
+| `APP_PLAYER_MIN_AGE` | `5` | Youngest age (full years, inclusive) for the PLAYER role |
+| `APP_PLAYER_MAX_AGE` | `100` | Oldest age (full years, inclusive) for the PLAYER role |
 | `APP_TIME_ZONE` | `America/Bogota` | Zone for every date rule (tournament start/end, 18:00 kick-offs) |
 | `SPRING_PROFILES_ACTIVE` | *(none)* | `prod` enables the production hardening above |
 | `PORT` | `8080` | HTTP port |
@@ -99,7 +100,7 @@ Every setting in `src/main/resources/application.yml` has an environment-variabl
 edu.escuelaing.techcup
   shared/        config, security (JWT), exception handling, audit, file storage (GridFS), home
   identity/      register, login, roles, referees, inactivation, admin bootstrap
-  players/       user updates, sport profiles, free-agent search, join requests
+  players/       user updates, sport profiles, free-agent search, join requests, invitations
   teams/         teams, members, eligibility
   tournaments/   tournaments, venues, rulebook, registrations
   competition/   matches, lineups, results, standings, bracket, stats

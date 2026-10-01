@@ -44,10 +44,10 @@ class AdminBootstrapTest {
         AppProperties properties = new AppProperties(
                 new AppProperties.Jwt("x".repeat(40), 60),
                 List.of("http://localhost:5173"),
-                List.of("escuelaing.edu.co"),
                 "America/Bogota",
                 new AppProperties.Storage(1024),
-                new AppProperties.Bootstrap("Admin@Escuelaing.edu.co", "Str0ngAdminPass"));
+                new AppProperties.Bootstrap("Admin@Escuelaing.edu.co", "Str0ngAdminPass"),
+                new AppProperties.Player(5, 100));
         bootstrap = new AdminBootstrap(users, passwordEncoder, auditService, properties);
     }
 

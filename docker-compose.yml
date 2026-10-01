@@ -8,6 +8,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     container_name: techcup-postgres
     environment:
       POSTGRES_DB: techcup
@@ -27,6 +28,7 @@ services:
 
   mongo:
     image: mongo:7
+    restart: unless-stopped
     container_name: techcup-mongo
     # Authentication is enabled; the root user is created on the FIRST start of the volume only
     # (existing dev volumes must be recreated once with `docker compose down -v`).
@@ -51,6 +53,7 @@ services:
   # launchers run everything with `docker compose --profile app up`.
   backend:
     build: ./backend
+    restart: unless-stopped
     container_name: techcup-backend
     profiles: ["app"]
     depends_on:
@@ -79,11 +82,15 @@ services:
       # use the tournament's local time through app.time-zone.
       APP_TIME_ZONE: ${APP_TIME_ZONE:-America/Bogota}
       TZ: ${APP_TIME_ZONE:-America/Bogota}
+      # Inclusive age range, in full years, for the PLAYER role.
+      APP_PLAYER_MIN_AGE: ${APP_PLAYER_MIN_AGE:-5}
+      APP_PLAYER_MAX_AGE: ${APP_PLAYER_MAX_AGE:-100}
     ports:
       - "127.0.0.1:8080:8080"
 
   frontend:
     build: ./frontend
+    restart: unless-stopped
     container_name: techcup-frontend
     profiles: ["app"]
     depends_on:

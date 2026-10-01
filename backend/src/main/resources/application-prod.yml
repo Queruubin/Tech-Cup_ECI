@@ -1,6 +1,7 @@
 # Production hardening, activated with SPRING_PROFILES_ACTIVE=prod.
-# ProductionGuard additionally refuses to start when JWT_SECRET or ADMIN_PASSWORD keep their
-# development defaults.
+# ProductionGuard additionally refuses to start when JWT_SECRET, ADMIN_PASSWORD, DB_PASSWORD or the
+# MongoDB credentials keep their development defaults, and warns when the server listens on a
+# non-loopback address or CORS_ORIGINS still mentions localhost.
 springdoc:
   api-docs:
     enabled: false
@@ -8,6 +9,19 @@ springdoc:
     enabled: false
 
 server:
-  # The backend sits behind the frontend's nginx reverse proxy: honour X-Forwarded-* headers so
-  # the client IP seen by the login rate limiter is the real one.
-  forward-headers-strategy: framework
+  # The backend sits behind the frontend's nginx reverse proxy. "native" installs Tomcat's
+  # RemoteIpValve, which only trusts X-Forwarded-For / X-Forwarded-Proto when the direct peer is an
+  # internal proxy (default server.tomcat.remoteip.internal-proxies: 127/8, 10/8, 172.16/12,
+  # 192.168/16, 169.254/16 and IPv6 loopback/ULA, which covers the host's native nginx and the
+  # Docker network) and then takes the right-most untrusted X-Forwarded-For entry as the client IP
+  # seen by the login rate limiter. It ignores the RFC 7239 "Forwarded" header entirely.
+  # Do NOT use "framework": Spring's ForwardedHeaderFilter believes "Forwarded" and
+  # X-Forwarded-* from any client, which would let an attacker pick its own address and bypass
+  # the per-IP login throttle.
+  forward-headers-strategy: native
+  # Finish in-flight requests before stopping (systemd / docker stop send SIGTERM).
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s

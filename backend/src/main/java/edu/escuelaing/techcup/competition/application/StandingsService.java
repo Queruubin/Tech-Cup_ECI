@@ -14,9 +14,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The group-stage table. Nothing is persisted: the rows are recomputed from the PLAYED GROUP
- * matches every time they are asked for, so correcting a result immediately corrects the table
- * and the knockout seeding derived from it. The arithmetic and the ordering live in the pure
- * domain rule {@link Standings}.
+ * matches every time they are asked for, so correcting a result immediately corrects the table.
+ * The arithmetic and the ordering live in the pure domain rule {@link Standings}.
+ *
+ * <p>The knockout matches, however, are drawn <b>once</b>, from the table as it stands when the
+ * organizer advances out of the group stage ({@code MatchService.advance}). Correcting a group
+ * result afterwards is allowed (the organizer keeps full correction power) but does <b>not</b>
+ * reseed the existing knockout matches: if the qualifiers or their order change, the knockout
+ * phases must be redone (undo phase, then advance again).
  */
 @Service
 public class StandingsService {

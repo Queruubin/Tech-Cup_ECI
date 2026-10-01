@@ -22,3 +22,8 @@ export function useTeamJoinRequests(teamId: number | null) {
     { enabled: teamId !== null },
   )
 }
+
+/** Invitations received by the current player, every status. */
+export function useMyInvitations(enabled = true) {
+  return useQuery((signal) => playersApi.getMyInvitations(signal), [], { enabled })
+}

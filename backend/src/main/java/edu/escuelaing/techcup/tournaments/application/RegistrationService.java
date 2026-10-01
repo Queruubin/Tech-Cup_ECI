@@ -187,6 +187,8 @@ public class RegistrationService {
         requireCapacity(tournament);
         requireStillEligible(registration.getTeam());
         registration.moveTo(RegistrationStatus.APPROVED, userService.getUser(actor.id()), note);
+        // The approval freezes the roster: pending requests and invitations can no longer succeed.
+        teamService.closeRecruitment(actor.id(), registration.getTeam().getId());
         auditService.record(actor.id(), AuditAction.REGISTRATION_APPROVED, ENTITY_TYPE, registrationId,
                 Map.of("teamId", registration.getTeam().getId(),
                         "tournamentId", registration.getTournament().getId()));

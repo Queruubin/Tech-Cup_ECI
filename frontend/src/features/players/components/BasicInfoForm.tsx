@@ -20,26 +20,48 @@ export interface BasicInfoFormProps {
   loading: boolean
   error: string | null
   fieldErrors: Record<string, string>
+  /**
+   * Only an ADMIN may change the school relation; for everyone else the select is disabled and the
+   * current value is sent unchanged.
+   */
+  canEditRelation: boolean
+  submitLabel?: string
   onSubmit: (payload: UpdateUserRequest) => void
+  onCancel?: () => void
 }
+
+export const RELATION_LOCKED_HINT = 'Solo un administrador puede cambiarla.'
 
 const RELATION_OPTIONS = toOptions(SCHOOL_RELATIONS, SCHOOL_RELATION_LABELS)
 const PROGRAM_OPTIONS = toOptions(ACADEMIC_PROGRAMS, ACADEMIC_PROGRAM_LABELS)
 
 /** Edits the basic user information allowed by the contract (email and password are immutable). */
-export function BasicInfoForm({ user, loading, error, fieldErrors, onSubmit }: BasicInfoFormProps) {
+export function BasicInfoForm({
+  user,
+  loading,
+  error,
+  fieldErrors,
+  canEditRelation,
+  submitLabel = 'Actualizar información',
+  onSubmit,
+  onCancel,
+}: BasicInfoFormProps) {
   const [fullName, setFullName] = useState(user.fullName)
-  const [schoolRelation, setSchoolRelation] = useState<SchoolRelation>(user.schoolRelation)
-  const [academicProgram, setAcademicProgram] = useState<AcademicProgram>(user.academicProgram)
+  const [schoolRelation, setSchoolRelation] = useState<SchoolRelation | null>(user.schoolRelation)
+  const [academicProgram, setAcademicProgram] = useState<AcademicProgram | null>(user.academicProgram)
   const [semester, setSemester] = useState(user.semester ? String(user.semester) : '')
   const [localErrors, setLocalErrors] = useState<{ fullName?: string; semester?: string }>({})
+  // A locked relation always reflects (and sends) the user's current value.
+  const relation = canEditRelation ? schoolRelation : user.schoolRelation
+  // Referees have no affiliation: unless an admin is editing, those fields do not apply to them.
+  const showAffiliation = canEditRelation || user.schoolRelation !== null
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
     const errors: { fullName?: string; semester?: string } = {}
     if (fullName.trim().length < 3) errors.fullName = 'Ingrese su nombre completo.'
     const semesterNumber = Number(semester)
-    if (schoolRelation === 'STUDENT') {
+    if (relation === 'STUDENT') {
       const semesterError = validateSemester(semester)
       if (semesterError) errors.semester = semesterError
     }
@@ -47,9 +69,9 @@ export function BasicInfoForm({ user, loading, error, fieldErrors, onSubmit }: B
     if (Object.keys(errors).length > 0) return
     onSubmit({
       fullName: fullName.trim(),
-      schoolRelation,
+      schoolRelation: relation,
       academicProgram,
-      semester: schoolRelation === 'STUDENT' ? semesterNumber : null,
+      semester: relation === 'STUDENT' ? semesterNumber : null,
     })
   }
 
@@ -63,30 +85,46 @@ export function BasicInfoForm({ user, loading, error, fieldErrors, onSubmit }: B
         <FormField label="Correo electrónico" hint="El correo no se puede modificar.">
           <Input value={user.email ?? '—'} disabled readOnly />
         </FormField>
-        <FormField label="Relación con la Escuela" required error={fieldErrors.schoolRelation}>
-          <Select
-            options={RELATION_OPTIONS}
-            value={schoolRelation}
-            onChange={(event) => setSchoolRelation(event.target.value as SchoolRelation)}
-          />
-        </FormField>
-        <FormField label="Programa académico" required error={fieldErrors.academicProgram}>
-          <Select
-            options={PROGRAM_OPTIONS}
-            value={academicProgram}
-            onChange={(event) => setAcademicProgram(event.target.value as AcademicProgram)}
-          />
-        </FormField>
-        {schoolRelation === 'STUDENT' && (
+        {showAffiliation && (
+          <FormField
+            label="Relación con la Escuela"
+            error={fieldErrors.schoolRelation}
+            hint={canEditRelation ? undefined : RELATION_LOCKED_HINT}
+          >
+            <Select
+              options={RELATION_OPTIONS}
+              placeholder="Sin relación"
+              value={relation ?? ''}
+              disabled={!canEditRelation}
+              onChange={(event) => setSchoolRelation((event.target.value || null) as SchoolRelation | null)}
+            />
+          </FormField>
+        )}
+        {showAffiliation && (
+          <FormField label="Programa académico" error={fieldErrors.academicProgram}>
+            <Select
+              options={PROGRAM_OPTIONS}
+              placeholder="Sin programa"
+              value={academicProgram ?? ''}
+              onChange={(event) => setAcademicProgram((event.target.value || null) as AcademicProgram | null)}
+            />
+          </FormField>
+        )}
+        {relation === 'STUDENT' && (
           <FormField label="Semestre" required error={localErrors.semester ?? fieldErrors.semester}>
             <Input type="number" min={SEMESTER_MIN} max={SEMESTER_MAX} value={semester} onChange={(event) => setSemester(event.target.value)} />
           </FormField>
         )}
       </div>
-      <div>
+      <div className="flex gap-2">
         <Button type="submit" variant="outline" loading={loading}>
-          Actualizar información
+          {submitLabel}
         </Button>
+        {onCancel && (
+          <Button type="button" variant="ghost" onClick={onCancel} disabled={loading}>
+            Cancelar
+          </Button>
+        )}
       </div>
     </form>
   )

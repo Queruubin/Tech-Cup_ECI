@@ -10,8 +10,9 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/tournaments', label: 'Torneos' },
   { to: '/teams', label: 'Equipos' },
   { to: '/profile', label: 'Mi perfil' },
-  { to: '/my-requests', label: 'Mis solicitudes', roles: ['PLAYER'], exactRoles: true },
-  { to: '/my-team', label: 'Mi equipo', roles: ['CAPTAIN'], exactRoles: true },
+  // Any player may create a team (and becomes its captain); a CAPTAIN always holds PLAYER as well.
+  { to: '/my-requests', label: 'Solicitudes', roles: ['PLAYER'], exactRoles: true },
+  { to: '/my-team', label: 'Mi equipo', roles: ['PLAYER', 'CAPTAIN'], exactRoles: true },
   { to: '/players', label: 'Jugadores', roles: ['CAPTAIN', 'ORGANIZER'] },
   { to: '/referee/matches', label: 'Arbitraje', roles: ['REFEREE'], exactRoles: true },
   { to: '/admin/users', label: 'Usuarios', roles: ['ORGANIZER', 'ADMIN'] },

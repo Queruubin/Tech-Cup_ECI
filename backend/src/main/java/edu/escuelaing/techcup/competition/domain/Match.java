@@ -144,19 +144,59 @@ public class Match {
         status = status.transitionTo(target);
     }
 
+    /** Every correction of a match needs the tournament to be running; FINISHED is read-only. */
+    public boolean isTournamentInProgress() {
+        return tournament != null && tournament.getStatus() == TournamentStatus.IN_PROGRESS;
+    }
+
     /**
-     * Whether a result may be recorded or corrected right now: the tournament must be in
-     * progress and the match either still SCHEDULED or PLAYED in the latest phase of the
-     * tournament. Once a later phase exists its bracket was seeded from this result, so changing
-     * it would silently invalidate the draw.
-     *
-     * @param latestPhase the most advanced phase that has matches in this tournament
+     * Whether a result may be recorded or corrected right now: the tournament must be in progress
+     * and the match SCHEDULED (first result) or PLAYED (correction). Later phases do not freeze a
+     * result; a knockout correction is propagated to the next phase instead (see
+     * {@code MatchService}).
      */
-    public boolean isResultEditable(MatchPhase latestPhase) {
-        if (tournament == null || tournament.getStatus() != TournamentStatus.IN_PROGRESS) {
-            return false;
+    public boolean isResultEditable() {
+        return isTournamentInProgress() && (status == MatchStatus.SCHEDULED || status == MatchStatus.PLAYED);
+    }
+
+    /** Whether the two teams may be replaced: never once a result is recorded (reopen first). */
+    public boolean areTeamsEditable() {
+        return isTournamentInProgress() && status != MatchStatus.PLAYED;
+    }
+
+    /** Whether the match may be sent back to SCHEDULED (see {@link #reopen()}). */
+    public boolean isReopenable() {
+        return isTournamentInProgress() && (status == MatchStatus.PLAYED || status == MatchStatus.CANCELLED);
+    }
+
+    /**
+     * PLAYED or CANCELLED &rarr; SCHEDULED, forgetting everything the outcome recorded: score,
+     * penalties, events, cancel reason and walkover winner.
+     */
+    public void reopen() {
+        moveTo(MatchStatus.SCHEDULED);
+        homeScore = null;
+        awayScore = null;
+        homePenalties = null;
+        awayPenalties = null;
+        cancelReason = null;
+        walkoverWinnerTeam = null;
+        clearEvents();
+    }
+
+    /**
+     * Puts {@code entering} on the side {@code leaving} occupied.
+     *
+     * @throws IllegalArgumentException when {@code leaving} does not play this match
+     */
+    public void replaceTeam(Team leaving, Team entering) {
+        if (homeTeam.getId().equals(leaving.getId())) {
+            homeTeam = entering;
+        } else if (awayTeam.getId().equals(leaving.getId())) {
+            awayTeam = entering;
+        } else {
+            throw new IllegalArgumentException("Team " + leaving.getId() + " does not play match " + id);
         }
-        return status == MatchStatus.SCHEDULED || (status == MatchStatus.PLAYED && phase == latestPhase);
     }
 
     /**

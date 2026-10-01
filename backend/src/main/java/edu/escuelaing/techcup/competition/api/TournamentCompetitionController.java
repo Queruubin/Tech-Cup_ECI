@@ -2,6 +2,7 @@ package edu.escuelaing.techcup.competition.api;
 
 import edu.escuelaing.techcup.competition.api.dto.BracketResponse;
 import edu.escuelaing.techcup.competition.api.dto.MatchResponse;
+import edu.escuelaing.techcup.competition.api.dto.PhaseUndoneResponse;
 import edu.escuelaing.techcup.competition.api.dto.StandingRow;
 import edu.escuelaing.techcup.competition.api.dto.TopScorerRow;
 import edu.escuelaing.techcup.competition.application.MatchService;
@@ -23,7 +24,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Everything the competition module exposes under a tournament: the fixture list, the table, the
- * bracket and the statistics. All reads are public; only fixture generation is restricted.
+ * bracket and the statistics. All reads are public; generating, advancing and undoing phases is
+ * restricted to organizers.
  */
 @RestController
 @RequestMapping("/api/tournaments/{id}")
@@ -53,6 +55,13 @@ public class TournamentCompetitionController {
     @Operation(summary = "Generate the next phase once the current one is over")
     public List<MatchResponse> advance(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
         return matchService.advance(actor, id);
+    }
+
+    @PostMapping("/matches/undo-phase")
+    @PreAuthorize("hasRole('ORGANIZER')")
+    @Operation(summary = "Delete every match of the latest phase when none of them is PLAYED")
+    public PhaseUndoneResponse undoPhase(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
+        return matchService.undoPhase(actor, id);
     }
 
     @GetMapping("/matches")

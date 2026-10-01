@@ -17,10 +17,10 @@ class JwtServiceTest {
     private static final AppProperties PROPERTIES = new AppProperties(
             new AppProperties.Jwt("unit-test-secret-that-is-long-enough-for-hs256-0123456789", 60),
             List.of("http://localhost:5173"),
-            List.of("escuelaing.edu.co"),
             "UTC",
             new AppProperties.Storage(1024),
-            new AppProperties.Bootstrap("admin@escuelaing.edu.co", "Str0ngAdminPass"));
+            new AppProperties.Bootstrap("admin@escuelaing.edu.co", "Str0ngAdminPass"),
+            new AppProperties.Player(5, 100));
 
     @Test
     void issuedTokensCarryAUniqueIdAndTheirExpiry() {

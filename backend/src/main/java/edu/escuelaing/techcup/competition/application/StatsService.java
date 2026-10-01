@@ -12,6 +12,7 @@ import edu.escuelaing.techcup.tournaments.application.TournamentService;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -88,7 +89,7 @@ public class StatsService {
     private List<SanctionRule.PlayerFacts> factsFrom(Long tournamentId, Team team, Match previous) {
         Map<Long, String> names = new LinkedHashMap<>();
         Set<Long> sentOff = new LinkedHashSet<>();
-        Set<Long> booked = new LinkedHashSet<>();
+        Map<Long, Integer> booked = new HashMap<>();
 
         for (MatchEvent event : previous.getEvents()) {
             if (!event.getTeam().getId().equals(team.getId())) {
@@ -100,7 +101,7 @@ public class StatsService {
                 sentOff.add(playerId);
             } else if (event.getType() == EventType.YELLOW_CARD) {
                 names.put(playerId, event.getPlayer().getFullName());
-                booked.add(playerId);
+                booked.merge(playerId, 1, Integer::sum);
             }
         }
 
@@ -109,7 +110,7 @@ public class StatsService {
                         entry.getKey(),
                         entry.getValue(),
                         sentOff.contains(entry.getKey()),
-                        booked.contains(entry.getKey()),
+                        booked.getOrDefault(entry.getKey(), 0),
                         yellowsUpTo(tournamentId, entry.getKey(), previous)))
                 .toList();
     }

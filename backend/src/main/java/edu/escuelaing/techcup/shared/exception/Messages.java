@@ -30,4 +30,15 @@ public final class Messages {
     public static String agree(long count, String singular, String plural) {
         return count == 1 ? singular : plural;
     }
+
+    /**
+     * Refusal for any change that would add players to a team whose roster is frozen because it
+     * is registered (APPROVED) in an ACTIVE or IN_PROGRESS tournament. Shared by the teams module
+     * (which enforces it on every membership) and the players module (which refuses early when a
+     * join request or an invitation would target such a team).
+     */
+    public static String frozenRoster(String teamName) {
+        return "El equipo '" + teamName + "' está inscrito en un torneo activo o en curso; "
+                + "su plantilla no se puede modificar hasta que el torneo finalice.";
+    }
 }

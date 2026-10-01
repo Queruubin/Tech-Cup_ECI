@@ -219,7 +219,7 @@ class TournamentServiceTest {
     void finishIsRefusedBeforeTheEndDateWhileTheFinalHasNotBeenPlayed() {
         Tournament tournament = withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file");
         tournament.setEndDate(TODAY.plusDays(5));
-        given(tournament);
+        givenLocked(tournament);
         when(finalMatch.isFinalMatchPlayed(1L)).thenReturn(false);
 
         assertThatThrownBy(() -> service.finish(ORGANIZER, 1L))
@@ -231,7 +231,7 @@ class TournamentServiceTest {
     void finishIsAllowedEarlyOnceTheFinalHasBeenPlayed() {
         Tournament tournament = withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file");
         tournament.setEndDate(TODAY.plusDays(5));
-        given(tournament);
+        givenLocked(tournament);
         when(finalMatch.isFinalMatchPlayed(1L)).thenReturn(true);
 
         service.finish(ORGANIZER, 1L);
@@ -243,7 +243,7 @@ class TournamentServiceTest {
     void finishIsAllowedOnTheEndDate() {
         Tournament tournament = withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file");
         tournament.setEndDate(TODAY);
-        given(tournament);
+        givenLocked(tournament);
         when(finalMatch.isFinalMatchPlayed(1L)).thenReturn(false);
 
         service.finish(ORGANIZER, 1L);
@@ -255,7 +255,7 @@ class TournamentServiceTest {
     void finishIsRefusedWhileAMatchIsStillScheduled() {
         Tournament tournament = withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file");
         tournament.setEndDate(TODAY);
-        given(tournament);
+        givenLocked(tournament);
         when(finalMatch.isFinalMatchPlayed(1L)).thenReturn(false);
         when(finalMatch.hasScheduledMatches(1L)).thenReturn(true);
 
@@ -270,7 +270,7 @@ class TournamentServiceTest {
     void finishIsRefusedAfterTheFinalWhileAnotherMatchIsStillScheduled() {
         Tournament tournament = withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file");
         tournament.setEndDate(TODAY.plusDays(5));
-        given(tournament);
+        givenLocked(tournament);
         when(finalMatch.isFinalMatchPlayed(1L)).thenReturn(true);
         when(finalMatch.hasScheduledMatches(1L)).thenReturn(true);
 
@@ -280,11 +280,25 @@ class TournamentServiceTest {
         assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.IN_PROGRESS);
     }
 
+    /** Finishing serialises on the tournament row, like advance and fixture generation. */
+    @Test
+    void finishLoadsTheTournamentWithTheWriteLock() {
+        Tournament tournament = withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file");
+        tournament.setEndDate(TODAY);
+        givenLocked(tournament);
+        when(finalMatch.isFinalMatchPlayed(1L)).thenReturn(false);
+
+        service.finish(ORGANIZER, 1L);
+
+        verify(tournaments).findByIdForUpdate(1L);
+        verify(tournaments, never()).findById(any());
+    }
+
     @Test
     void anActiveTournamentCannotBeFinished() {
         Tournament tournament = withStatus(TournamentStatus.ACTIVE, "rulebook-file");
         tournament.setEndDate(TODAY);
-        given(tournament);
+        givenLocked(tournament);
         when(finalMatch.isFinalMatchPlayed(1L)).thenReturn(false);
 
         assertThatThrownBy(() -> service.finish(ORGANIZER, 1L))
@@ -458,6 +472,11 @@ class TournamentServiceTest {
     }
 
     // --- helpers ------------------------------------------------------------------------------
+
+    private Tournament givenLocked(Tournament tournament) {
+        when(tournaments.findByIdForUpdate(1L)).thenReturn(Optional.of(tournament));
+        return tournament;
+    }
 
     private Tournament given(Tournament tournament) {
         when(tournaments.findById(1L)).thenReturn(Optional.of(tournament));

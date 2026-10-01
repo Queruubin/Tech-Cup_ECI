@@ -13,6 +13,8 @@ export interface JoinRequestListProps {
   emptyTitle?: string
   emptyDescription?: ReactNode
   emptyAction?: ReactNode
+  /** Text before the creation date, e.g. 'Recibida el' for received invitations. */
+  datePrefix?: string
 }
 
 export function JoinRequestList({
@@ -22,6 +24,7 @@ export function JoinRequestList({
   emptyTitle = 'Sin solicitudes',
   emptyDescription,
   emptyAction,
+  datePrefix = 'Enviada el',
 }: JoinRequestListProps) {
   if (requests.length === 0) {
     return <EmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} />
@@ -43,7 +46,7 @@ export function JoinRequestList({
                   {POSITION_LABELS[request.position]} · Dorsal {request.jerseyNumber} ·{' '}
                 </>
               )}
-              Enviada el {formatDateTime(request.createdAt)}
+              {datePrefix} {formatDateTime(request.createdAt)}
             </p>
             {request.message && <p className="mt-1 text-sm text-stone-700">“{request.message}”</p>}
           </div>

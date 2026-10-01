@@ -11,6 +11,7 @@ import { EligibilityPanel } from '@/features/teams/components/EligibilityPanel'
 import { useEligibility, useMyTeam } from '@/features/teams/hooks/useTeams'
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format'
 import { MAX_UPLOAD_BYTES, RECEIPT_ACCEPT, RECEIPT_HINT } from '@/lib/uploads'
+import { reloadOnError } from '@/lib/reloadOnError'
 import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
 import type { TournamentResponse } from '@/types/api'
@@ -38,7 +39,8 @@ export function CaptainRegistration({ tournament, onRegistered }: CaptainRegistr
     return created
   })
   const cancel = useMutation(async (id: number) => {
-    const updated = await tournamentsApi.cancelRegistration(id)
+    // The organizer may have decided it meanwhile: on failure reload so the card shows the server state.
+    const updated = await reloadOnError(() => tournamentsApi.cancelRegistration(id), registration)
     registration.setData(updated)
     return updated
   })

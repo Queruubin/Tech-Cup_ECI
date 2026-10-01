@@ -8,6 +8,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * Deletes binaries <em>after</em> the database transaction that stopped referencing them has
  * committed. Deleting inside the transaction would lose the old file if the transaction were
  * rolled back afterwards (the row would still point at a binary that no longer exists).
+ *
+ * <p>The opposite case, a <em>new</em> binary stored by a transaction that then rolls back, is
+ * cleaned up by the storage adapter itself ({@link GridFsFileStorage#store}).
  */
 @Component
 public class FileDeletionScheduler {

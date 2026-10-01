@@ -1,5 +1,6 @@
 package edu.escuelaing.techcup.teams.application;
 
+import edu.escuelaing.techcup.identity.application.RoleService;
 import edu.escuelaing.techcup.identity.application.UserService;
 import edu.escuelaing.techcup.identity.domain.AppUser;
 import edu.escuelaing.techcup.shared.audit.AuditAction;
@@ -28,14 +29,18 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Team use cases (spec 7.3). Rules enforced here:
  * <ul>
- *   <li>Create (CAPTAIN): unique name; the captain needs a sport profile and becomes the first
- *       member; a user belongs to at most one ACTIVE team.</li>
- *   <li>Add member: team ACTIVE, fewer than {@value TeamEligibility#MAX_MEMBERS} members, player
+ *   <li>Create (any PLAYER): unique name; the creator needs a sport profile, becomes the first
+ *       member and, in the same transaction, the team captain (CAPTAIN role granted through
+ *       {@link RoleService#grantCaptainForNewTeam}); a user belongs to at most one ACTIVE team.</li>
+ *   <li>Add member: team ACTIVE and not locked ({@link TeamLockPort}: its roster is frozen while
+ *       it plays a tournament), fewer than {@value TeamEligibility#MAX_MEMBERS} members, player
  *       has a profile, jersey number unique within the team, player not in another active team.</li>
  *   <li>Update name/colors, remove a member, inactivate: only by the team captain (or ADMIN) and
  *       only while the team is not locked by an approved registration in an ACTIVE or
  *       IN_PROGRESS tournament ({@link TeamLockPort}). The captain cannot be removed.
- *       Inactivating a team also cancels its pending join requests ({@link TeamJoinRequestPort}).</li>
+ *       Inactivating a team also cancels its pending join requests and invitations
+ *       ({@link TeamJoinRequestPort}) and revokes CAPTAIN from its captain
+ *       ({@link RoleService#revokeCaptainForClosedTeam}).</li>
  *   <li>Eligibility (7 to 12 members, unique jerseys, program majority, profiles) is delegated
  *       to the pure domain rule {@link TeamEligibility}.</li>
  * </ul>
@@ -45,20 +50,24 @@ import org.springframework.transaction.annotation.Transactional;
 public class TeamService {
 
     static final String ENTITY_TYPE = "TEAM";
+    static final String TEAM_INACTIVATED = "TEAM_INACTIVATED";
+    static final String ROSTER_FROZEN = "ROSTER_FROZEN";
 
     private final TeamRepository teams;
     private final UserService userService;
+    private final RoleService roleService;
     private final MemberProfilePort memberProfiles;
     private final TeamLockPort teamLock;
     private final TeamJoinRequestPort joinRequests;
     private final TeamResponseAssembler assembler;
     private final AuditService auditService;
 
-    public TeamService(TeamRepository teams, UserService userService, MemberProfilePort memberProfiles,
-                       TeamLockPort teamLock, TeamJoinRequestPort joinRequests, TeamResponseAssembler assembler,
+    public TeamService(TeamRepository teams, UserService userService, RoleService roleService,
+                       MemberProfilePort memberProfiles, TeamLockPort teamLock, TeamJoinRequestPort joinRequests, TeamResponseAssembler assembler,
                        AuditService auditService) {
         this.teams = teams;
         this.userService = userService;
+        this.roleService = roleService;
         this.memberProfiles = memberProfiles;
         this.teamLock = teamLock;
         this.joinRequests = joinRequests;
@@ -88,6 +97,7 @@ public class TeamService {
                 .build();
         team.addMember(captain);
         team = teams.save(team);
+        roleService.grantCaptainForNewTeam(captain.getId(), team.getId());
 
         auditService.record(actor.id(), AuditAction.TEAM_CREATED, ENTITY_TYPE, team.getId(),
                 Map.of("name", team.getName(), "colors", team.getColors()));
@@ -151,7 +161,10 @@ public class TeamService {
         return assembler.toResponse(team);
     }
 
-    /** Inactivates the team and closes the join requests still waiting for it. */
+    /**
+     * Inactivates the team, closes the join requests and invitations still waiting for it and
+     * takes the CAPTAIN role away from its captain.
+     */
     @Transactional
     public TeamResponse inactivate(AuthenticatedUser actor, Long teamId) {
         Team team = requireTeam(teamId);
@@ -161,7 +174,8 @@ public class TeamService {
             throw new BusinessRuleException("El equipo ya está inactivo.");
         }
         team.setStatus(TeamStatus.INACTIVE);
-        int cancelled = joinRequests.cancelPendingRequestsOf(actor.id(), teamId);
+        int cancelled = joinRequests.cancelPendingRequestsOf(actor.id(), teamId, TEAM_INACTIVATED);
+        roleService.revokeCaptainForClosedTeam(actor.id(), team.getCaptain().getId(), teamId);
         auditService.record(actor.id(), AuditAction.TEAM_INACTIVATED, ENTITY_TYPE, teamId,
                 Map.of("cancelledJoinRequests", cancelled));
         return assembler.toResponse(team);
@@ -193,6 +207,9 @@ public class TeamService {
         if (!team.isActive()) {
             throw new BusinessRuleException("El equipo '" + team.getName() + "' no está activo.");
         }
+        if (teamLock.isLocked(teamId)) {
+            throw new BusinessRuleException(Messages.frozenRoster(team.getName()));
+        }
         if (team.hasMember(userId)) {
             throw new BusinessRuleException("El jugador ya es integrante del equipo '" + team.getName() + "'.");
         }
@@ -212,6 +229,24 @@ public class TeamService {
                     + " ya está en uso en el equipo '" + team.getName() + "'.");
         }
         team.addMember(userService.getUser(userId));
+    }
+
+    /**
+     * Closes recruitment when the team's roster becomes frozen (its tournament registration was
+     * approved): the join requests and invitations still pending could never be accepted any more,
+     * so they are cancelled instead of being left for players to trip over.
+     *
+     * @return how many requests and invitations were cancelled
+     */
+    @Transactional
+    public int closeRecruitment(Long actorUserId, Long teamId) {
+        return joinRequests.cancelPendingRequestsOf(actorUserId, teamId, ROSTER_FROZEN);
+    }
+
+    /** Whether the team is registered (APPROVED) in an ACTIVE or IN_PROGRESS tournament. */
+    @Transactional(readOnly = true)
+    public boolean isLocked(Long teamId) {
+        return teamLock.isLocked(teamId);
     }
 
     @Transactional(readOnly = true)

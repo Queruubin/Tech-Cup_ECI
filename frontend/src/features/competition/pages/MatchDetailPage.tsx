@@ -3,13 +3,14 @@ import { Link, useParams } from 'react-router'
 import { Button } from '@/components/atoms/Button'
 import { Alert } from '@/components/molecules/Alert'
 import { Card } from '@/components/molecules/Card'
+import { ConfirmDialog } from '@/components/molecules/Modal'
 import { EmptyState } from '@/components/molecules/EmptyState'
 import { PageHeader } from '@/components/molecules/PageHeader'
 import { QueryState } from '@/components/molecules/QueryState'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { useTeam } from '@/features/teams/hooks/useTeams'
-import { useTournament } from '@/features/tournaments/hooks/useTournaments'
-import { isFuture } from '@/lib/format'
+import { useRegistrations, useTournament, useTournamentMatches } from '@/features/tournaments/hooks/useTournaments'
+import { errorMessage } from '@/lib/api'
 import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
 import type { MatchResultRequest, UpdateMatchRequest } from '@/types/api'
@@ -21,6 +22,7 @@ import { MatchScoreboard } from '../components/MatchScoreboard'
 import { ResultForm } from '../components/ResultForm'
 import { SanctionedPlayersPanel } from '../components/SanctionedPlayersPanel'
 import { useMatch, useReferees } from '../hooks/useCompetition'
+import { KNOCKOUT_REDRAW_WARNING, approvedTeamOptions, knockoutDrawnFromGroups, resultSavedMessage } from '../matchEdit'
 import { resultValuesFromMatch } from '../validation'
 
 export function MatchDetailPage() {
@@ -32,28 +34,58 @@ export function MatchDetailPage() {
 
   const query = useMatch(matchId)
   const match = query.data
-  // Rescheduling only makes sense before kick-off.
-  const editable = !!match && match.status === 'SCHEDULED' && isFuture(match.scheduledAt)
-  // Cancelling (e.g. NO_SHOW) happens after kick-off too: the server only requires a SCHEDULED match
-  // of a tournament in progress.
-  const cancellable = !!match && match.status === 'SCHEDULED'
-  // The server decides when a result can be recorded or corrected.
-  const canRecordResult = !!match && match.resultEditable
-  const isCorrection = !!match && match.status === 'PLAYED'
 
   const tournament = useTournament(isOrganizer && match ? match.tournamentId : null)
-  const referees = useReferees(isOrganizer && !!match)
-  const homeRoster = useTeam(isOrganizer && canRecordResult && match ? match.homeTeam.id : null)
-  const awayRoster = useTeam(isOrganizer && canRecordResult && match ? match.awayTeam.id : null)
+  const inProgress = tournament.data?.status === 'IN_PROGRESS'
+  // While the tournament is in progress the organizer may edit any match (played or not): past dates
+  // record when it was actually played; the server locks the teams once the match was played.
+  const editable = isOrganizer && !!match && inProgress
+  // Cancelling (e.g. NO_SHOW) happens after kick-off too: the server requires a SCHEDULED match of a
+  // tournament in progress.
+  const cancellable = editable && match.status === 'SCHEDULED'
+  // The server decides when a result can be recorded/corrected and when the match can be reopened.
+  const canRecordResult = !!match && match.resultEditable
+  const reopenable = isOrganizer && !!match && match.reopenable
+  const isCorrection = !!match && match.status === 'PLAYED'
 
   const [editing, setEditing] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [reopenOpen, setReopenOpen] = useState(false)
+
+  const referees = useReferees(isOrganizer && !!match)
+  const registrations = useRegistrations(match ? match.tournamentId : null, editable && editing)
+  const homeRoster = useTeam(isOrganizer && canRecordResult && match ? match.homeTeam.id : null)
+  const awayRoster = useTeam(isOrganizer && canRecordResult && match ? match.awayTeam.id : null)
+  // Group results may still be corrected/reopened after the knockout was drawn from the standings, but
+  // the server does not re-draw those pairings: the organizer must be warned.
+  const tournamentMatches = useTournamentMatches(
+    match ? match.tournamentId : null,
+    '',
+    isOrganizer && !!match && match.phase === 'GROUP' && (canRecordResult || reopenable),
+  )
+  const knockoutDrawn = !!match && knockoutDrawnFromGroups(match, tournamentMatches.data)
 
   const update = useMutation((payload: UpdateMatchRequest) => competitionApi.updateMatch(matchId as number, payload))
   const cancel = useMutation((input: CancelMatchInput) =>
     competitionApi.cancelMatch(matchId as number, input.reason, input.winnerTeamId),
   )
   const result = useMutation((payload: MatchResultRequest) => competitionApi.recordResult(matchId as number, payload))
+  const reopen = useMutation(async () => {
+    const reopened = await competitionApi.reopenMatch(matchId as number)
+    query.setData(reopened)
+    await query.refetch()
+    return reopened
+  })
+
+  const confirmReopen = () =>
+    reopen
+      .mutate()
+      .then(() => {
+        toast.success('Partido reabierto.')
+        setEditing(false)
+      })
+      .catch((cause: unknown) => toast.error(errorMessage(cause, 'No fue posible reabrir el partido.')))
+      .finally(() => setReopenOpen(false))
 
   if (matchId === null) {
     return <EmptyState title="Partido no encontrado" description="El identificador del partido no es válido." />
@@ -103,65 +135,77 @@ export function MatchDetailPage() {
                 title="Programación"
                 description={
                   editable
-                    ? 'Puede reprogramar el partido y reasignar cancha y árbitro mientras no haya comenzado.'
-                    : cancellable
-                      ? 'La fecha ya pasó: solo es posible cancelar el partido (por ejemplo, por no presentación).'
-                      : 'La programación solo se puede editar mientras la fecha del partido sea futura y el partido esté programado.'
+                    ? 'Mientras el torneo esté en curso puede ajustar la fecha, la cancha, el árbitro y los equipos del partido.'
+                    : 'La programación solo se puede editar mientras el torneo esté en curso.'
                 }
                 actions={
-                  cancellable && (
+                  (editable || reopenable) && (
                     <div className="flex flex-wrap gap-2">
                       {editable && (
                         <Button size="sm" variant="outline" onClick={() => setEditing((value) => !value)}>
                           {editing ? 'Cerrar edición' : 'Editar'}
                         </Button>
                       )}
-                      <Button size="sm" variant="danger" onClick={() => setCancelOpen(true)}>
-                        Cancelar partido
-                      </Button>
+                      {reopenable && (
+                        <Button size="sm" variant="outline" onClick={() => setReopenOpen(true)}>
+                          Reabrir partido
+                        </Button>
+                      )}
+                      {cancellable && (
+                        <Button size="sm" variant="danger" onClick={() => setCancelOpen(true)}>
+                          Cancelar partido
+                        </Button>
+                      )}
                     </div>
                   )
                 }
               >
-                {editable && editing ? (
-                  <QueryState
-                    loading={tournament.loading || referees.loading}
-                    error={tournament.error ?? referees.error}
-                    onRetry={() => {
-                      tournament.refetch()
-                      referees.refetch()
-                    }}
-                    inline
-                  >
-                    <MatchEditForm
-                      match={match}
-                      venues={tournament.data?.venues ?? []}
-                      referees={referees.data ?? []}
-                      loading={update.loading}
-                      error={update.error}
-                      fieldErrors={update.fieldErrors}
-                      onCancel={() => setEditing(false)}
-                      onSubmit={(payload) =>
-                        update
-                          .mutate(payload)
-                          .then((updated) => {
-                            query.setData(updated)
-                            toast.success('Partido actualizado.')
-                            setEditing(false)
-                          })
-                          .catch(() => undefined)
-                      }
-                    />
-                  </QueryState>
-                ) : (
-                  <p className="text-sm text-stone-500">
-                    {editable
-                      ? 'Seleccione “Editar” para modificar la fecha, la cancha o el árbitro.'
-                      : cancellable
-                        ? 'El partido ya no se puede reprogramar. Si un equipo no se presentó, cancélelo con el motivo correspondiente.'
-                        : 'No hay acciones de programación disponibles para este partido.'}
-                  </p>
-                )}
+                <QueryState loading={tournament.loading} error={tournament.error} onRetry={tournament.refetch} inline>
+                  {editable && editing ? (
+                    <QueryState
+                      loading={referees.loading || registrations.loading}
+                      error={referees.error ?? registrations.error}
+                      onRetry={() => {
+                        referees.refetch()
+                        registrations.refetch()
+                      }}
+                      inline
+                    >
+                      <MatchEditForm
+                        // Remount when the saved match changes so the form reflects the server state.
+                        key={`${match.id}-${match.status}-${match.homeTeam.id}-${match.awayTeam.id}-${match.scheduledAt ?? ''}`}
+                        match={match}
+                        venues={tournament.data?.venues ?? []}
+                        referees={referees.data ?? []}
+                        teams={approvedTeamOptions(registrations.data ?? [], [match.homeTeam, match.awayTeam])}
+                        loading={update.loading}
+                        error={update.error}
+                        fieldErrors={update.fieldErrors}
+                        onCancel={() => setEditing(false)}
+                        onSubmit={(payload) =>
+                          update
+                            .mutate(payload)
+                            .then((updated) => {
+                              query.setData(updated)
+                              toast.success('Partido actualizado.')
+                              setEditing(false)
+                            })
+                            .catch(() => undefined)
+                        }
+                      />
+                    </QueryState>
+                  ) : (
+                    <p className="text-sm text-stone-500">
+                      {editable
+                        ? match.teamsEditable
+                          ? 'Seleccione “Editar” para modificar la fecha, la cancha, el árbitro o los equipos.'
+                          : 'Seleccione “Editar” para modificar la fecha, la cancha o el árbitro. Reabra el partido para cambiar los equipos.'
+                        : reopenable
+                          ? 'Puede reabrir el partido para dejarlo nuevamente programado.'
+                          : 'El torneo no está en curso: la programación de este partido ya no se puede modificar.'}
+                    </p>
+                  )}
+                </QueryState>
               </Card>
             )}
 
@@ -174,6 +218,11 @@ export function MatchDetailPage() {
                     : 'Al registrar el resultado el partido queda en estado Jugado. Registre un evento por cada gol y por cada tarjeta.'
                 }
               >
+                {knockoutDrawn && (
+                  <Alert kind="warning" className="mb-4">
+                    {KNOCKOUT_REDRAW_WARNING}
+                  </Alert>
+                )}
                 {isCorrection && (
                   <Alert kind="warning" className="mb-4">
                     Al corregir el resultado se recalculará la tabla de posiciones y las sanciones derivadas de los eventos.
@@ -189,8 +238,9 @@ export function MatchDetailPage() {
                   inline
                 >
                   <ResultForm
-                    // Remount after each recorded/corrected result so the form reflects the saved data.
-                    key={`${match.id}-${match.status}-${match.events.map((event) => event.id).join(',')}`}
+                    // Remount after each recorded/corrected result or team change so the form reflects the
+                    // saved data (and drops players of a replaced team).
+                    key={`${match.id}-${match.status}-${match.homeTeam.id}-${match.awayTeam.id}-${match.events.map((event) => event.id).join(',')}`}
                     match={match}
                     rosters={{ home: homeRoster.data?.members ?? [], away: awayRoster.data?.members ?? [] }}
                     initial={isCorrection ? resultValuesFromMatch(match) : undefined}
@@ -202,7 +252,9 @@ export function MatchDetailPage() {
                         .mutate(payload)
                         .then((updated) => {
                           query.setData(updated)
-                          toast.success(isCorrection ? 'Resultado corregido.' : 'Resultado registrado.')
+                          const message = resultSavedMessage(match.phase, isCorrection, knockoutDrawn)
+                          if (knockoutDrawn) toast.warning(message)
+                          else toast.success(message)
                         })
                         .catch(() => undefined)
                     }
@@ -215,12 +267,31 @@ export function MatchDetailPage() {
               <Card title="Resultado">
                 <p className="text-sm text-stone-500">
                   {match.status === 'CANCELLED'
-                    ? 'El partido fue cancelado; no admite resultado.'
-                    : 'El resultado de este partido ya no se puede registrar ni corregir.'}
+                    ? reopenable
+                      ? 'El partido fue cancelado. Reábralo para poder registrar un resultado.'
+                      : 'El partido fue cancelado; no admite resultado.'
+                    : 'El resultado de este partido solo se puede registrar o corregir mientras el torneo esté en curso.'}
                 </p>
               </Card>
             )}
           </div>
+
+          <ConfirmDialog
+            open={reopenOpen}
+            title="Reabrir partido"
+            description={
+              match.status === 'CANCELLED'
+                ? 'El partido volverá a quedar programado: se eliminarán la cancelación y el ganador por no presentación (walkover), y se recalculará la tabla de posiciones.'
+                : 'El partido volverá a quedar programado: se eliminarán el marcador, los penales, los goles y las tarjetas registrados, y se recalculará la tabla de posiciones.'
+            }
+            confirmLabel="Reabrir"
+            danger
+            loading={reopen.loading}
+            onConfirm={confirmReopen}
+            onCancel={() => setReopenOpen(false)}
+          >
+            {knockoutDrawn && <Alert kind="warning">{KNOCKOUT_REDRAW_WARNING}</Alert>}
+          </ConfirmDialog>
 
           <CancelMatchDialog
             key={`${match.id}-${cancelOpen}`}

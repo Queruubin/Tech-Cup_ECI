@@ -2,10 +2,14 @@ package edu.escuelaing.techcup.shared.exception;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import edu.escuelaing.techcup.shared.config.TraceIdFilter;
 import java.sql.SQLException;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -67,6 +71,22 @@ class GlobalExceptionHandlerTest {
         assertThat(GlobalExceptionHandler.constraintName(ex)).isEqualTo("uk_users_email");
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody().message()).doesNotContain("ana@escuelaing.edu.co");
+    }
+
+    @Test
+    void aLostRaceOnAPendingRequestIndexGetsTheServiceMessage() {
+        var ex = new DataIntegrityViolationException("could not execute statement",
+                new org.hibernate.exception.ConstraintViolationException("duplicate key value",
+                        new SQLException("Key (player_user_id)=(10) already exists."), "ux_join_requests_pending_request"));
+
+        ResponseEntity<ApiError> response = handler.dataIntegrity(ex, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().message()).isEqualTo(Constraints.PENDING_JOIN_REQUEST_MESSAGE);
+        assertThat(GlobalExceptionHandler.conflictMessage("ux_join_requests_pending_invitation"))
+                .isEqualTo(Constraints.PENDING_INVITATION_MESSAGE);
+        assertThat(GlobalExceptionHandler.conflictMessage("uk_users_email"))
+                .isEqualTo("La solicitud entra en conflicto con la información ya registrada.");
     }
 
     @Test
@@ -138,5 +158,38 @@ class GlobalExceptionHandlerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody().message()).isEqualTo("La contraseña actual no es correcta.");
+    }
+
+    // --- trace id ---------------------------------------------------------------------------
+
+    @Test
+    void everyErrorCarriesTheTraceIdOfItsRequest() {
+        request.setAttribute(TraceIdFilter.ATTRIBUTE, "0123456789ab");
+
+        assertThat(handler.notFound(new NotFoundException("No existe."), request).getBody().traceId())
+                .isEqualTo("0123456789ab");
+        assertThat(handler.conflict(new BusinessRuleException("Regla."), request).getBody().traceId())
+                .isEqualTo("0123456789ab");
+        assertThat(handler.malformedBody(null, request).getBody().traceId()).isEqualTo("0123456789ab");
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void anUnexpectedErrorIsLoggedWithItsStackTraceAndOnlyTheReferenceCodeReachesTheClient(CapturedOutput output) {
+        request.setAttribute(TraceIdFilter.ATTRIBUTE, "fedcba987654");
+
+        ResponseEntity<ApiError> response = handler.unexpected(
+                new IllegalStateException("SELECT * FROM users failed"), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody().traceId()).isEqualTo("fedcba987654");
+        assertThat(response.getBody().message()).isEqualTo("Ocurrió un error inesperado. Si el problema continúa, "
+                + "comparta el código de referencia fedcba987654 con el administrador.");
+        assertThat(response.getBody().message()).doesNotContain("SELECT");
+        assertThat(output.getOut() + output.getErr())
+                .contains("ERROR")
+                .contains("traceId=fedcba987654")
+                .contains("java.lang.IllegalStateException: SELECT * FROM users failed")
+                .contains("at edu.escuelaing.techcup.shared.exception.GlobalExceptionHandlerTest");
     }
 }

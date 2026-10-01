@@ -9,6 +9,7 @@ import { FormField } from '@/components/molecules/FormField'
 import { Modal } from '@/components/molecules/Modal'
 import { QueryState } from '@/components/molecules/QueryState'
 import { formatDateTime } from '@/lib/format'
+import { reloadOnError } from '@/lib/reloadOnError'
 import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
 import type { RegistrationResponse } from '@/types/api'
@@ -26,10 +27,14 @@ export function RegistrationsReview({ tournamentId, onDecided }: { tournamentId:
 
   const decide = useMutation(async (input: Decision & { note: string }) => {
     const payload = input.note.trim() ? { note: input.note.trim() } : {}
-    const updated =
-      input.action === 'approve'
-        ? await tournamentsApi.approveRegistration(input.registration.id, payload)
-        : await tournamentsApi.rejectRegistration(input.registration.id, payload)
+    // Already decided or cancelled by the captain: on failure reload so the row shows its real status.
+    const updated = await reloadOnError(
+      () =>
+        input.action === 'approve'
+          ? tournamentsApi.approveRegistration(input.registration.id, payload)
+          : tournamentsApi.rejectRegistration(input.registration.id, payload),
+      query,
+    )
     query.setData((previous) => previous?.map((item) => (item.id === updated.id ? updated : item)) ?? null)
     return updated
   })

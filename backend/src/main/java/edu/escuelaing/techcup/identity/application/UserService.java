@@ -3,6 +3,7 @@ package edu.escuelaing.techcup.identity.application;
 import edu.escuelaing.techcup.identity.api.dto.ChangePasswordRequest;
 import edu.escuelaing.techcup.identity.api.dto.UpdateUserRequest;
 import edu.escuelaing.techcup.identity.api.dto.UserResponse;
+import edu.escuelaing.techcup.identity.domain.AcademicProgram;
 import edu.escuelaing.techcup.identity.domain.AppUser;
 import edu.escuelaing.techcup.identity.domain.Role;
 import edu.escuelaing.techcup.identity.domain.SchoolRelation;
@@ -16,6 +17,7 @@ import edu.escuelaing.techcup.shared.exception.InvalidRequestException;
 import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.shared.security.Roles;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -25,16 +27,18 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Queries and lifecycle of user accounts. Rules enforced here:
  * <ul>
- *   <li>Basic info (name, school relation, program, semester) is editable by the user or an
- *       ADMIN; e-mail is immutable. Semester is required iff STUDENT and the (immutable) e-mail
- *       must stay consistent with the new school relation.</li>
+ *   <li>Name, academic program and semester are editable by the user or an ADMIN; the school
+ *       relation only by an ADMIN; e-mail is immutable. Semester is required iff STUDENT.
+ *       While the user plays a tournament with their team (APPROVED registration in an ACTIVE or
+ *       IN_PROGRESS tournament) nobody, not even an ADMIN, may change the school relation or the
+ *       academic program, since both decide the team's eligibility.</li>
  *   <li>A user changes their own password by proving the current one; an ADMIN may reset any
  *       password.</li>
  *   <li>Inactivation is refused while the user belongs to a team with an APPROVED registration
  *       in an ACTIVE or IN_PROGRESS tournament, or while they captain an ACTIVE team.</li>
  *   <li>Personal data (e-mail, birth date, identity document) is only returned to the user
- *       themself or to an ADMIN; organizers get the e-mail in the directory listings they need
- *       to grant CAPTAIN, and nothing more.</li>
+ *       themself or to an ADMIN; organizers get the e-mail in the directory listings (to tell
+ *       people apart), and nothing more.</li>
  * </ul>
  */
 @Service
@@ -42,18 +46,18 @@ public class UserService {
 
     static final String ENTITY_TYPE = "USER";
     static final String WRONG_CURRENT_PASSWORD = "La contraseña actual no es correcta.";
+    static final String LOCKED_ELIGIBILITY_DATA = "El usuario está inscrito con su equipo en un torneo activo o en curso; "
+            + "su relación con la Escuela y su programa no se pueden modificar hasta que el torneo finalice.";
 
     private final AppUserRepository users;
     private final UserFactsPort userFacts;
-    private final EmailDomainPolicy emailDomainPolicy;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
 
-    public UserService(AppUserRepository users, UserFactsPort userFacts, EmailDomainPolicy emailDomainPolicy,
-                       PasswordEncoder passwordEncoder, AuditService auditService) {
+    public UserService(AppUserRepository users, UserFactsPort userFacts, PasswordEncoder passwordEncoder,
+                       AuditService auditService) {
         this.users = users;
         this.userFacts = userFacts;
-        this.emailDomainPolicy = emailDomainPolicy;
         this.passwordEncoder = passwordEncoder;
         this.auditService = auditService;
     }
@@ -94,24 +98,46 @@ public class UserService {
         return userFacts.captainsActiveTeam(userId);
     }
 
+    /** True when the user is a member (or the captain) of a team whose status is ACTIVE. */
+    @Transactional(readOnly = true)
+    public boolean belongsToActiveTeam(Long userId) {
+        return userFacts.activeTeamIdOf(userId).isPresent() || userFacts.captainsActiveTeam(userId);
+    }
+
+    /** True when the user belongs to a team with an APPROVED registration in an ACTIVE or IN_PROGRESS tournament. */
+    @Transactional(readOnly = true)
+    public boolean isLockedByTournament(Long userId) {
+        return userFacts.isLockedByTournament(userId);
+    }
+
     @Transactional
     public UserResponse updateBasicInfo(AuthenticatedUser actor, Long userId, UpdateUserRequest request) {
         if (!actor.isAdmin() && !actor.id().equals(userId)) {
             throw new ForbiddenOperationException("Solo puede modificar su propia cuenta.");
         }
         AppUser user = getUser(userId);
-        validateSemester(request.schoolRelation(), request.semester());
-        emailDomainPolicy.validate(user.getEmail(), request.schoolRelation());
+        // A null relation or program keeps the stored value (referees have neither).
+        SchoolRelation relation = request.schoolRelation() != null ? request.schoolRelation() : user.getSchoolRelation();
+        AcademicProgram program = request.academicProgram() != null ? request.academicProgram() : user.getAcademicProgram();
+        if (!actor.isAdmin() && relation != user.getSchoolRelation()) {
+            throw new ForbiddenOperationException("Solo un administrador puede cambiar la relación con la Escuela.");
+        }
+        boolean eligibilityDataChanges = relation != user.getSchoolRelation() || program != user.getAcademicProgram();
+        if (eligibilityDataChanges && userFacts.isLockedByTournament(userId)) {
+            throw new BusinessRuleException(LOCKED_ELIGIBILITY_DATA);
+        }
+        validateSemester(relation, request.semester());
 
         user.setFullName(request.fullName().trim());
-        user.setSchoolRelation(request.schoolRelation());
-        user.setAcademicProgram(request.academicProgram());
-        user.setSemester(request.schoolRelation() == SchoolRelation.STUDENT ? request.semester() : null);
+        user.setSchoolRelation(relation);
+        user.setAcademicProgram(program);
+        user.setSemester(relation == SchoolRelation.STUDENT ? request.semester() : null);
 
-        auditService.record(actor.id(), AuditAction.USER_UPDATED, ENTITY_TYPE, user.getId(),
-                Map.of("fullName", user.getFullName(),
-                        "schoolRelation", user.getSchoolRelation().name(),
-                        "academicProgram", user.getAcademicProgram().name()));
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("fullName", user.getFullName());
+        if (relation != null) details.put("schoolRelation", relation.name());
+        if (program != null) details.put("academicProgram", program.name());
+        auditService.record(actor.id(), AuditAction.USER_UPDATED, ENTITY_TYPE, user.getId(), details);
         return toResponse(user);
     }
 
@@ -196,7 +222,7 @@ public class UserService {
     /**
      * The directory entry as {@code viewer} may see it: everything for an ADMIN; the e-mail but
      * no birth date or identity document for an ORGANIZER (who needs the e-mail to tell people
-     * apart when granting CAPTAIN); nothing personal for anybody else.
+     * apart, e.g. among referees); nothing personal for anybody else.
      */
     public UserResponse toDirectoryResponse(AppUser user, AuthenticatedUser viewer) {
         UserResponse full = toResponse(user);

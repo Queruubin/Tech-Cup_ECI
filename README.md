@@ -3,9 +3,10 @@
 Web platform to manage the semester football tournament of the Systems, AI, Cybersecurity and
 Statistics engineering programs at Escuela Colombiana de Ingeniería Julio Garavito (DOSW final project).
 
-It replaces WhatsApp groups, Google Forms and spreadsheets with one system where players register,
-captains build teams, organizers run the tournament (registrations, payments review, fixtures,
-results) and everyone can see standings, brackets and statistics.
+It replaces WhatsApp groups, Google Forms and spreadsheets with one system where players (aged 5 to
+100) register with any e-mail, any player creates a team and becomes its captain, captains recruit by
+accepting join requests or inviting free players, organizers run the tournament (registrations,
+payments review, fixtures, results) and everyone can see standings, brackets and statistics.
 
 ## Architecture in one paragraph
 
@@ -32,7 +33,8 @@ One launcher builds and starts everything (PostgreSQL, MongoDB, backend and fron
 and opens the app in the browser.
 
 1. Copy `.env.example` to `.env` and fill in `JWT_SECRET` (for example the output of
-   `openssl rand -base64 48`) and `ADMIN_PASSWORD`. The full stack runs the backend with the
+   `openssl rand -base64 48`), `ADMIN_PASSWORD`, and the database credentials `DB_PASSWORD`,
+   `MONGO_USER` and `MONGO_PASSWORD` (hexadecimal, e.g. `openssl rand -hex 24`). The full stack runs the backend with the
    production profile, which refuses to start with the development defaults, and Docker Compose
    stops early if the file is missing. When the site is served under a public domain, also set
    `CORS_ORIGINS` to that URL (for example `https://techcup.escuelaing.edu.co`).

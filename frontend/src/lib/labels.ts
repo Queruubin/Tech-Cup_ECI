@@ -5,6 +5,7 @@ import type {
   EventType,
   Formation,
   InitialRole,
+  JoinRequestDirection,
   JoinRequestStatus,
   KnownAuditAction,
   MatchPhase,
@@ -81,6 +82,11 @@ export const JOIN_REQUEST_STATUS_LABELS: Record<JoinRequestStatus, string> = {
   CANCELLED: 'Cancelada',
 }
 
+export const JOIN_REQUEST_DIRECTION_LABELS: Record<JoinRequestDirection, string> = {
+  REQUEST: 'Solicitud',
+  INVITATION: 'Invitación',
+}
+
 export const TOURNAMENT_STATUS_LABELS: Record<TournamentStatus, string> = {
   DRAFT: 'Borrador',
   ACTIVE: 'Activo',
@@ -145,6 +151,10 @@ export const AUDIT_ACTION_LABELS: Record<KnownAuditAction, string> = {
   JOIN_REQUEST_CANCELLED: 'Solicitud de vinculación cancelada',
   JOIN_REQUEST_ACCEPTED: 'Solicitud de vinculación aceptada',
   JOIN_REQUEST_REJECTED: 'Solicitud de vinculación rechazada',
+  INVITATION_SENT: 'Invitación enviada',
+  INVITATION_ACCEPTED: 'Invitación aceptada',
+  INVITATION_REJECTED: 'Invitación rechazada',
+  INVITATION_CANCELLED: 'Invitación cancelada',
   TEAM_CREATED: 'Creación de equipo',
   TEAM_UPDATED: 'Actualización de equipo',
   TEAM_MEMBER_REMOVED: 'Retiro de integrante',
@@ -167,6 +177,8 @@ export const AUDIT_ACTION_LABELS: Record<KnownAuditAction, string> = {
   MATCH_CANCELLED: 'Partido cancelado',
   MATCH_RESULT_RECORDED: 'Resultado registrado',
   MATCH_RESULT_CORRECTED: 'Resultado corregido',
+  MATCH_REOPENED: 'Partido reabierto',
+  PHASE_UNDONE: 'Fase deshecha',
   LINEUP_SAVED: 'Alineación guardada',
 }
 

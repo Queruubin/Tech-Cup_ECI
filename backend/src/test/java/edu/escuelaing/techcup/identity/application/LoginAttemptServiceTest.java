@@ -1,5 +1,6 @@
 package edu.escuelaing.techcup.identity.application;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -71,6 +72,48 @@ class LoginAttemptServiceTest {
         fail("ana@escuelaing.edu.co", "10.0.0.1", 2);
 
         assertThatCode(() -> service.assertAllowed("ana@escuelaing.edu.co", "10.0.0.1")).doesNotThrowAnyException();
+    }
+
+    // --- memory bound ------------------------------------------------------------------------
+
+    @Test
+    void theScheduledPurgeDropsOnlyKeysWhoseFailuresLeftTheWindow() {
+        fail("old@escuelaing.edu.co", "10.0.0.1", 2);
+        clock.advance(LoginAttemptService.WINDOW.plusSeconds(1));
+        fail("recent@escuelaing.edu.co", "10.0.0.2", 5);
+
+        service.purgeExpired();
+
+        assertThat(service.trackedKeys()).isEqualTo(2);
+        assertThatThrownBy(() -> service.assertAllowed("recent@escuelaing.edu.co", "10.0.0.3"))
+                .isInstanceOf(LoginRateLimitException.class);
+        assertThatThrownBy(() -> service.assertAllowed("other@escuelaing.edu.co", "10.0.0.2"))
+                .isInstanceOf(LoginRateLimitException.class);
+    }
+
+    @Test
+    void spoofedKeysAreForgottenOnceExpiredWhenTheMapGrowsPastTheThreshold() {
+        LoginAttemptService bounded = new LoginAttemptService(clock, 4);
+        for (int attempt = 0; attempt < 3; attempt++) {
+            bounded.recordFailure("random" + attempt + "@example.com", "198.51.100." + attempt);
+        }
+        assertThat(bounded.trackedKeys()).isEqualTo(6);
+
+        clock.advance(LoginAttemptService.WINDOW.plusSeconds(1));
+        bounded.recordFailure("ana@escuelaing.edu.co", "10.0.0.1");
+
+        assertThat(bounded.trackedKeys()).isEqualTo(2);
+    }
+
+    @Test
+    void belowTheThresholdNothingIsPurgedOnARecordedFailure() {
+        LoginAttemptService bounded = new LoginAttemptService(clock, 100);
+        bounded.recordFailure("old@escuelaing.edu.co", "10.0.0.1");
+        clock.advance(LoginAttemptService.WINDOW.plusSeconds(1));
+
+        bounded.recordFailure("ana@escuelaing.edu.co", "10.0.0.2");
+
+        assertThat(bounded.trackedKeys()).isEqualTo(4);
     }
 
     private void fail(String email, String ip, int times) {

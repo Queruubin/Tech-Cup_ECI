@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import edu.escuelaing.techcup.identity.domain.AppUser;
 import edu.escuelaing.techcup.players.domain.JoinRequest;
+import edu.escuelaing.techcup.players.domain.JoinRequestDirection;
 import edu.escuelaing.techcup.players.domain.JoinRequestStatus;
 import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
@@ -37,7 +38,7 @@ class TeamJoinRequestAdapterTest {
         when(requests.findByTeamIdAndStatusOrderByCreatedAtDesc(5L, JoinRequestStatus.PENDING))
                 .thenReturn(List.of(first, second));
 
-        int cancelled = adapter.cancelPendingRequestsOf(20L, 5L);
+        int cancelled = adapter.cancelPendingRequestsOf(20L, 5L, "TEAM_INACTIVATED");
 
         assertThat(cancelled).isEqualTo(2);
         assertThat(first.getStatus()).isEqualTo(JoinRequestStatus.CANCELLED);
@@ -47,11 +48,23 @@ class TeamJoinRequestAdapterTest {
     }
 
     @Test
+    void pendingInvitationsOfTheTeamAreCancelledAsInvitations() {
+        JoinRequest invitation = pending(101L);
+        invitation.setDirection(JoinRequestDirection.INVITATION);
+        when(requests.findByTeamIdAndStatusOrderByCreatedAtDesc(5L, JoinRequestStatus.PENDING))
+                .thenReturn(List.of(invitation));
+
+        assertThat(adapter.cancelPendingRequestsOf(20L, 5L, "TEAM_INACTIVATED")).isEqualTo(1);
+        assertThat(invitation.getStatus()).isEqualTo(JoinRequestStatus.CANCELLED);
+        verify(auditService).record(eq(20L), eq(AuditAction.INVITATION_CANCELLED), anyString(), eq(101L), any());
+    }
+
+    @Test
     void aTeamWithoutPendingRequestsCancelsNothing() {
         when(requests.findByTeamIdAndStatusOrderByCreatedAtDesc(5L, JoinRequestStatus.PENDING))
                 .thenReturn(List.of());
 
-        assertThat(adapter.cancelPendingRequestsOf(20L, 5L)).isZero();
+        assertThat(adapter.cancelPendingRequestsOf(20L, 5L, "TEAM_INACTIVATED")).isZero();
     }
 
     private static JoinRequest pending(Long id) {

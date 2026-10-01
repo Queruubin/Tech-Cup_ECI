@@ -34,4 +34,10 @@ export const playersApi = {
     api.get<JoinRequestResponse[]>(`/teams/${teamId}/join-requests`, { status }, signal),
   acceptJoinRequest: (id: number) => api.post<JoinRequestResponse>(`/join-requests/${id}/accept`),
   rejectJoinRequest: (id: number) => api.post<JoinRequestResponse>(`/join-requests/${id}/reject`),
+
+  // Invitations received by the current player (all statuses, newest first).
+  getMyInvitations: (signal?: AbortSignal) =>
+    api.get<JoinRequestResponse[]>('/players/me/invitations', undefined, signal),
+  acceptInvitation: (id: number) => api.post<JoinRequestResponse>(`/invitations/${id}/accept`),
+  rejectInvitation: (id: number) => api.post<JoinRequestResponse>(`/invitations/${id}/reject`),
 }

@@ -9,13 +9,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-/** Who misses the next match: a sending off, or bookings adding up to an even number of at least two. */
+/** Who misses the next match: a sending off, or bookings whose running total crosses an even threshold. */
 class SanctionRuleTest {
 
     @Test
     void aPlayerSentOffInThePreviousMatchIsSuspended() {
         List<Sanction> sanctions = SanctionRule.apply(List.of(
-                new PlayerFacts(1L, "Ana", true, false, 0)));
+                new PlayerFacts(1L, "Ana", true, 0, 0)));
 
         assertThat(sanctions).singleElement().satisfies(sanction -> {
             assertThat(sanction.userId()).isEqualTo(1L);
@@ -26,7 +26,7 @@ class SanctionRuleTest {
     @Test
     void asecondBookingSuspendsThePlayer() {
         List<Sanction> sanctions = SanctionRule.apply(List.of(
-                new PlayerFacts(2L, "Bruno", false, true, 2)));
+                new PlayerFacts(2L, "Bruno", false, 1, 2)));
 
         assertThat(sanctions).singleElement().satisfies(sanction ->
                 assertThat(sanction.reason()).isEqualTo("Acumuló 2 tarjetas amarillas"));
@@ -34,18 +34,19 @@ class SanctionRuleTest {
 
     @Test
     void afirstBookingDoesNotSuspendThePlayer() {
-        assertThat(SanctionRule.apply(List.of(new PlayerFacts(2L, "Bruno", false, true, 1)))).isEmpty();
+        assertThat(SanctionRule.apply(List.of(new PlayerFacts(2L, "Bruno", false, 1, 1)))).isEmpty();
     }
 
     @Test
-    void anOddTotalDoesNotSuspendThePlayer() {
-        assertThat(SanctionRule.apply(List.of(new PlayerFacts(2L, "Bruno", false, true, 3)))).isEmpty();
+    void anOddTotalReachedWithASingleBookingDoesNotSuspendThePlayer() {
+        // 2 -> 3: the suspension for the second booking was already served.
+        assertThat(SanctionRule.apply(List.of(new PlayerFacts(2L, "Bruno", false, 1, 3)))).isEmpty();
     }
 
     @Test
     void thefourthBookingSuspendsThePlayerAgain() {
         List<Sanction> sanctions = SanctionRule.apply(List.of(
-                new PlayerFacts(2L, "Bruno", false, true, 4)));
+                new PlayerFacts(2L, "Bruno", false, 1, 4)));
 
         assertThat(sanctions).singleElement().satisfies(sanction ->
                 assertThat(sanction.reason()).isEqualTo("Acumuló 4 tarjetas amarillas"));
@@ -54,13 +55,13 @@ class SanctionRuleTest {
     @Test
     void anEvenTotalReachedInAnEarlierMatchDoesNotSuspendAgain() {
         // The player already served that suspension: they were not booked in the previous match.
-        assertThat(SanctionRule.apply(List.of(new PlayerFacts(2L, "Bruno", false, false, 2)))).isEmpty();
+        assertThat(SanctionRule.apply(List.of(new PlayerFacts(2L, "Bruno", false, 0, 2)))).isEmpty();
     }
 
     @Test
     void aRedCardWinsOverAnAccumulation() {
         List<Sanction> sanctions = SanctionRule.apply(List.of(
-                new PlayerFacts(3L, "Carla", true, true, 2)));
+                new PlayerFacts(3L, "Carla", true, 1, 2)));
 
         assertThat(sanctions).singleElement().satisfies(sanction ->
                 assertThat(sanction.reason()).isEqualTo("Expulsado en el partido anterior"));
@@ -69,17 +70,27 @@ class SanctionRuleTest {
     @Test
     void reportsEveryAffectedPlayerAndNobodyElse() {
         List<Sanction> sanctions = SanctionRule.apply(List.of(
-                new PlayerFacts(1L, "Ana", true, false, 0),
-                new PlayerFacts(2L, "Bruno", false, true, 2),
-                new PlayerFacts(3L, "Carla", false, true, 1),
-                new PlayerFacts(4L, "Dario", false, false, 0)));
+                new PlayerFacts(1L, "Ana", true, 0, 0),
+                new PlayerFacts(2L, "Bruno", false, 1, 2),
+                new PlayerFacts(3L, "Carla", false, 1, 1),
+                new PlayerFacts(4L, "Dario", false, 0, 0)));
 
         assertThat(sanctions).extracting(Sanction::userId).containsExactly(1L, 2L);
     }
 
+    @Test
+    void twoBookingsInOneMatchThatCrossAnEvenThresholdSuspendThePlayer() {
+        // 1 -> 3: the total crossed 2 in the previous match without ever stopping on an even number.
+        List<Sanction> sanctions = SanctionRule.apply(List.of(new PlayerFacts(2L, "Bruno", false, 2, 3)));
+
+        assertThat(sanctions).singleElement().satisfies(sanction ->
+                assertThat(sanction.reason()).isEqualTo("Acumuló 3 tarjetas amarillas"));
+    }
+
     @ParameterizedTest
-    @CsvSource({"0,false", "1,false", "2,true", "3,false", "4,true", "5,false", "6,true"})
-    void accumulationTriggersOnEveryEvenTotalFromTwoUpwards(int total, boolean expected) {
-        assertThat(SanctionRule.reachedAccumulation(total)).isEqualTo(expected);
+    @CsvSource({"0,1,false", "1,2,true", "2,3,false", "3,4,true", "1,3,true", "0,2,true", "2,4,true",
+            "4,5,false", "5,6,true"})
+    void accumulationTriggersWhenTheTotalCrossesAnEvenThreshold(int before, int after, boolean expected) {
+        assertThat(SanctionRule.crossedAccumulation(before, after)).isEqualTo(expected);
     }
 }

@@ -33,7 +33,9 @@ import org.springframework.transaction.annotation.Transactional;
  * <ul>
  *   <li>Self-registration may only pick PLAYER or GUEST as initial role.</li>
  *   <li>Semester is required iff the user is a STUDENT.</li>
- *   <li>E-mail domain must match the school relation ({@link EmailDomainPolicy}).</li>
+ *   <li>Any e-mail may register (no domain rule).</li>
+ *   <li>Registering as PLAYER requires an age inside the configured range ({@link PlayerAgePolicy});
+ *       GUEST has no age limit.</li>
  *   <li>E-mail and identity document are unique (reported with one generic message so the
  *       endpoint cannot be used to find out which e-mails are registered); new accounts start
  *       ACTIVE.</li>
@@ -51,19 +53,19 @@ public class AuthService {
 
     private final AppUserRepository users;
     private final PasswordEncoder passwordEncoder;
-    private final EmailDomainPolicy emailDomainPolicy;
+    private final PlayerAgePolicy playerAgePolicy;
     private final JwtService jwtService;
     private final TokenDenylist tokenDenylist;
     private final LoginAttemptService loginAttempts;
     private final UserService userService;
     private final AuditService auditService;
 
-    public AuthService(AppUserRepository users, PasswordEncoder passwordEncoder, EmailDomainPolicy emailDomainPolicy,
+    public AuthService(AppUserRepository users, PasswordEncoder passwordEncoder, PlayerAgePolicy playerAgePolicy,
                        JwtService jwtService, TokenDenylist tokenDenylist, LoginAttemptService loginAttempts,
                        UserService userService, AuditService auditService) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
-        this.emailDomainPolicy = emailDomainPolicy;
+        this.playerAgePolicy = playerAgePolicy;
         this.jwtService = jwtService;
         this.tokenDenylist = tokenDenylist;
         this.loginAttempts = loginAttempts;
@@ -77,8 +79,10 @@ public class AuthService {
             throw new BusinessRuleException("El rol inicial solo puede ser jugador o invitado.");
         }
         UserService.validateSemester(request.schoolRelation(), request.semester());
+        if (request.initialRole() == Role.PLAYER) {
+            playerAgePolicy.validate(request.birthDate());
+        }
         String email = normalizeEmail(request.email());
-        emailDomainPolicy.validate(email, request.schoolRelation());
         ensureEmailAndDocumentAvailable(email, request.documentType(), request.documentNumber());
 
         AppUser user = AppUser.builder()
@@ -102,10 +106,15 @@ public class AuthService {
     }
 
     /**
+     * Deliberately <b>not</b> {@code @Transactional}: every repository call and audit write runs
+     * in its own short transaction. A surrounding transaction would hold one JDBC connection for
+     * the whole (slow, BCrypt-bound) attempt while the failure audit needs a second one, so a burst
+     * of failed logins could exhaust the connection pool. The only write of a successful login is
+     * its audit row, so nothing is lost by not sharing a transaction.
+     *
      * @param clientIp the address the request came from, used together with the e-mail to
      *                 throttle brute-force attempts
      */
-    @Transactional
     public LoginResponse login(LoginRequest request, String clientIp) {
         String email = normalizeEmail(request.email());
         loginAttempts.assertAllowed(email, clientIp);
@@ -114,7 +123,8 @@ public class AuthService {
                 .filter(u -> passwordEncoder.matches(request.password(), u.getPasswordHash()));
         if (match.isEmpty()) {
             loginAttempts.recordFailure(email, clientIp);
-            // Detached: the audit row must survive the rollback caused by the exception below.
+            // Detached: the audit row must survive the exception below, even if a caller ever wraps
+            // this method in a transaction again.
             auditService.recordDetached(null, AuditAction.LOGIN_FAILED, UserService.ENTITY_TYPE, null,
                     Map.of("email", email));
             throw new BadCredentialsException("El correo o la contraseña no son correctos.");

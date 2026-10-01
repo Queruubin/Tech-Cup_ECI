@@ -9,6 +9,7 @@ import type {
   StandingRow,
   TopScorer,
   TournamentResponse,
+  UndoPhaseResponse,
   UpdateTournamentRequest,
   VenueResponse,
 } from '@/types/api'
@@ -46,6 +47,8 @@ export const tournamentsApi = {
 
   generateMatches: (id: number) => api.post<MatchResponse[]>(`/tournaments/${id}/matches/generate`),
   advanceMatches: (id: number) => api.post<MatchResponse[]>(`/tournaments/${id}/matches/advance`),
+  /** Deletes every match of the latest phase (409 when any of them was played). */
+  undoPhase: (id: number) => api.post<UndoPhaseResponse>(`/tournaments/${id}/matches/undo-phase`),
   matches: (id: number, phase?: MatchPhase | '', signal?: AbortSignal) =>
     api.get<MatchResponse[]>(`/tournaments/${id}/matches`, { phase: phase || undefined }, signal),
   standings: (id: number, signal?: AbortSignal) => api.get<StandingRow[]>(`/tournaments/${id}/standings`, undefined, signal),

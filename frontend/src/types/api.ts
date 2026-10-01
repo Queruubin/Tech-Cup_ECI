@@ -38,6 +38,10 @@ export type TeamStatus = (typeof TEAM_STATUSES)[number]
 export const JOIN_REQUEST_STATUSES = ['PENDING', 'ACCEPTED', 'REJECTED', 'CANCELLED'] as const
 export type JoinRequestStatus = (typeof JOIN_REQUEST_STATUSES)[number]
 
+/** REQUEST = player asks to join a team; INVITATION = captain invites a player. */
+export const JOIN_REQUEST_DIRECTIONS = ['REQUEST', 'INVITATION'] as const
+export type JoinRequestDirection = (typeof JOIN_REQUEST_DIRECTIONS)[number]
+
 export const TOURNAMENT_STATUSES = ['DRAFT', 'ACTIVE', 'IN_PROGRESS', 'FINISHED'] as const
 export type TournamentStatus = (typeof TOURNAMENT_STATUSES)[number]
 
@@ -81,6 +85,10 @@ export const AUDIT_ACTIONS = [
   'JOIN_REQUEST_CANCELLED',
   'JOIN_REQUEST_ACCEPTED',
   'JOIN_REQUEST_REJECTED',
+  'INVITATION_SENT',
+  'INVITATION_ACCEPTED',
+  'INVITATION_REJECTED',
+  'INVITATION_CANCELLED',
   'TEAM_CREATED',
   'TEAM_UPDATED',
   'TEAM_MEMBER_REMOVED',
@@ -103,6 +111,8 @@ export const AUDIT_ACTIONS = [
   'MATCH_CANCELLED',
   'MATCH_RESULT_RECORDED',
   'MATCH_RESULT_CORRECTED',
+  'MATCH_REOPENED',
+  'PHASE_UNDONE',
   'LINEUP_SAVED',
 ] as const
 export type KnownAuditAction = (typeof AUDIT_ACTIONS)[number]
@@ -125,6 +135,8 @@ export interface ApiErrorBody {
   message: string
   path?: string
   details?: ApiErrorDetail[]
+  /** Correlation id of the failed request (also sent as the `X-Trace-Id` header). */
+  traceId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -139,8 +151,9 @@ export interface UserResponse {
   id: number
   fullName: string
   email: string | null
-  schoolRelation: SchoolRelation
-  academicProgram: AcademicProgram
+  /** `null` for referees, who are created without an affiliation. */
+  schoolRelation: SchoolRelation | null
+  academicProgram: AcademicProgram | null
   semester: number | null
   status: UserStatus
   birthDate: string | null
@@ -175,10 +188,11 @@ export interface LoginResponse {
   user: UserResponse
 }
 
+/** `schoolRelation` / `academicProgram` set to `null` keep the stored value. */
 export interface UpdateUserRequest {
   fullName: string
-  schoolRelation: SchoolRelation
-  academicProgram: AcademicProgram
+  schoolRelation: SchoolRelation | null
+  academicProgram: AcademicProgram | null
   semester?: number | null
 }
 
@@ -245,12 +259,19 @@ export interface JoinRequestResponse {
   position: Position
   jerseyNumber: number
   status: JoinRequestStatus
+  direction: JoinRequestDirection
   message: string | null
   createdAt: string
 }
 
 export interface CreateJoinRequest {
   message?: string
+}
+
+/** `POST /teams/{teamId}/invitations` (team captain or ADMIN). */
+export interface CreateInvitationRequest {
+  playerId: number
+  message: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -394,13 +415,26 @@ export interface MatchResponse {
   walkoverWinnerTeamId: number | null
   /** True when `POST /matches/{id}/result` is currently allowed (first result or a correction). */
   resultEditable: boolean
+  /** True while the match is not PLAYED: home/away teams can still be reassigned. */
+  teamsEditable: boolean
+  /** True when a PLAYED or CANCELLED match can go back to SCHEDULED (`POST /matches/{id}/reopen`). */
+  reopenable: boolean
   events: MatchEvent[]
 }
 
+/** Omitted fields stay unchanged. */
 export interface UpdateMatchRequest {
   scheduledAt?: string
   venueId?: number
   refereeId?: number
+  homeTeamId?: number
+  awayTeamId?: number
+}
+
+/** Result of `POST /tournaments/{id}/matches/undo-phase`. */
+export interface UndoPhaseResponse {
+  phase: MatchPhase
+  deletedMatches: number
 }
 
 export interface MatchEventRequest {

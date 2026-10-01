@@ -3,15 +3,20 @@ import type { ApiErrorBody, ApiErrorDetail } from '@/types/api'
 /** Base URL of the REST API. Defaults to the relative `/api` prefix (proxied by Vite in dev). */
 export const API_BASE_URL: string = (import.meta.env.VITE_API_URL as string | undefined)?.trim() || '/api'
 
+/** Response header carrying the request correlation id (mirrors `ApiError.traceId`). */
+export const TRACE_ID_HEADER = 'X-Trace-Id'
+
 /**
  * Normalised API error. Mirrors the backend `ApiError` body
- * `{ status, error, message, path, details?: [{ field, message }] }`.
+ * `{ status, error, message, path, details?: [{ field, message }], traceId }`.
  */
 export class ApiError extends Error {
   readonly status: number
   readonly error: string
   readonly path: string | undefined
   readonly details: ApiErrorDetail[]
+  /** Correlation id to quote when reporting the problem; `undefined` when the server sent none. */
+  readonly traceId: string | undefined
 
   constructor(body: ApiErrorBody) {
     super(body.message)
@@ -20,6 +25,7 @@ export class ApiError extends Error {
     this.error = body.error
     this.path = body.path
     this.details = body.details ?? []
+    this.traceId = body.traceId
   }
 
   /** `{ field: message }` map, convenient for showing errors next to form fields. */
@@ -99,33 +105,61 @@ function buildUrl(path: string, query?: Query): string {
   return url
 }
 
+/** Statuses whose failures are expected business/validation outcomes, not server faults. */
+const EXPECTED_CLIENT_STATUSES = new Set([400, 401, 403, 404, 409, 413, 415, 429])
+
+/**
+ * True when the failure is a server fault or otherwise unexpected, so the user should be given
+ * the trace id to quote when reporting it.
+ */
+export function isUnexpectedStatus(status: number): boolean {
+  return status >= 500 || (status >= 400 && !EXPECTED_CLIENT_STATUSES.has(status))
+}
+
+/** Appends "Código de referencia: {traceId}" to messages of unexpected failures. */
+export function withTraceReference(message: string, status: number, traceId: string | undefined): string {
+  if (!traceId || !isUnexpectedStatus(status) || message.includes(traceId)) return message
+  const base = message.trim()
+  const separator = /[.!?]$/.test(base) ? ' ' : '. '
+  return `${base}${separator}Código de referencia: ${traceId}`
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
 /** Turns any response into an `ApiError`, tolerating non-JSON bodies (e.g. proxy errors). */
 export async function normalizeErrorResponse(response: Response): Promise<ApiError> {
+  const headerTraceId = nonEmptyString(response.headers.get(TRACE_ID_HEADER))
+  const build = (body: ApiErrorBody): ApiError =>
+    new ApiError({ ...body, message: withTraceReference(body.message, body.status, body.traceId) })
   const fallback: ApiErrorBody = {
     status: response.status,
     error: response.statusText || 'Error',
     message: defaultMessageFor(response.status),
     path: undefined,
+    traceId: headerTraceId,
   }
   const contentType = response.headers.get('content-type') ?? ''
-  if (!contentType.includes('application/json')) return new ApiError(fallback)
+  if (!contentType.includes('application/json')) return build(fallback)
   try {
     const raw: unknown = await response.json()
     if (raw && typeof raw === 'object') {
       const body = raw as Partial<ApiErrorBody>
-      return new ApiError({
+      return build({
         status: typeof body.status === 'number' ? body.status : response.status,
         error: typeof body.error === 'string' ? body.error : fallback.error,
         message: typeof body.message === 'string' && body.message ? body.message : fallback.message,
         path: typeof body.path === 'string' ? body.path : undefined,
         details: Array.isArray(body.details) ? body.details.filter(isDetail) : [],
         timestamp: typeof body.timestamp === 'string' ? body.timestamp : undefined,
+        traceId: nonEmptyString(body.traceId) ?? headerTraceId,
       })
     }
   } catch {
     // fall through to the generic error
   }
-  return new ApiError(fallback)
+  return build(fallback)
 }
 
 function isDetail(value: unknown): value is ApiErrorDetail {
@@ -136,6 +170,9 @@ function isDetail(value: unknown): value is ApiErrorDetail {
     typeof (value as ApiErrorDetail).message === 'string'
   )
 }
+
+/** Shown when `fetch` itself rejects (server down, offline, CORS/DNS failure). */
+export const NETWORK_ERROR_MESSAGE = 'No fue posible conectar con el servidor. Verifique su conexión e intente de nuevo.'
 
 function defaultMessageFor(status: number): string {
   switch (status) {
@@ -156,7 +193,7 @@ function defaultMessageFor(status: number): string {
     case 429:
       return 'Demasiados intentos. Espere unos minutos e intente de nuevo.'
     case 0:
-      return 'No fue posible conectar con el servidor.'
+      return NETWORK_ERROR_MESSAGE
     default:
       return status >= 500 ? 'Error interno del servidor. Intente más tarde.' : 'Ocurrió un error inesperado.'
   }

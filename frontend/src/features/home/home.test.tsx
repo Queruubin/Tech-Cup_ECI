@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import type { RegistrationResponse, TeamResponse } from '@/types/api'
 import { MyTeamCard, canRegisterAgain, registrationHref } from './components/MyTeamCard'
+import { PendingInvitationsAlert } from './components/PendingInvitationsAlert'
 
 const team: TeamResponse = {
   id: 4,
@@ -57,5 +58,54 @@ describe('MyTeamCard registration CTA', () => {
       </MemoryRouter>,
     )
     expect(screen.queryByRole('link', { name: /Inscribir equipo/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('MyTeamCard without a team', () => {
+  it('lets any player create a team or browse existing ones', () => {
+    render(
+      <MemoryRouter>
+        <MyTeamCard team={null} registration={null} isCaptain={false} isPlayer tournamentOpen={false} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('link', { name: 'Crear equipo' })).toHaveAttribute('href', '/my-team')
+    expect(screen.getByRole('link', { name: 'Ver equipos' })).toHaveAttribute('href', '/teams')
+  })
+
+  it('offers nothing to users who are not players', () => {
+    render(
+      <MemoryRouter>
+        <MyTeamCard team={null} registration={null} isCaptain={false} isPlayer={false} tournamentOpen={false} />
+      </MemoryRouter>,
+    )
+    expect(screen.queryByRole('link', { name: 'Crear equipo' })).not.toBeInTheDocument()
+  })
+})
+
+describe('PendingInvitationsAlert', () => {
+  it('announces pending invitations and links to the requests page', () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <PendingInvitationsAlert count={3} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('Tiene 3 invitaciones pendientes')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Ver invitaciones' })).toHaveAttribute('href', '/my-requests')
+
+    rerender(
+      <MemoryRouter>
+        <PendingInvitationsAlert count={1} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('Tiene 1 invitación pendiente')).toBeInTheDocument()
+  })
+
+  it('renders nothing without pending invitations', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <PendingInvitationsAlert count={0} />
+      </MemoryRouter>,
+    )
+    expect(container).toBeEmptyDOMElement()
   })
 })

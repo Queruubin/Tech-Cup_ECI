@@ -6,10 +6,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import edu.escuelaing.techcup.identity.application.RoleService;
 import edu.escuelaing.techcup.identity.application.UserService;
 import edu.escuelaing.techcup.identity.domain.AcademicProgram;
 import edu.escuelaing.techcup.identity.domain.AppUser;
@@ -39,11 +41,15 @@ class TeamServiceTest {
 
     private static final AuthenticatedUser CAPTAIN = new AuthenticatedUser(20L, "c@escuelaing.edu.co", Set.of("PLAYER", "CAPTAIN"));
     private static final AuthenticatedUser STRANGER = new AuthenticatedUser(30L, "s@escuelaing.edu.co", Set.of("PLAYER", "CAPTAIN"));
+    private static final AuthenticatedUser ADMIN = new AuthenticatedUser(1L, "admin@escuelaing.edu.co", Set.of("ADMIN"));
+    private static final AuthenticatedUser NEW_PLAYER = new AuthenticatedUser(20L, "c@escuelaing.edu.co", Set.of("PLAYER"));
 
     @Mock
     private TeamRepository teams;
     @Mock
     private UserService userService;
+    @Mock
+    private RoleService roleService;
     @Mock
     private MemberProfilePort memberProfiles;
     @Mock
@@ -124,6 +130,20 @@ class TeamServiceTest {
         assertThat(team.memberCount()).isEqualTo(2);
     }
 
+    @Test
+    void aLockedTeamTakesNoNewMembers() {
+        Team team = teamWithCaptain();
+        when(teams.findById(5L)).thenReturn(Optional.of(team));
+        when(teamLock.isLocked(5L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.addMember(5L, 10L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("El equipo '" + team.getName() + "' está inscrito en un torneo activo o en curso; "
+                        + "su plantilla no se puede modificar hasta que el torneo finalice.");
+        assertThat(team.hasMember(10L)).isFalse();
+        verify(userService, never()).getUser(10L);
+    }
+
     // --- create ------------------------------------------------------------------------------
 
     @Test
@@ -136,6 +156,7 @@ class TeamServiceTest {
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("perfil deportivo");
         verify(teams, never()).save(any());
+        verify(roleService, never()).grantCaptainForNewTeam(any(), any());
     }
 
     @Test
@@ -150,6 +171,38 @@ class TeamServiceTest {
 
         verify(teams).save(any(Team.class));
         verify(assembler).toResponse(any(Team.class));
+    }
+
+    @Test
+    void anyPlayerCreatingATeamBecomesItsCaptain() {
+        when(teams.existsByNameIgnoreCase("Tigers")).thenReturn(false);
+        when(userService.getUser(20L)).thenReturn(user(20L));
+        when(memberProfiles.findProfile(20L)).thenReturn(Optional.of(profile(20L, 1)));
+        when(teams.findActiveTeamByMember(20L)).thenReturn(Optional.empty());
+        when(teams.save(any())).thenAnswer(inv -> {
+            Team saved = inv.getArgument(0);
+            saved.setId(5L);
+            return saved;
+        });
+
+        service.create(NEW_PLAYER, new CreateTeamRequest("Tigers", "orange"));
+
+        verify(roleService).grantCaptainForNewTeam(20L, 5L);
+        verify(auditService).record(eq(20L), eq(AuditAction.TEAM_CREATED), anyString(), eq(5L), any());
+    }
+
+    @Test
+    void aPlayerAlreadyInATeamCannotCreateAnother() {
+        Team other = Team.builder().id(6L).name("Lions").captain(user(40L)).status(TeamStatus.ACTIVE).build();
+        when(teams.existsByNameIgnoreCase("Tigers")).thenReturn(false);
+        when(userService.getUser(20L)).thenReturn(user(20L));
+        when(memberProfiles.findProfile(20L)).thenReturn(Optional.of(profile(20L, 1)));
+        when(teams.findActiveTeamByMember(20L)).thenReturn(Optional.of(other));
+
+        assertThatThrownBy(() -> service.create(NEW_PLAYER, new CreateTeamRequest("Tigers", "orange")))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("Lions");
+        verify(roleService, never()).grantCaptainForNewTeam(any(), any());
     }
 
     // --- lock and ownership ------------------------------------------------------------------
@@ -177,14 +230,38 @@ class TeamServiceTest {
         Team team = teamWithCaptain();
         when(teams.findById(5L)).thenReturn(Optional.of(team));
         when(teamLock.isLocked(5L)).thenReturn(false);
-        when(joinRequests.cancelPendingRequestsOf(20L, 5L)).thenReturn(2);
+        when(joinRequests.cancelPendingRequestsOf(20L, 5L, "TEAM_INACTIVATED")).thenReturn(2);
 
         service.inactivate(CAPTAIN, 5L);
 
         assertThat(team.isActive()).isFalse();
-        verify(joinRequests).cancelPendingRequestsOf(20L, 5L);
+        verify(joinRequests).cancelPendingRequestsOf(20L, 5L, "TEAM_INACTIVATED");
         verify(auditService).record(eq(20L), eq(AuditAction.TEAM_INACTIVATED), anyString(), eq(5L),
                 eq(Map.of("cancelledJoinRequests", 2)));
+    }
+
+    @Test
+    void inactivatingATeamRevokesCaptainFromItsCaptainAfterItIsInactive() {
+        Team team = teamWithCaptain();
+        when(teams.findById(5L)).thenReturn(Optional.of(team));
+        when(teamLock.isLocked(5L)).thenReturn(false);
+        doAnswer(inv -> {
+            assertThat(team.isActive()).as("team already inactive when CAPTAIN is revoked").isFalse();
+            return null;
+        }).when(roleService).revokeCaptainForClosedTeam(1L, 20L, 5L);
+
+        service.inactivate(ADMIN, 5L);
+
+        verify(roleService).revokeCaptainForClosedTeam(1L, 20L, 5L);
+    }
+
+    @Test
+    void aLockedTeamIsNotInactivatedAndKeepsItsCaptain() {
+        when(teams.findById(5L)).thenReturn(Optional.of(teamWithCaptain()));
+        when(teamLock.isLocked(5L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.inactivate(CAPTAIN, 5L)).isInstanceOf(BusinessRuleException.class);
+        verify(roleService, never()).revokeCaptainForClosedTeam(any(), any(), any());
     }
 
     @Test
@@ -212,4 +289,13 @@ class TeamServiceTest {
     private static MemberProfile profile(Long userId, int jersey) {
         return new MemberProfile(userId, Position.MIDFIELDER, jersey, null);
     }
+
+    @Test
+    void closingRecruitmentCancelsPendingRequestsAsRosterFrozen() {
+        when(joinRequests.cancelPendingRequestsOf(1L, 5L, "ROSTER_FROZEN")).thenReturn(3);
+
+        assertThat(service.closeRecruitment(1L, 5L)).isEqualTo(3);
+        verify(joinRequests).cancelPendingRequestsOf(1L, 5L, "ROSTER_FROZEN");
+    }
+
 }

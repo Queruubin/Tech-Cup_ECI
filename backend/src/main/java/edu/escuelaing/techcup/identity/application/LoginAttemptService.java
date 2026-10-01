@@ -7,8 +7,11 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
@@ -17,7 +20,10 @@ import org.springframework.stereotype.Component;
  * refused until the oldest failure leaves the window. A successful login clears both counters.
  *
  * <p>In-memory on purpose (single instance, ~100 users); a restart only forgets a few minutes of
- * failures.
+ * failures. Memory stays bounded even against random e-mails or addresses: keys whose failures
+ * all left the window are purged every {@link #WINDOW} by a scheduled task, and also right away
+ * (at most once per {@link #PURGE_INTERVAL}) when a failure is recorded while more than
+ * {@value #DEFAULT_PURGE_THRESHOLD} keys are tracked.
  */
 @Component
 public class LoginAttemptService {
@@ -25,15 +31,26 @@ public class LoginAttemptService {
     static final int MAX_ATTEMPTS = 5;
     static final Duration WINDOW = Duration.ofMinutes(15);
     static final String BLOCKED_MESSAGE = "Demasiados intentos fallidos. Espere 15 minutos e intente de nuevo.";
+    static final int DEFAULT_PURGE_THRESHOLD = 10_000;
+    /** Minimum time between two purges triggered by {@link #recordFailure}, so a flood is not O(n) per request. */
+    static final Duration PURGE_INTERVAL = Duration.ofMinutes(1);
 
     private static final String EMAIL_PREFIX = "email:";
     private static final String IP_PREFIX = "ip:";
 
-    private final Map<String, Deque<Instant>> failures = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Deque<Instant>> failures = new ConcurrentHashMap<>();
     private final Clock clock;
+    private final int purgeThreshold;
+    private volatile Instant lastPurge = Instant.MIN;
 
+    @Autowired
     public LoginAttemptService(Clock clock) {
+        this(clock, DEFAULT_PURGE_THRESHOLD);
+    }
+
+    LoginAttemptService(Clock clock, int purgeThreshold) {
         this.clock = clock;
+        this.purgeThreshold = purgeThreshold;
     }
 
     /** @throws LoginRateLimitException when either the e-mail or the address is currently blocked */
@@ -47,11 +64,34 @@ public class LoginAttemptService {
         Instant now = clock.instant();
         record(emailKey(email), now);
         record(ipKey(clientIp), now);
+        if (failures.size() > purgeThreshold && !now.isBefore(lastPurge.plus(PURGE_INTERVAL))) {
+            purgeExpired();
+        }
     }
 
     public void reset(String email, String clientIp) {
         failures.remove(emailKey(email));
         failures.remove(ipKey(clientIp));
+    }
+
+    /** Drops every key whose failures have all left the window. */
+    @Scheduled(fixedRate = 15, initialDelay = 15, timeUnit = TimeUnit.MINUTES)
+    public void purgeExpired() {
+        lastPurge = clock.instant();
+        for (String key : failures.keySet()) {
+            // computeIfPresent is atomic per key, so a failure recorded concurrently is never lost.
+            failures.computeIfPresent(key, (ignored, recent) -> {
+                synchronized (recent) {
+                    prune(recent);
+                    return recent.isEmpty() ? null : recent;
+                }
+            });
+        }
+    }
+
+    /** Number of e-mails and addresses currently tracked. */
+    int trackedKeys() {
+        return failures.size();
     }
 
     boolean isBlocked(String key) {
@@ -76,11 +116,14 @@ public class LoginAttemptService {
         if (key == null) {
             return;
         }
-        Deque<Instant> recent = failures.computeIfAbsent(key, ignored -> new ArrayDeque<>());
-        synchronized (recent) {
-            prune(recent);
-            recent.addLast(now);
-        }
+        failures.compute(key, (ignored, existing) -> {
+            Deque<Instant> recent = existing != null ? existing : new ArrayDeque<>();
+            synchronized (recent) {
+                prune(recent);
+                recent.addLast(now);
+            }
+            return recent;
+        });
     }
 
     private void prune(Deque<Instant> recent) {

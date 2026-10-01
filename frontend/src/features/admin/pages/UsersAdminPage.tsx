@@ -5,11 +5,14 @@ import { ConfirmDialog, Modal } from '@/components/molecules/Modal'
 import { PageHeader } from '@/components/molecules/PageHeader'
 import { QueryState } from '@/components/molecules/QueryState'
 import { useAuth } from '@/features/auth/hooks/useAuth'
+import { reloadOnError } from '@/lib/reloadOnError'
 import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
-import type { CreateRefereeRequest, ResetPasswordRequest, Role, UserResponse } from '@/types/api'
+import { useAuthStore } from '@/store/auth.store'
+import type { CreateRefereeRequest, ResetPasswordRequest, Role, UpdateUserRequest, UserResponse } from '@/types/api'
 import { adminApi } from '../api'
 import { CreateRefereeForm } from '../components/CreateRefereeForm'
+import { EditUserModal } from '../components/EditUserModal'
 import { ResetPasswordModal } from '../components/ResetPasswordModal'
 import { RolesModal } from '../components/RolesModal'
 import { UsersTable } from '../components/UsersTable'
@@ -18,7 +21,7 @@ import { useDebouncedValue, useUsers } from '../hooks/useAdmin'
 export function UsersAdminPage() {
   const { user: me, hasRole, refreshMe } = useAuth()
   const isAdmin = hasRole('ADMIN')
-  const canManageCaptains = hasRole('ORGANIZER')
+  const canCreateReferees = hasRole('ORGANIZER')
 
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search.trim())
@@ -29,6 +32,7 @@ export function UsersAdminPage() {
   const [toInactivate, setToInactivate] = useState<UserResponse | null>(null)
   const [refereeOpen, setRefereeOpen] = useState(false)
   const [resetUser, setResetUser] = useState<UserResponse | null>(null)
+  const [editUser, setEditUser] = useState<UserResponse | null>(null)
   const [busyUserId, setBusyUserId] = useState<number | null>(null)
 
   const replaceUser = (updated: UserResponse) => {
@@ -42,10 +46,13 @@ export function UsersAdminPage() {
   })
 
   const changeRole = useMutation(async (input: { userId: number; role: Role; action: 'assign' | 'remove' }) => {
-    const roles =
-      input.action === 'assign'
-        ? await adminApi.assignRole(input.userId, input.role)
-        : await adminApi.removeRole(input.userId, input.role)
+    // The roles may have changed meanwhile: on failure reload them so the dialog and the list show the server state.
+    const rolesDialog = { refetch: () => adminApi.getUserRoles(input.userId).then(setRolesList) }
+    const roles = await reloadOnError(
+      () => (input.action === 'assign' ? adminApi.assignRole(input.userId, input.role) : adminApi.removeRole(input.userId, input.role)),
+      rolesDialog,
+      usersQuery,
+    )
     setRolesList(roles)
     usersQuery.setData((previous) => previous?.map((item) => (item.id === input.userId ? { ...item, roles } : item)) ?? null)
     // Editing one's own roles must be reflected in the session (nav items, guards) right away.
@@ -53,17 +60,9 @@ export function UsersAdminPage() {
     return roles
   })
 
-  const toggleCaptain = useMutation(async (user: UserResponse) => {
-    const updated = user.roles.includes('CAPTAIN')
-      ? await adminApi.revokeCaptain(user.id)
-      : await adminApi.grantCaptain(user.id)
-    replaceUser(updated)
-    if (updated.id === me?.id) await refreshMe().catch(() => null)
-    return updated
-  })
-
   const inactivate = useMutation(async (user: UserResponse) => {
-    const updated = await adminApi.inactivateUser(user.id)
+    // The user may already be inactive: on failure reload so the row reflects the server state.
+    const updated = await reloadOnError(() => adminApi.inactivateUser(user.id), usersQuery)
     replaceUser(updated)
     return updated
   })
@@ -78,6 +77,19 @@ export function UsersAdminPage() {
     adminApi.resetPassword(input.userId, input.payload),
   )
 
+  const updateUser = useMutation(async (input: { userId: number; payload: UpdateUserRequest }) => {
+    const updated = await adminApi.updateUser(input.userId, input.payload)
+    replaceUser(updated)
+    // Editing one's own data must be reflected in the session right away.
+    if (updated.id === me?.id) useAuthStore.setState({ user: updated })
+    return updated
+  })
+
+  const closeEditUser = () => {
+    setEditUser(null)
+    updateUser.reset()
+  }
+
   const closeResetPassword = () => {
     setResetUser(null)
     resetPassword.reset()
@@ -87,21 +99,6 @@ export function UsersAdminPage() {
     setRolesUser(user)
     setRolesList(user.roles)
     loadRoles.mutate(user).catch(() => undefined)
-  }
-
-  const handleToggleCaptain = (user: UserResponse) => {
-    setBusyUserId(user.id)
-    toggleCaptain
-      .mutate(user)
-      .then((updated) =>
-        toast.success(
-          updated.roles.includes('CAPTAIN')
-            ? `${updated.fullName} ahora es capitán.`
-            : `Se revocó el rol de capitán a ${updated.fullName}.`,
-        ),
-      )
-      .catch((cause: unknown) => toast.error(cause instanceof Error ? cause.message : 'No fue posible actualizar el rol.'))
-      .finally(() => setBusyUserId(null))
   }
 
   const confirmInactivate = () => {
@@ -125,10 +122,10 @@ export function UsersAdminPage() {
         description={
           isAdmin
             ? 'Consulte y administre los roles de los usuarios de la plataforma.'
-            : 'Otorgue el rol de capitán y cree cuentas de árbitro.'
+            : 'Consulte los usuarios de la plataforma y cree cuentas de árbitro.'
         }
         actions={
-          canManageCaptains && (
+          canCreateReferees && (
             <Button size="sm" onClick={() => setRefereeOpen(true)}>
               Crear árbitro
             </Button>
@@ -151,16 +148,35 @@ export function UsersAdminPage() {
           users={usersQuery.data ?? []}
           currentUserId={me?.id ?? null}
           canManageRoles={isAdmin}
-          canManageCaptains={canManageCaptains}
           canInactivate={isAdmin}
           canResetPassword={isAdmin}
+          canEditUser={isAdmin}
           busyUserId={busyUserId}
           onManageRoles={openRoles}
-          onToggleCaptain={handleToggleCaptain}
+          onEditUser={setEditUser}
           onInactivate={setToInactivate}
           onResetPassword={setResetUser}
         />
       </QueryState>
+
+      <EditUserModal
+        key={editUser ? `edit-${editUser.id}` : 'edit-none'}
+        user={editUser}
+        loading={updateUser.loading}
+        error={updateUser.error}
+        fieldErrors={updateUser.fieldErrors}
+        onClose={closeEditUser}
+        onSubmit={(payload) =>
+          editUser &&
+          updateUser
+            .mutate({ userId: editUser.id, payload })
+            .then((updated) => {
+              toast.success(`Datos de ${updated.fullName} actualizados.`)
+              closeEditUser()
+            })
+            .catch(() => undefined)
+        }
+      />
 
       <ResetPasswordModal
         key={resetUser?.id ?? 'none'}

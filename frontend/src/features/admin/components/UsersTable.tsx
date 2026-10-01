@@ -8,13 +8,14 @@ export interface UsersTableProps {
   users: UserResponse[]
   currentUserId: number | null
   canManageRoles: boolean
-  canManageCaptains: boolean
   canInactivate: boolean
+  /** ADMIN only: shows the "Editar datos" action. */
+  canEditUser?: boolean
   /** ADMIN only: shows the "Restablecer contraseña" action. */
   canResetPassword?: boolean
   busyUserId: number | null
   onManageRoles: (user: UserResponse) => void
-  onToggleCaptain: (user: UserResponse) => void
+  onEditUser?: (user: UserResponse) => void
   onInactivate: (user: UserResponse) => void
   onResetPassword?: (user: UserResponse) => void
 }
@@ -23,12 +24,12 @@ export function UsersTable({
   users,
   currentUserId,
   canManageRoles,
-  canManageCaptains,
   canInactivate,
+  canEditUser = false,
   canResetPassword = false,
   busyUserId,
   onManageRoles,
-  onToggleCaptain,
+  onEditUser,
   onInactivate,
   onResetPassword,
 }: UsersTableProps) {
@@ -49,8 +50,10 @@ export function UsersTable({
       hideOnMobile: true,
       cell: (user) => (
         <div>
-          <p>{SCHOOL_RELATION_LABELS[user.schoolRelation]}</p>
-          <p className="text-xs text-stone-500">{ACADEMIC_PROGRAM_LABELS[user.academicProgram]}</p>
+          <p>{user.schoolRelation ? SCHOOL_RELATION_LABELS[user.schoolRelation] : '—'}</p>
+          <p className="text-xs text-stone-500">
+            {user.academicProgram ? ACADEMIC_PROGRAM_LABELS[user.academicProgram] : ''}
+          </p>
         </div>
       ),
     },
@@ -78,7 +81,6 @@ export function UsersTable({
       cell: (user) => {
         const busy = busyUserId === user.id
         const isSelf = user.id === currentUserId
-        const isCaptain = user.roles.includes('CAPTAIN')
         const inactive = user.status === 'INACTIVE'
         return (
           <div className="flex flex-wrap justify-end gap-1.5">
@@ -87,9 +89,9 @@ export function UsersTable({
                 Roles
               </Button>
             )}
-            {canManageCaptains && !inactive && (
-              <Button size="sm" variant={isCaptain ? 'ghost' : 'outline'} onClick={() => onToggleCaptain(user)} loading={busy}>
-                {isCaptain ? 'Revocar capitán' : 'Otorgar capitán'}
+            {canEditUser && onEditUser && (
+              <Button size="sm" variant="outline" onClick={() => onEditUser(user)} disabled={busy}>
+                Editar datos
               </Button>
             )}
             {canResetPassword && onResetPassword && !inactive && (

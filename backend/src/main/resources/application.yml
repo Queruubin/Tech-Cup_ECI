@@ -47,11 +47,15 @@ app:
     secret: ${JWT_SECRET:techcup-dev-only-secret-change-me-please-0123456789abcdef}
     expiration-minutes: ${JWT_EXPIRATION_MINUTES:480}
   cors-origins: ${CORS_ORIGINS:http://localhost:5173}
-  institutional-domains: ${APP_INSTITUTIONAL_DOMAINS:escuelaing.edu.co,mail.escuelaing.edu.co}
   # Zone used for every "today" / "now" business rule (tournament dates, kick-off times).
   time-zone: ${APP_TIME_ZONE:America/Bogota}
   storage:
     max-file-size-bytes: 5242880
+  player:
+    # Inclusive age range, in full years, for the PLAYER role (registration, role assignment,
+    # sport profile creation). Other roles have no age limit.
+    min-age: ${APP_PLAYER_MIN_AGE:5}
+    max-age: ${APP_PLAYER_MAX_AGE:100}
   bootstrap:
     # The administrator is created at startup when no ADMIN user exists yet.
     # The "prod" profile refuses to start with the default password.
@@ -73,3 +77,7 @@ management:
 logging:
   level:
     edu.escuelaing.techcup: INFO
+  pattern:
+    # Every line logged while a request is handled carries its reference code (TraceIdFilter),
+    # the same one returned to the client as ApiError.traceId and the X-Trace-Id header.
+    level: "%5p [%X{traceId:-}]"

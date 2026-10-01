@@ -6,20 +6,29 @@ import { FileInput } from '@/components/atoms/FileInput'
 import { Alert } from '@/components/molecules/Alert'
 import { Card } from '@/components/molecules/Card'
 import { ConfirmDialog } from '@/components/molecules/Modal'
+import { errorMessage } from '@/lib/api'
 import { formatDate, todayIso } from '@/lib/format'
 import { MAX_UPLOAD_BYTES, PDF_ACCEPT, PDF_HINT } from '@/lib/uploads'
+import { reloadOnError } from '@/lib/reloadOnError'
 import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
-import type { CreateTournamentRequest, TournamentResponse, UpdateTournamentRequest, VenueResponse } from '@/types/api'
+import type {
+  CreateTournamentRequest,
+  TournamentResponse,
+  UndoPhaseResponse,
+  UpdateTournamentRequest,
+  VenueResponse,
+} from '@/types/api'
 import { tournamentsApi } from '../api'
 import { useTournamentMatches } from '../hooks/useTournaments'
+import { undoPhaseConfirmDescription, undoPhaseState, undoPhaseSuccessMessage } from '../undoPhase'
 import { RegistrationsReview } from './RegistrationsReview'
 import { RulebookLink } from './RulebookLink'
 import { TournamentForm } from './TournamentForm'
 import { VenueForm } from './VenueForm'
 import { VenueGallery } from './VenueGallery'
 
-type Lifecycle = 'activate' | 'start' | 'finish' | 'delete' | 'generate' | 'advance'
+type Lifecycle = 'activate' | 'start' | 'finish' | 'delete' | 'generate' | 'advance' | 'undo'
 type Pending = { kind: Lifecycle } | { kind: 'deleteVenue'; venue: VenueResponse }
 
 export type TournamentUpdate = TournamentResponse | ((previous: TournamentResponse) => TournamentResponse)
@@ -65,6 +74,13 @@ const LIFECYCLE_COPY: Record<Lifecycle, { title: string; description: string; co
     description: 'Todos los partidos de la fase actual deben estar jugados o cancelados. Se generará la siguiente fase eliminatoria.',
     confirm: 'Avanzar',
   },
+  undo: {
+    title: 'Deshacer última fase',
+    // Replaced at render time by `undoPhaseConfirmDescription` (depends on the phase and its matches).
+    description: 'Se eliminarán los partidos de la última fase generada.',
+    confirm: 'Deshacer fase',
+    danger: true,
+  },
 }
 
 export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
@@ -76,6 +92,7 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
   const [venueFormKey, setVenueFormKey] = useState(0)
   const matches = useTournamentMatches(tournament.id, '', tournament.status === 'IN_PROGRESS' || tournament.status === 'FINISHED')
   const matchCount = matches.data?.length ?? 0
+  const undo = undoPhaseState(matches.data ?? [])
 
   const isDraft = tournament.status === 'DRAFT'
   const isActive = tournament.status === 'ACTIVE'
@@ -102,25 +119,35 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
     onUpdated(updated)
     return updated
   })
-  const lifecycle = useMutation(async (kind: Lifecycle) => {
+  // Resolves with the undo outcome for 'undo' (used by its toast); `undefined` for the other actions.
+  const lifecycle = useMutation(async (kind: Lifecycle): Promise<UndoPhaseResponse | undefined> => {
     switch (kind) {
       case 'activate':
-        return onUpdated(await tournamentsApi.activate(tournament.id))
+        onUpdated(await tournamentsApi.activate(tournament.id))
+        return
       case 'start':
-        return onUpdated(await tournamentsApi.start(tournament.id))
+        onUpdated(await tournamentsApi.start(tournament.id))
+        return
       case 'finish':
-        return onUpdated(await tournamentsApi.finish(tournament.id))
+        onUpdated(await tournamentsApi.finish(tournament.id))
+        return
       case 'delete':
         await tournamentsApi.remove(tournament.id)
         return
       case 'generate':
-        await tournamentsApi.generateMatches(tournament.id)
+        // A failure may mean the phases changed meanwhile (another tab/organizer): reload the matches.
+        await reloadOnError(() => tournamentsApi.generateMatches(tournament.id), matches)
         matches.refetch()
         return
       case 'advance':
-        await tournamentsApi.advanceMatches(tournament.id)
+        await reloadOnError(() => tournamentsApi.advanceMatches(tournament.id), matches)
         matches.refetch()
         return
+      case 'undo': {
+        const undone = await reloadOnError(() => tournamentsApi.undoPhase(tournament.id), matches)
+        matches.refetch()
+        return undone
+      }
     }
   })
   const uploadRulebook = useMutation(async (file: File) => {
@@ -151,7 +178,7 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
     const kind = pending.kind
     lifecycle
       .mutate(kind)
-      .then(() => {
+      .then((outcome) => {
         const messages: Record<Lifecycle, string> = {
           activate: 'Torneo activado.',
           start: 'Torneo iniciado.',
@@ -159,15 +186,20 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
           delete: 'Torneo eliminado.',
           generate: 'Fixture generado.',
           advance: 'Se generó la siguiente fase.',
+          undo: 'Fase deshecha.',
         }
-        toast.success(messages[kind])
+        toast.success(
+          kind === 'undo' && outcome ? undoPhaseSuccessMessage(outcome.phase, outcome.deletedMatches) : messages[kind],
+        )
         if (kind === 'delete') navigate('/tournaments', { replace: true })
       })
-      .catch((cause: unknown) => toast.error(cause instanceof Error ? cause.message : 'La operación no pudo completarse.'))
+      .catch((cause: unknown) => toast.error(errorMessage(cause, 'La operación no pudo completarse.')))
       .finally(() => setPending(null))
   }
 
   const pendingCopy = pending && pending.kind !== 'deleteVenue' ? LIFECYCLE_COPY[pending.kind] : null
+  const pendingDescription =
+    pending?.kind === 'undo' && undo.phase ? undoPhaseConfirmDescription(undo.phase, undo.count) : pendingCopy?.description
 
   return (
     <div className="flex flex-col gap-6">
@@ -203,9 +235,20 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
                   Generar fixture
                 </Button>
               ) : (
-                <Button size="sm" onClick={() => setPending({ kind: 'advance' })}>
-                  Avanzar fase
-                </Button>
+                <>
+                  <Button size="sm" onClick={() => setPending({ kind: 'advance' })}>
+                    Avanzar fase
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setPending({ kind: 'undo' })}
+                    disabled={!undo.enabled || matches.refetching}
+                    title={undo.reason ?? undefined}
+                  >
+                    Deshacer última fase
+                  </Button>
+                </>
               )}
               <Button size="sm" variant="outline" onClick={() => setPending({ kind: 'finish' })}>
                 Finalizar torneo
@@ -237,6 +280,7 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
             {matchCount === 0
               ? 'Aún no se ha generado el fixture.'
               : `${matchCount} partidos registrados. Avance de fase cuando todos los partidos de la fase actual estén jugados o cancelados.`}
+            {matchCount > 0 && undo.reason && ` ${undo.reason}`}
           </p>
         )}
         {editing && canEdit && (
@@ -351,7 +395,7 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
         open={pending !== null}
         title={pendingCopy?.title ?? 'Eliminar cancha'}
         description={
-          pendingCopy?.description ??
+          pendingDescription ??
           (pending?.kind === 'deleteVenue' ? `¿Desea eliminar la cancha ${pending.venue.name}?` : undefined)
         }
         confirmLabel={pendingCopy?.confirm ?? 'Eliminar'}

@@ -3,8 +3,15 @@ package edu.escuelaing.techcup.competition.api.dto;
 import java.time.Instant;
 
 /**
- * Rescheduling of a match by an organizer. Every field is optional; only the kick-off time, the
- * venue and the referee can be changed, and only before the current kick-off time.
+ * Correction of a match by an organizer while the tournament is IN_PROGRESS. Every field is
+ * optional ({@code null} leaves it unchanged). {@code scheduledAt} may lie in the past, to record
+ * when the match was actually played. The teams can only be replaced while the match has no
+ * result (reopen it first).
  */
-public record UpdateMatchRequest(Instant scheduledAt, Long venueId, Long refereeId) {
+public record UpdateMatchRequest(Instant scheduledAt, Long venueId, Long refereeId, Long homeTeamId,
+                                 Long awayTeamId) {
+
+    public boolean changesTeams() {
+        return homeTeamId != null || awayTeamId != null;
+    }
 }

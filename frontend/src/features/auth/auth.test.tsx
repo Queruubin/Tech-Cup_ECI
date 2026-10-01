@@ -3,11 +3,23 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { todayIso } from '@/lib/format'
 import { ChangePasswordForm } from './components/ChangePasswordForm'
-import { EMPTY_REGISTER_VALUES, validateNewPassword, validatePasswordChange, validateRegister, validateSemester } from './validation'
+import {
+  EMPTY_REGISTER_VALUES,
+  PLAYER_AGE_ERROR,
+  ageInFullYears,
+  validateEmail,
+  validateNewPassword,
+  validatePasswordChange,
+  validatePlayerAge,
+  validateRegister,
+  validateSemester,
+} from './validation'
 
 describe('validateRegister', () => {
+  // An adult guest: the PLAYER age rule is covered separately below.
   const valid = {
     ...EMPTY_REGISTER_VALUES,
+    initialRole: 'GUEST' as const,
     fullName: 'Ana Pérez',
     email: 'ana.perez@escuelaing.edu.co',
     password: 'Clave1234',
@@ -41,6 +53,55 @@ describe('validateRegister', () => {
     expect(validateRegister({ ...valid, birthDate: tomorrowIso }).birthDate).toMatch(/anterior a hoy/)
     expect(validateRegister({ ...valid, birthDate: '2003-04-10' }).birthDate).toBeUndefined()
     expect(validateRegister(valid)).toEqual({})
+  })
+
+  it('accepts any syntactically valid e-mail for every school relation', () => {
+    for (const schoolRelation of ['STUDENT', 'PROFESSOR', 'ADMINISTRATIVE', 'GRADUATE', 'FAMILY'] as const) {
+      expect(validateRegister({ ...valid, schoolRelation, email: 'ana@gmail.com' }).email).toBeUndefined()
+      expect(validateRegister({ ...valid, schoolRelation, email: 'ana@escuelaing.edu.co' }).email).toBeUndefined()
+    }
+    expect(validateEmail('')).toBe('El correo es obligatorio.')
+    expect(validateEmail('ana@')).toBe('Ingrese un correo válido.')
+    expect(validateEmail('ana perez@mail.com')).toBe('Ingrese un correo válido.')
+  })
+
+  it('requires an age of 5 to 100 full years for players and none for guests', () => {
+    const child = { ...valid, initialRole: 'PLAYER' as const, schoolRelation: 'FAMILY' as const, semester: '' }
+    const yearsAgo = (years: number, dayOffset = 0) => {
+      const [y = 0, m = 1, d = 1] = todayIso().split('-').map(Number)
+      const date = new Date(y - years, m - 1, d + dayOffset)
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    }
+
+    expect(validateRegister({ ...child, birthDate: yearsAgo(5) }).birthDate).toBeUndefined()
+    expect(validateRegister({ ...child, birthDate: yearsAgo(100) }).birthDate).toBeUndefined()
+    expect(validateRegister({ ...child, birthDate: yearsAgo(101, 1) }).birthDate).toBeUndefined()
+    expect(validateRegister({ ...child, birthDate: yearsAgo(5, 1) }).birthDate).toBe(PLAYER_AGE_ERROR)
+    expect(validateRegister({ ...child, birthDate: yearsAgo(101) }).birthDate).toBe(PLAYER_AGE_ERROR)
+    expect(validateRegister({ ...child, birthDate: '1900-04-10' }).birthDate).toBe(
+      'Para ser jugador la edad debe estar entre 5 y 100 años.',
+    )
+    // Guests have no age limit.
+    expect(validateRegister({ ...child, initialRole: 'GUEST', birthDate: '1970-01-01' }).birthDate).toBeUndefined()
+    expect(validateRegister({ ...child, initialRole: 'GUEST', birthDate: yearsAgo(2) }).birthDate).toBeUndefined()
+  })
+})
+
+describe('ageInFullYears', () => {
+  it('counts full years from the string parts, the birthday included', () => {
+    expect(ageInFullYears('2016-09-30', '2026-09-30')).toBe(10)
+    expect(ageInFullYears('2016-10-01', '2026-09-30')).toBe(9)
+    expect(ageInFullYears('2016-08-31', '2026-09-30')).toBe(10)
+    expect(ageInFullYears('2016-02-29', '2026-02-28')).toBe(9)
+    expect(ageInFullYears('not-a-date', '2026-09-30')).toBeNull()
+  })
+
+  it('validates the player range with an explicit today', () => {
+    expect(validatePlayerAge('2021-09-30', '2026-09-30')).toBeUndefined()
+    expect(validatePlayerAge('1926-09-30', '2026-09-30')).toBeUndefined()
+    expect(validatePlayerAge('1925-10-01', '2026-09-30')).toBeUndefined()
+    expect(validatePlayerAge('1925-09-30', '2026-09-30')).toBe(PLAYER_AGE_ERROR)
+    expect(validatePlayerAge('2021-10-01', '2026-09-30')).toBe(PLAYER_AGE_ERROR)
   })
 })
 

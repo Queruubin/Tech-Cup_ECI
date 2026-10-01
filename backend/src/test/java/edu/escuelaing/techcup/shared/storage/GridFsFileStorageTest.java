@@ -28,6 +28,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.gridfs.GridFsResource;
 import org.springframework.data.mongodb.gridfs.GridFsTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /** Uploads are validated by their real bytes and stored with their owner. */
 @ExtendWith(MockitoExtension.class)
@@ -43,10 +45,10 @@ class GridFsFileStorageTest {
         AppProperties properties = new AppProperties(
                 new AppProperties.Jwt("x".repeat(40), 60),
                 List.of("http://localhost:5173"),
-                List.of("escuelaing.edu.co"),
                 "UTC",
                 new AppProperties.Storage(1024),
-                new AppProperties.Bootstrap("admin@escuelaing.edu.co", "Str0ngAdminPass"));
+                new AppProperties.Bootstrap("admin@escuelaing.edu.co", "Str0ngAdminPass"),
+                new AppProperties.Player(5, 100));
         storage = new GridFsFileStorage(gridFsTemplate, properties);
     }
 
@@ -67,6 +69,44 @@ class GridFsFileStorageTest {
         assertThat(metadata.getValue().getLong("userId")).isEqualTo(10L);
         // The header read for sniffing was rewound: the whole file is what gets stored.
         assertThat(content.getValue().readAllBytes()).isEqualTo(TestFiles.PNG);
+    }
+
+    @Test
+    void aFileStoredByATransactionThatRollsBackIsDeleted() {
+        ObjectId id = new ObjectId();
+        when(gridFsTemplate.store(any(InputStream.class), anyString(), anyString(), any(Document.class))).thenReturn(id);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            storage.store(upload("receipt.png", "image/png", TestFiles.PNG), FileKind.IMAGE_OR_PDF,
+                    FileOwner.photo(10L));
+            verify(gridFsTemplate, never()).delete(any(Query.class));
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        ArgumentCaptor<Query> deleted = ArgumentCaptor.forClass(Query.class);
+        verify(gridFsTemplate).delete(deleted.capture());
+        assertThat(deleted.getValue().getQueryObject().get("_id")).isEqualTo(id);
+    }
+
+    @Test
+    void aFileStoredByATransactionThatCommitsIsKept() {
+        when(gridFsTemplate.store(any(InputStream.class), anyString(), anyString(), any(Document.class)))
+                .thenReturn(new ObjectId());
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            storage.store(upload("photo.png", "image/png", TestFiles.PNG), FileKind.IMAGE, FileOwner.photo(10L));
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(sync -> sync.afterCompletion(TransactionSynchronization.STATUS_COMMITTED));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        verify(gridFsTemplate, never()).delete(any(Query.class));
     }
 
     @Test

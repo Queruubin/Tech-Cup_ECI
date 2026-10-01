@@ -18,10 +18,13 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.gridfs.GridFsResource;
 import org.springframework.data.mongodb.gridfs.GridFsTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * {@link FileStorage} adapter backed by MongoDB GridFS. The stored content type is the one
- * proven by the file's magic bytes, never the one declared by the client.
+ * proven by the file's magic bytes, never the one declared by the client. A file stored inside a
+ * database transaction is deleted again if that transaction rolls back.
  */
 @Component
 public class GridFsFileStorage implements FileStorage {
@@ -52,7 +55,28 @@ public class GridFsFileStorage implements FileStorage {
                 .append(META_KIND, owner.category().name())
                 .append(owner.category().ownerField(), owner.ownerId());
         ObjectId id = gridFsTemplate.store(content, upload.filename(), contentType, metadata);
-        return id.toHexString();
+        String fileId = id.toHexString();
+        deleteIfRolledBack(fileId);
+        return fileId;
+    }
+
+    /**
+     * GridFS is not part of the JPA transaction: when the use case that stored the file rolls back
+     * (a business rule refused it after the upload), no row will ever point at the binary, so it
+     * is deleted. The counterpart of {@link FileDeletionScheduler#deleteAfterCommit}.
+     */
+    private void deleteIfRolledBack(String fileId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status == STATUS_ROLLED_BACK) {
+                    delete(fileId);
+                }
+            }
+        });
     }
 
     @Override
@@ -84,7 +108,7 @@ public class GridFsFileStorage implements FileStorage {
         try {
             gridFsTemplate.delete(byId(id));
         } catch (RuntimeException ex) {
-            // Deletions run after the owning transaction committed; a missing binary must never
+            // Deletions run after the owning transaction completed; a missing binary must never
             // undo a business operation, so the orphan is only logged.
             log.warn("Could not delete stored file {}: {}", id, ex.getClass().getSimpleName());
         }

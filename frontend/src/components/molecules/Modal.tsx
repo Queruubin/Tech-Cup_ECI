@@ -101,6 +101,8 @@ export interface ConfirmDialogProps {
   open: boolean
   title: ReactNode
   description?: ReactNode
+  /** Extra content rendered between the description and the buttons (e.g. a warning `Alert`). */
+  children?: ReactNode
   confirmLabel?: string
   cancelLabel?: string
   danger?: boolean
@@ -113,6 +115,7 @@ export function ConfirmDialog({
   open,
   title,
   description,
+  children,
   confirmLabel = 'Confirmar',
   cancelLabel = 'Cancelar',
   danger = false,
@@ -137,6 +140,8 @@ export function ConfirmDialog({
           </Button>
         </>
       }
-    />
+    >
+      {children}
+    </Modal>
   )
 }

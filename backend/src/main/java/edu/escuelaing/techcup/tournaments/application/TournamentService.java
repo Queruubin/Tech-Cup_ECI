@@ -296,11 +296,13 @@ public class TournamentService {
      * IN_PROGRESS &rarr; FINISHED. Allowed once the end date has been reached, or earlier when the
      * FINAL match has already been played (the competition is over, whatever the calendar says).
      * Refused while any match is still SCHEDULED: the organizer must record or cancel it first,
-     * because a FINISHED tournament accepts no more results.
+     * because a FINISHED tournament accepts no more results. The tournament row is locked (like
+     * advance, undo and fixture generation do), so a concurrent advance or result cannot slip in
+     * between the checks and the status change.
      */
     @Transactional
     public TournamentResponse finish(AuthenticatedUser actor, Long id) {
-        Tournament tournament = requireTournament(id);
+        Tournament tournament = requireTournamentForUpdate(id);
         LocalDate today = LocalDate.now(clock);
         boolean endDateReached = !today.isBefore(tournament.getEndDate());
         boolean finalPlayed = finalMatch.isFinalMatchPlayed(id);

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -58,8 +59,22 @@ class UserServiceTest {
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(users, userFacts, new EmailDomainPolicy(List.of("escuelaing.edu.co")),
-                passwordEncoder, auditService);
+        userService = new UserService(users, userFacts, passwordEncoder, auditService);
+    }
+
+    // --- team facts ---------------------------------------------------------------------------
+
+    @Test
+    void aMemberOrTheCaptainOfAnActiveTeamBelongsToIt() {
+        when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.of(5L));
+        when(userFacts.activeTeamIdOf(20L)).thenReturn(Optional.empty());
+        when(userFacts.captainsActiveTeam(20L)).thenReturn(true);
+        when(userFacts.activeTeamIdOf(30L)).thenReturn(Optional.empty());
+        when(userFacts.captainsActiveTeam(30L)).thenReturn(false);
+
+        assertThat(userService.belongsToActiveTeam(10L)).isTrue();
+        assertThat(userService.belongsToActiveTeam(20L)).isTrue();
+        assertThat(userService.belongsToActiveTeam(30L)).isFalse();
     }
 
     // --- inactivation -------------------------------------------------------------------------
@@ -119,20 +134,146 @@ class UserServiceTest {
     void updateKeepsSemesterConsistentWithSchoolRelation() {
         when(users.findById(10L)).thenReturn(Optional.of(activeUser(10L)));
 
-        assertThatThrownBy(() -> userService.updateBasicInfo(PLAYER, 10L,
+        assertThatThrownBy(() -> userService.updateBasicInfo(ADMIN, 10L,
                 new UpdateUserRequest("Ana", SchoolRelation.GRADUATE, AcademicProgram.AI_ENGINEERING, 4)))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("solo aplica para los estudiantes");
     }
 
     @Test
-    void updateKeepsEmailConsistentWithSchoolRelation() {
+    void aStudentStillNeedsASemesterWhenEditingThemself() {
         when(users.findById(10L)).thenReturn(Optional.of(activeUser(10L)));
 
         assertThatThrownBy(() -> userService.updateBasicInfo(PLAYER, 10L,
-                new UpdateUserRequest("Ana", SchoolRelation.FAMILY, AcademicProgram.OTHER, null)))
+                new UpdateUserRequest("Ana", SchoolRelation.STUDENT, AcademicProgram.AI_ENGINEERING, null)))
                 .isInstanceOf(BusinessRuleException.class)
-                .hasMessageContaining("correo personal");
+                .hasMessageContaining("El semestre es obligatorio");
+    }
+
+    @Test
+    void onlyAnAdminCanChangeTheSchoolRelation() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> userService.updateBasicInfo(PLAYER, 10L,
+                new UpdateUserRequest("Ana", SchoolRelation.FAMILY, AcademicProgram.OTHER, null)))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessage("Solo un administrador puede cambiar la relación con la Escuela.");
+        assertThat(user.getSchoolRelation()).isEqualTo(SchoolRelation.STUDENT);
+        verify(auditService, never()).record(any(), any(), anyString(), anyLong(), any());
+    }
+
+    @Test
+    void usersEditTheirNameProgramAndSemesterWhileKeepingTheSchoolRelation() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.empty());
+
+        userService.updateBasicInfo(PLAYER, 10L,
+                new UpdateUserRequest(" Ana Maria ", SchoolRelation.STUDENT, AcademicProgram.AI_ENGINEERING, 6));
+
+        assertThat(user.getFullName()).isEqualTo("Ana Maria");
+        assertThat(user.getAcademicProgram()).isEqualTo(AcademicProgram.AI_ENGINEERING);
+        assertThat(user.getSemester()).isEqualTo(6);
+        verify(auditService).record(eq(10L), eq(AuditAction.USER_UPDATED), anyString(), eq(10L), any());
+    }
+
+    @Test
+    void anAdminChangesAnyUsersSchoolRelation() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.empty());
+
+        userService.updateBasicInfo(ADMIN, 10L,
+                new UpdateUserRequest("Ana", SchoolRelation.FAMILY, AcademicProgram.OTHER, null));
+
+        assertThat(user.getSchoolRelation()).isEqualTo(SchoolRelation.FAMILY);
+        assertThat(user.getSemester()).isNull();
+        verify(auditService).record(eq(1L), eq(AuditAction.USER_UPDATED), anyString(), eq(10L), any());
+    }
+
+    @Test
+    void aRefereeWithoutAffiliationRenamesThemselfKeepingTheNullFields() {
+        AuthenticatedUser referee = new AuthenticatedUser(30L, "arbitro@escuelaing.edu.co", Set.of("REFEREE"));
+        AppUser user = activeUser(30L);
+        user.setSchoolRelation(null);
+        user.setAcademicProgram(null);
+        user.setSemester(null);
+        when(users.findById(30L)).thenReturn(Optional.of(user));
+        when(userFacts.activeTeamIdOf(30L)).thenReturn(Optional.empty());
+
+        userService.updateBasicInfo(referee, 30L, new UpdateUserRequest("Arbitro Nuevo", null, null, null));
+
+        assertThat(user.getFullName()).isEqualTo("Arbitro Nuevo");
+        assertThat(user.getSchoolRelation()).isNull();
+        assertThat(user.getAcademicProgram()).isNull();
+        verify(auditService).record(eq(30L), eq(AuditAction.USER_UPDATED), anyString(), eq(30L), any());
+    }
+
+    @Test
+    void nullRelationAndProgramKeepTheStoredValues() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.empty());
+
+        userService.updateBasicInfo(PLAYER, 10L, new UpdateUserRequest("Ana", null, null, 7));
+
+        assertThat(user.getSchoolRelation()).isEqualTo(SchoolRelation.STUDENT);
+        assertThat(user.getAcademicProgram()).isEqualTo(AcademicProgram.SYSTEMS_ENGINEERING);
+        assertThat(user.getSemester()).isEqualTo(7);
+    }
+
+    // --- eligibility data frozen during a tournament --------------------------------------------
+
+    private static final String LOCKED_ELIGIBILITY_DATA = "El usuario está inscrito con su equipo en un torneo "
+            + "activo o en curso; su relación con la Escuela y su programa no se pueden modificar hasta que el "
+            + "torneo finalice.";
+
+    @Test
+    void aLockedPlayerCannotChangeTheProgramNotEvenThroughAnAdmin() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        when(userFacts.isLockedByTournament(10L)).thenReturn(true);
+
+        for (AuthenticatedUser actor : List.of(PLAYER, ADMIN)) {
+            assertThatThrownBy(() -> userService.updateBasicInfo(actor, 10L,
+                    new UpdateUserRequest("Ana", SchoolRelation.STUDENT, AcademicProgram.AI_ENGINEERING, 5)))
+                    .isInstanceOf(BusinessRuleException.class)
+                    .hasMessage(LOCKED_ELIGIBILITY_DATA);
+        }
+        assertThat(user.getAcademicProgram()).isEqualTo(AcademicProgram.SYSTEMS_ENGINEERING);
+        verify(auditService, never()).record(any(), any(), anyString(), anyLong(), any());
+    }
+
+    @Test
+    void aLockedPlayerCannotChangeTheSchoolRelationNotEvenThroughAnAdmin() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        when(userFacts.isLockedByTournament(10L)).thenReturn(true);
+
+        assertThatThrownBy(() -> userService.updateBasicInfo(ADMIN, 10L,
+                new UpdateUserRequest("Ana", SchoolRelation.FAMILY, null, null)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage(LOCKED_ELIGIBILITY_DATA);
+        assertThat(user.getSchoolRelation()).isEqualTo(SchoolRelation.STUDENT);
+        assertThat(user.getSemester()).isEqualTo(5);
+    }
+
+    @Test
+    void aLockedPlayerStillEditsNameAndSemester() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        lenient().when(userFacts.isLockedByTournament(10L)).thenReturn(true);
+        when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.of(5L));
+
+        // Re-sending the stored relation and program is not a change.
+        userService.updateBasicInfo(PLAYER, 10L,
+                new UpdateUserRequest("Ana Maria", SchoolRelation.STUDENT, AcademicProgram.SYSTEMS_ENGINEERING, 6));
+        userService.updateBasicInfo(PLAYER, 10L, new UpdateUserRequest("Ana María", null, null, 7));
+
+        assertThat(user.getFullName()).isEqualTo("Ana María");
+        assertThat(user.getSemester()).isEqualTo(7);
+        assertThat(user.getAcademicProgram()).isEqualTo(AcademicProgram.SYSTEMS_ENGINEERING);
     }
 
     // --- passwords ----------------------------------------------------------------------------

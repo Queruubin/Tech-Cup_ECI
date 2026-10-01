@@ -11,9 +11,11 @@ import java.util.Map;
  * misses the next match when, <b>in that team's previous played match</b>:
  * <ul>
  *   <li>they were sent off (a {@link EventType#RED_CARD}), or</li>
- *   <li>they were booked and that booking took their running total of yellow cards in the
- *       tournament to an <b>even number of at least two</b> — the classic "two yellows, one match
- *       off, and again every two bookings".</li>
+ *   <li>they were booked and those bookings made their running total of yellow cards in the
+ *       tournament <b>cross an even threshold</b> (2, 4, 6...) — the classic "two yellows, one
+ *       match off, and again every two bookings". Crossing is what counts, not landing on the even
+ *       number: going from 1 to 3 in one match crosses 2 and suspends, going from 2 to 3 does
+ *       not.</li>
  * </ul>
  * A red card wins over an accumulation: only one reason is reported per player.
  */
@@ -22,11 +24,21 @@ final class SanctionRule {
     /**
      * What the rule needs to know about one player of the team.
      *
-     * @param accumulatedYellows total yellow cards of the player in the tournament, counted up to
-     *                           and including the previous match
+     * @param yellowsInPreviousMatch yellow cards the player received in the previous match
+     * @param accumulatedYellows     total yellow cards of the player in the tournament, counted up
+     *                               to and including the previous match
      */
-    record PlayerFacts(Long userId, String fullName, boolean sentOff, boolean bookedInPreviousMatch,
+    record PlayerFacts(Long userId, String fullName, boolean sentOff, int yellowsInPreviousMatch,
                        int accumulatedYellows) {
+
+        boolean bookedInPreviousMatch() {
+            return yellowsInPreviousMatch > 0;
+        }
+
+        /** The running total before the previous match, never below zero. */
+        int yellowsBeforePreviousMatch() {
+            return Math.max(0, accumulatedYellows - yellowsInPreviousMatch);
+        }
     }
 
     /** @param reason user-facing Spanish sentence, shown verbatim by the frontend */
@@ -42,7 +54,8 @@ final class SanctionRule {
             if (player.sentOff()) {
                 sanctions.put(player.userId(),
                         new Sanction(player.userId(), player.fullName(), "Expulsado en el partido anterior"));
-            } else if (player.bookedInPreviousMatch() && reachedAccumulation(player.accumulatedYellows())) {
+            } else if (player.bookedInPreviousMatch()
+                    && crossedAccumulation(player.yellowsBeforePreviousMatch(), player.accumulatedYellows())) {
                 sanctions.put(player.userId(), new Sanction(player.userId(), player.fullName(),
                         "Acumuló " + player.accumulatedYellows() + " tarjetas amarillas"));
             }
@@ -50,8 +63,11 @@ final class SanctionRule {
         return List.copyOf(new ArrayList<>(sanctions.values()));
     }
 
-    /** An even total of at least two bookings triggers a suspension. */
-    static boolean reachedAccumulation(int accumulatedYellows) {
-        return accumulatedYellows >= 2 && accumulatedYellows % 2 == 0;
+    /**
+     * Whether going from {@code before} to {@code after} bookings crossed (or reached) an even
+     * threshold of at least two: 1&rarr;2, 1&rarr;3 and 3&rarr;4 do, 2&rarr;3 and 0&rarr;1 do not.
+     */
+    static boolean crossedAccumulation(int before, int after) {
+        return before / 2 < after / 2;
     }
 }

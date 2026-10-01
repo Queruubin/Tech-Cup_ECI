@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, api, isApiError, normalizeErrorResponse, request, setApiSessionHandlers } from './api'
+import {
+  ApiError,
+  NETWORK_ERROR_MESSAGE,
+  api,
+  errorMessage,
+  isApiError,
+  normalizeErrorResponse,
+  request,
+  setApiSessionHandlers,
+  withTraceReference,
+} from './api'
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -124,5 +134,56 @@ describe('api error normalization', () => {
       expect(isApiError(cause)).toBe(true)
       expect((cause as ApiError).status).toBe(0)
     }
+  })
+})
+
+describe('api trace ids', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('captures the body traceId and quotes it in 5xx messages', async () => {
+    const response = jsonResponse({ status: 500, error: 'Internal Server Error', message: 'Error interno del servidor.', traceId: 'abc123' }, 500)
+    const error = await normalizeErrorResponse(response)
+    expect(error.traceId).toBe('abc123')
+    expect(error.message).toBe('Error interno del servidor. Código de referencia: abc123')
+    expect(errorMessage(error)).toContain('Código de referencia: abc123')
+  })
+
+  it('falls back to the X-Trace-Id header (non-JSON proxy error)', async () => {
+    const response = new Response('<html>Bad Gateway</html>', {
+      status: 502,
+      statusText: 'Bad Gateway',
+      headers: { 'Content-Type': 'text/html', 'X-Trace-Id': 'hdr-9' },
+    })
+    const error = await normalizeErrorResponse(response)
+    expect(error.traceId).toBe('hdr-9')
+    expect(error.message).toMatch(/servidor.*Código de referencia: hdr-9$/)
+  })
+
+  it('prefers the body traceId over the header', async () => {
+    const response = new Response(JSON.stringify({ status: 503, error: 'x', message: 'Caído', traceId: 'body-1' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json', 'X-Trace-Id': 'hdr-1' },
+    })
+    expect((await normalizeErrorResponse(response)).message).toBe('Caído. Código de referencia: body-1')
+  })
+
+  it('keeps expected business errors (e.g. 409) free of the reference but still exposes the id', async () => {
+    const response = jsonResponse({ status: 409, error: 'Conflict', message: 'Reabra primero el partido siguiente.', traceId: 't-409' }, 409)
+    const error = await normalizeErrorResponse(response)
+    expect(error.message).toBe('Reabra primero el partido siguiente.')
+    expect(error.traceId).toBe('t-409')
+  })
+
+  it('withTraceReference leaves messages unchanged without a trace id', () => {
+    expect(withTraceReference('Error interno.', 500, undefined)).toBe('Error interno.')
+    expect(withTraceReference('Error interno.', 418, 'z')).toBe('Error interno. Código de referencia: z')
+  })
+
+  it('uses the connection message when fetch rejects', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'))
+    await expect(request('/home')).rejects.toMatchObject({ status: 0, message: NETWORK_ERROR_MESSAGE })
+    expect(NETWORK_ERROR_MESSAGE).toBe(
+      'No fue posible conectar con el servidor. Verifique su conexión e intente de nuevo.',
+    )
   })
 })

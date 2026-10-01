@@ -27,6 +27,12 @@ public interface TeamGateway {
     TeamRef getTeam(Long teamId);
 
     /**
+     * Whether the team is locked: registered (APPROVED) in an ACTIVE or IN_PROGRESS tournament,
+     * so its roster is frozen and it cannot take new players.
+     */
+    boolean isLocked(Long teamId);
+
+    /**
      * Adds a player to a team enforcing the team rules (active team, capacity, unique jersey,
      * player not in another team, player has a profile).
      *

@@ -13,9 +13,6 @@ export function validateSemester(raw: string): string | undefined {
   return undefined
 }
 
-/** Institutional email domains accepted for non-family members (mirrors `app.institutional-domains`). */
-export const INSTITUTIONAL_DOMAINS = ['escuelaing.edu.co', 'mail.escuelaing.edu.co'] as const
-
 export const PASSWORD_MIN_LENGTH = 8
 export const PASSWORD_MAX_LENGTH = 72
 export const PASSWORD_RULE_HINT = `Entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres, con al menos una letra y un número.`
@@ -91,31 +88,44 @@ export const EMPTY_REGISTER_VALUES: RegisterFormValues = {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-export function emailDomain(email: string): string {
-  const at = email.lastIndexOf('@')
-  return at === -1 ? '' : email.slice(at + 1).toLowerCase()
-}
-
-export function isInstitutionalEmail(email: string): boolean {
-  return (INSTITUTIONAL_DOMAINS as readonly string[]).includes(emailDomain(email))
-}
-
-export function requiresInstitutionalEmail(relation: SchoolRelation | ''): boolean {
-  return relation !== '' && relation !== 'FAMILY'
-}
-
-export function validateEmail(email: string, relation: SchoolRelation | ''): string | undefined {
+export function validateEmail(email: string): string | undefined {
   const value = email.trim()
   if (!value) return 'El correo es obligatorio.'
   if (!EMAIL_PATTERN.test(value)) return 'Ingrese un correo válido.'
-  if (relation === '') return undefined
-  const institutional = isInstitutionalEmail(value)
-  if (requiresInstitutionalEmail(relation) && !institutional) {
-    return `Debe usar un correo institucional (${INSTITUTIONAL_DOMAINS.join(' o ')}).`
-  }
-  if (relation === 'FAMILY' && institutional) {
-    return 'Los familiares deben registrarse con un correo personal, no institucional.'
-  }
+  return undefined
+}
+
+/** Age range (inclusive, full years) required to register with the PLAYER role. Mirrors the backend rule. */
+export const PLAYER_MIN_AGE = 5
+export const PLAYER_MAX_AGE = 100
+export const PLAYER_AGE_ERROR = `Para ser jugador la edad debe estar entre ${PLAYER_MIN_AGE} y ${PLAYER_MAX_AGE} años.`
+export const PLAYER_AGE_HINT = `Los jugadores deben tener entre ${PLAYER_MIN_AGE} y ${PLAYER_MAX_AGE} años cumplidos.`
+
+const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
+
+/**
+ * Full years elapsed between two `YYYY-MM-DD` dates, computed from the string parts so no time zone
+ * shift can move the day (`new Date('YYYY-MM-DD')` is parsed as UTC). Returns null for malformed input.
+ */
+function isoDateParts(value: string): [number, number, number] | null {
+  const match = ISO_DATE_PATTERN.exec(value)
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null
+}
+
+export function ageInFullYears(birthDate: string, today: string = todayIso()): number | null {
+  const birth = isoDateParts(birthDate)
+  const now = isoDateParts(today)
+  if (!birth || !now) return null
+  const [by, bm, bd] = birth
+  const [ty, tm, td] = now
+  const birthdayPending = tm < bm || (tm === bm && td < bd)
+  return ty - by - (birthdayPending ? 1 : 0)
+}
+
+/** PLAYER registrations require an age between {@link PLAYER_MIN_AGE} and {@link PLAYER_MAX_AGE}. */
+export function validatePlayerAge(birthDate: string, today: string = todayIso()): string | undefined {
+  const age = ageInFullYears(birthDate, today)
+  if (age === null || age < PLAYER_MIN_AGE || age > PLAYER_MAX_AGE) return PLAYER_AGE_ERROR
   return undefined
 }
 
@@ -124,7 +134,7 @@ export function validateRegister(values: RegisterFormValues): RegisterFormErrors
 
   if (values.fullName.trim().length < 3) errors.fullName = 'Ingrese su nombre completo.'
 
-  const emailError = validateEmail(values.email, values.schoolRelation)
+  const emailError = validateEmail(values.email)
   if (emailError) errors.email = emailError
 
   if (values.password.length < PASSWORD_MIN_LENGTH) {
@@ -145,6 +155,9 @@ export function validateRegister(values: RegisterFormValues): RegisterFormErrors
   } else if (values.birthDate >= todayIso()) {
     // ISO `YYYY-MM-DD` strings compare lexicographically; today and future dates are rejected.
     errors.birthDate = 'La fecha de nacimiento debe ser anterior a hoy.'
+  } else if (values.initialRole === 'PLAYER') {
+    const ageError = validatePlayerAge(values.birthDate)
+    if (ageError) errors.birthDate = ageError
   }
 
   if (!values.documentType) errors.documentType = 'Seleccione el tipo de documento.'

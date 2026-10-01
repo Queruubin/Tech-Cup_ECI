@@ -14,6 +14,7 @@ import { MatchesTab } from '../components/MatchesTab'
 import { OrganizerPanel } from '../components/OrganizerPanel'
 import { StatsTab } from '../components/StatsTab'
 import { useBracket, useStandings, useTournament } from '../hooks/useTournaments'
+import { qualifierCount } from '../qualifiers'
 
 type TabId = 'info' | 'standings' | 'bracket' | 'matches' | 'stats' | 'register' | 'manage'
 const TAB_IDS: TabId[] = ['info', 'standings', 'bracket', 'matches', 'stats', 'register', 'manage']
@@ -22,7 +23,7 @@ function StandingsTab({ tournamentId, highlightTeamId }: { tournamentId: number;
   const { data, loading, error, refetch } = useStandings(tournamentId)
   return (
     <QueryState loading={loading} error={error} onRetry={refetch}>
-      <StandingsTable rows={data ?? []} highlightTeamId={highlightTeamId} qualifiedCount={data && data.length >= 8 ? 8 : data && data.length >= 4 ? 4 : 0} />
+      <StandingsTable rows={data ?? []} highlightTeamId={highlightTeamId} qualifiedCount={qualifierCount(data?.length ?? 0)} />
       <p className="mt-2 text-xs text-stone-500">PJ: jugados · PG: ganados · PE: empatados · PP: perdidos · GF/GC: goles a favor/en contra · DG: diferencia · Pts: puntos.</p>
     </QueryState>
   )

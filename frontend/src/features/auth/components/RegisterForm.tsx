@@ -23,10 +23,9 @@ import {
 } from '@/types/api'
 import {
   EMPTY_REGISTER_VALUES,
-  INSTITUTIONAL_DOMAINS,
   PASSWORD_MIN_LENGTH,
+  PLAYER_AGE_HINT,
   SEMESTER_MAX,
-  requiresInstitutionalEmail,
   validateRegister,
   type RegisterFormErrors,
   type RegisterFormValues,
@@ -68,11 +67,7 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
 
   const errorFor = (key: keyof RegisterFormValues) => errors[key] ?? fieldErrors[key]
   const isStudent = values.schoolRelation === 'STUDENT'
-  const emailHint = requiresInstitutionalEmail(values.schoolRelation)
-    ? `Use su correo institucional (${INSTITUTIONAL_DOMAINS.join(' o ')}).`
-    : values.schoolRelation === 'FAMILY'
-      ? 'Los familiares se registran con un correo personal.'
-      : undefined
+  const isPlayer = values.initialRole === 'PLAYER'
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
@@ -87,7 +82,12 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
             onChange={(event) => update('fullName', event.target.value)}
           />
         </FormField>
-        <FormField label="Fecha de nacimiento" required error={errorFor('birthDate')}>
+        <FormField
+          label="Fecha de nacimiento"
+          required
+          error={errorFor('birthDate')}
+          hint={isPlayer ? PLAYER_AGE_HINT : undefined}
+        >
           <Input
             type="date"
             autoComplete="bday"
@@ -146,7 +146,7 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
           label="Rol inicial"
           required
           error={errorFor('initialRole')}
-          hint="Los jugadores pueden crear su perfil deportivo y unirse a equipos."
+          hint="Los jugadores pueden crear su perfil deportivo, crear un equipo o unirse a uno."
         >
           <Select
             options={toOptions(INITIAL_ROLES, INITIAL_ROLE_LABELS)}
@@ -158,7 +158,7 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
 
       <fieldset className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <legend className="mb-2 text-sm font-semibold text-ink">Cuenta</legend>
-        <FormField label="Correo electrónico" required error={errorFor('email')} hint={emailHint} className="sm:col-span-2">
+        <FormField label="Correo electrónico" required error={errorFor('email')} className="sm:col-span-2">
           <Input
             type="email"
             autoComplete="email"

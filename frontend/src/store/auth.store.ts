@@ -33,7 +33,7 @@ export function userHasRole(user: UserResponse | null, roles: Role[]): boolean {
 }
 
 /**
- * Personal-scope check: "Mi equipo", "Mis solicitudes", "Arbitraje" or the sports-profile card
+ * Personal-scope check: "Mi equipo", "Solicitudes", "Arbitraje" or the sports-profile card
  * only make sense for users who actually hold PLAYER / CAPTAIN / REFEREE, not for ADMIN by implication.
  */
 export function userHasExactRole(user: UserResponse | null, roles: Role[]): boolean {

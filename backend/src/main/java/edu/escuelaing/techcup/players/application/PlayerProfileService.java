@@ -1,5 +1,6 @@
 package edu.escuelaing.techcup.players.application;
 
+import edu.escuelaing.techcup.identity.application.PlayerAgePolicy;
 import edu.escuelaing.techcup.identity.application.UserService;
 import edu.escuelaing.techcup.identity.domain.AppUser;
 import edu.escuelaing.techcup.players.api.dto.PlayerProfileRequest;
@@ -27,7 +28,9 @@ import org.springframework.web.multipart.MultipartFile;
 /**
  * Sport profile use cases (spec 7.2). Rules enforced here:
  * <ul>
- *   <li>A profile is created once and can never be deleted.</li>
+ *   <li>A profile is created once and can never be deleted. Creating it requires an age inside
+ *       the player range ({@link PlayerAgePolicy}); registration and role assignment already
+ *       check it, this guards accounts created before the rule existed.</li>
  *   <li>Position, jersey number and photo may be changed only while the player is not a member
  *       of an ACTIVE team. A replaced photo is deleted once the change is committed.</li>
  *   <li>Free-agent search returns active users with a profile and no active team.</li>
@@ -41,16 +44,18 @@ public class PlayerProfileService {
 
     private final PlayerProfileRepository profiles;
     private final UserService userService;
+    private final PlayerAgePolicy playerAgePolicy;
     private final TeamGateway teamGateway;
     private final FileStorage fileStorage;
     private final FileDeletionScheduler fileDeletion;
     private final AuditService auditService;
 
-    public PlayerProfileService(PlayerProfileRepository profiles, UserService userService, TeamGateway teamGateway,
-                                FileStorage fileStorage, FileDeletionScheduler fileDeletion,
-                                AuditService auditService) {
+    public PlayerProfileService(PlayerProfileRepository profiles, UserService userService,
+                                PlayerAgePolicy playerAgePolicy, TeamGateway teamGateway, FileStorage fileStorage,
+                                FileDeletionScheduler fileDeletion, AuditService auditService) {
         this.profiles = profiles;
         this.userService = userService;
+        this.playerAgePolicy = playerAgePolicy;
         this.teamGateway = teamGateway;
         this.fileStorage = fileStorage;
         this.fileDeletion = fileDeletion;
@@ -81,6 +86,7 @@ public class PlayerProfileService {
             return toResponse(profile);
         }
         AppUser user = userService.getUser(actor.id());
+        playerAgePolicy.validate(user.getBirthDate());
         PlayerProfile profile = profiles.save(PlayerProfile.builder()
                 .user(user)
                 .position(request.position())

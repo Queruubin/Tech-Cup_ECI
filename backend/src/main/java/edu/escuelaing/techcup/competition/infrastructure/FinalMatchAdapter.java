@@ -20,10 +20,16 @@ public class FinalMatchAdapter implements FinalMatchPort {
         this.matches = matches;
     }
 
+    /**
+     * A FINAL cancelled with a walkover winner decided the champion just like a played one, so it
+     * also lets the tournament finish early.
+     */
     @Override
     @Transactional(readOnly = true)
     public boolean isFinalMatchPlayed(Long tournamentId) {
-        return matches.existsByTournamentIdAndPhaseAndStatus(tournamentId, MatchPhase.FINAL, MatchStatus.PLAYED);
+        return matches.existsByTournamentIdAndPhaseAndStatus(tournamentId, MatchPhase.FINAL, MatchStatus.PLAYED)
+                || matches.existsByTournamentIdAndPhaseAndStatusAndWalkoverWinnerTeamIsNotNull(
+                        tournamentId, MatchPhase.FINAL, MatchStatus.CANCELLED);
     }
 
     @Override

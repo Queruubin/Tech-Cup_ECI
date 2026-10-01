@@ -8,7 +8,7 @@ import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/** The match State machine: a scheduled match is played or cancelled, and then never changes. */
+/** The match State machine: a scheduled match is played or cancelled, and either outcome can be reopened. */
 class MatchStatusTest {
 
     @Test
@@ -33,9 +33,13 @@ class MatchStatusTest {
     }
 
     @Test
-    void aPlayedMatchCannotBeCancelledOrReplayed() {
-        assertThat(MatchStatus.PLAYED.allowedTargets()).isEmpty();
-        assertThat(MatchStatus.CANCELLED.allowedTargets()).isEmpty();
+    void aPlayedOrCancelledMatchCanOnlyBeReopened() {
+        assertThat(MatchStatus.PLAYED.allowedTargets()).containsExactly(MatchStatus.SCHEDULED);
+        assertThat(MatchStatus.CANCELLED.allowedTargets()).containsExactly(MatchStatus.SCHEDULED);
+        assertThatThrownBy(() -> MatchStatus.PLAYED.transitionTo(MatchStatus.CANCELLED))
+                .isInstanceOf(BusinessRuleException.class);
+        assertThatThrownBy(() -> MatchStatus.CANCELLED.transitionTo(MatchStatus.PLAYED))
+                .isInstanceOf(BusinessRuleException.class);
         assertThat(MatchStatus.PLAYED.isFinished()).isTrue();
         assertThat(MatchStatus.CANCELLED.isFinished()).isTrue();
         assertThat(MatchStatus.SCHEDULED.isFinished()).isFalse();

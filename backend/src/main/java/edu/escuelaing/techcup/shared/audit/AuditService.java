@@ -1,5 +1,6 @@
 package edu.escuelaing.techcup.shared.audit;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -64,19 +65,32 @@ public class AuditService {
                 : repository.findByActionOrderByCreatedAtDesc(action, page);
         Map<Long, String> actorNames = resolveActorNames(logs);
         return logs.stream()
-                .map(log -> AuditLogResponse.from(log, actorNames.get(log.getActorUserId())))
+                .map(log -> AuditLogResponse.from(log, actorNameOf(log, actorNames)))
                 .toList();
     }
 
+    /** Anonymous rows (registration, failed login) have no actor and therefore no name. */
+    private static String actorNameOf(AuditLog log, Map<Long, String> actorNames) {
+        Long actorId = log.getActorUserId();
+        return actorId == null ? null : actorNames.get(actorId);
+    }
+
+    /**
+     * Names of the actors of {@code logs}, by user id. A plain {@link HashMap}: lookups must
+     * tolerate any key, and the immutable {@code Map.of()} rejects a {@code null} one.
+     */
     private Map<Long, String> resolveActorNames(List<AuditLog> logs) {
         Set<Long> ids = logs.stream()
                 .map(AuditLog::getActorUserId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
+        Map<Long, String> names = new HashMap<>();
         if (ids.isEmpty()) {
-            return Map.of();
+            return names;
         }
-        return repository.findActorNames(ids).stream()
-                .collect(Collectors.toMap(AuditRepository.ActorName::getId, AuditRepository.ActorName::getFullName));
+        for (AuditRepository.ActorName actor : repository.findActorNames(ids)) {
+            names.put(actor.getId(), actor.getFullName());
+        }
+        return names;
     }
 }

@@ -135,7 +135,12 @@ bash scripts/seed-demo.sh
 It takes about a minute and creates:
 
 - 1 organizer and 2 referees.
-- 4 teams of 7 players each, with sport profiles and a captain.
+- 4 teams of 7 players each, with sport profiles. Each team was created by a player, who thereby
+  became its captain; the other six joined through accepted join requests. Every player account is
+  ten years old (players must be 5 to 100).
+- 1 fifth team, "Reserva FC", that is not registered in the tournament, and 1 free player with a
+  pending invitation from it. The four tournament teams cannot take new players while the
+  tournament is in progress, so the demo invitation comes from the unregistered team.
 - The tournament "Torneo TechCup 2026-2", with a rulebook, 2 venues and the 4 registrations approved.
 - The group stage fixture list, with results, goals and cards for the first rounds. The last
   round is left scheduled so results, lineups and rescheduling can be tested from the app.
@@ -148,6 +153,8 @@ When it finishes it prints the accounts it created. Every demo account uses the 
 | Organizer | `organizador<number>@escuelaing.edu.co` |
 | Captains | `capitan1.<number>@escuelaing.edu.co` … `capitan4.<number>@escuelaing.edu.co` |
 | Players | `jugador1.<number>@escuelaing.edu.co` … `jugador27.<number>@escuelaing.edu.co` |
+| Free player (invited) | `libre.<number>@escuelaing.edu.co` |
+| Captain of Reserva FC (not registered) | `capitan5.<number>@escuelaing.edu.co` |
 | Referees | `arbitro1.<number>@escuelaing.edu.co`, `arbitro2.<number>@escuelaing.edu.co` |
 
 > **Run it once per database.** Team names must be unique, so a second run on the same data stops

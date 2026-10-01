@@ -198,6 +198,7 @@ class RegistrationServiceTest {
         assertThat(registration.getReviewNote()).isEqualTo("Payment verified");
         assertThat(registration.getReviewedBy()).isNotNull();
         verify(tournamentService).requireTournamentForUpdate(1L);
+        verify(teamService).closeRecruitment(ORGANIZER.id(), registration.getTeam().getId());
     }
 
     @Test

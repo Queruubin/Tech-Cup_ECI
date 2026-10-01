@@ -10,6 +10,10 @@ package edu.escuelaing.techcup.tournaments.application;
  */
 public interface FinalMatchPort {
 
+    /**
+     * {@code true} once the FINAL has decided the champion: PLAYED, or CANCELLED with a walkover
+     * winner.
+     */
     boolean isFinalMatchPlayed(Long tournamentId);
 
     /** {@code true} while at least one match of the tournament is still SCHEDULED. */

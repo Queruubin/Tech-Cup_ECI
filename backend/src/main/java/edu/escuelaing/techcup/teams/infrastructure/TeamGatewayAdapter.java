@@ -31,6 +31,12 @@ public class TeamGatewayAdapter implements TeamGateway {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public boolean isLocked(Long teamId) {
+        return teamService.isLocked(teamId);
+    }
+
+    @Override
     @Transactional
     public void addMember(Long teamId, Long userId) {
         teamService.addMember(teamId, userId);

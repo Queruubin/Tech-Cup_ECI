@@ -23,8 +23,9 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * A player's request to join a team. Only the team id is stored (no JPA link to the teams
- * module); state transitions are guarded here (State pattern: only PENDING can move on).
+ * A player's request to join a team, or a team's invitation to a player ({@link #direction}).
+ * Only the team id is stored (no JPA link to the teams module); state transitions are guarded
+ * here (State pattern: only PENDING can move on).
  */
 @Entity
 @Table(name = "join_requests")
@@ -50,6 +51,11 @@ public class JoinRequest {
     @Column(nullable = false, length = 10)
     private JoinRequestStatus status;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private JoinRequestDirection direction = JoinRequestDirection.REQUEST;
+
     @Column(length = 500)
     private String message;
 
@@ -62,6 +68,10 @@ public class JoinRequest {
     /** Optimistic lock: an accept and a cancel racing on the same request cannot both win. */
     @Version
     private Long version;
+
+    public boolean isInvitation() {
+        return direction == JoinRequestDirection.INVITATION;
+    }
 
     public boolean isPending() {
         return status == JoinRequestStatus.PENDING;
@@ -81,7 +91,7 @@ public class JoinRequest {
 
     private void transition(JoinRequestStatus next) {
         if (!isPending()) {
-            throw new BusinessRuleException("La solicitud de vinculación ya está " + status.label() + ".");
+            throw new BusinessRuleException("La " + direction.label() + " ya está " + status.label() + ".");
         }
         status = next;
         resolvedAt = Instant.now();
@@ -94,6 +104,9 @@ public class JoinRequest {
         }
         if (status == null) {
             status = JoinRequestStatus.PENDING;
+        }
+        if (direction == null) {
+            direction = JoinRequestDirection.REQUEST;
         }
     }
 }

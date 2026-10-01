@@ -7,7 +7,10 @@ import { QueryState } from '@/components/molecules/QueryState'
 import { MatchCard } from '@/components/organisms/MatchCard'
 import { StandingsTable } from '@/components/organisms/StandingsTable'
 import { useAuth } from '@/features/auth/hooks/useAuth'
+import { useMyInvitations } from '@/features/players/hooks/usePlayers'
+import { countPendingInvitations } from '@/features/players/invitations'
 import { MyTeamCard } from '../components/MyTeamCard'
+import { PendingInvitationsAlert } from '../components/PendingInvitationsAlert'
 import { TournamentSummary } from '../components/TournamentSummary'
 import { useHome } from '../hooks/useHome'
 
@@ -19,6 +22,9 @@ export function HomePage() {
   // Personal scope ("Mi equipo" card): ADMIN does not imply being a captain or a player.
   const isCaptain = hasExactRole('CAPTAIN')
   const isPlayer = hasExactRole('PLAYER')
+  // Invitations are a player concern; failures here are non-blocking (the card simply does not show).
+  const invitationsQuery = useMyInvitations(isPlayer)
+  const pendingInvitations = isPlayer ? countPendingInvitations(invitationsQuery.data) : 0
 
   return (
     <>
@@ -26,6 +32,11 @@ export function HomePage() {
         title={firstName ? `Hola, ${firstName}` : 'Inicio'}
         description="Resumen del torneo vigente y de su participación."
       />
+      {pendingInvitations > 0 && (
+        <div className="mb-6">
+          <PendingInvitationsAlert count={pendingInvitations} />
+        </div>
+      )}
       <QueryState loading={loading} error={error} onRetry={refetch}>
         {data && (
           <div className="flex flex-col gap-6">

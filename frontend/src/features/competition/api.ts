@@ -21,6 +21,8 @@ export const competitionApi = {
     api.delete<MatchResponse>(`/matches/${id}`, { reason, winnerTeamId }),
   /** Records a first result or corrects an existing one (allowed while `resultEditable` is true). */
   recordResult: (id: number, payload: MatchResultRequest) => api.post<MatchResponse>(`/matches/${id}/result`, payload),
+  /** PLAYED or CANCELLED → SCHEDULED; clears score, penalties, events, cancel reason and walkover. */
+  reopenMatch: (id: number) => api.post<MatchResponse>(`/matches/${id}/reopen`),
 
   upsertLineup: (matchId: number, payload: UpsertLineupRequest) =>
     api.put<LineupResponse>(`/matches/${matchId}/lineups`, payload),

@@ -21,7 +21,7 @@ import { ProfileForm } from '../components/ProfileForm'
 import { useMyProfile } from '../hooks/usePlayers'
 
 export function ProfilePage() {
-  const { user, hasExactRole, refreshMe } = useAuth()
+  const { user, hasRole, hasExactRole, refreshMe } = useAuth()
   // Personal scope: an ADMIN without the PLAYER role has no sports profile to create.
   const isPlayer = hasExactRole('PLAYER')
   const profileQuery = useMyProfile(isPlayer)
@@ -171,6 +171,7 @@ export function ProfilePage() {
                 loading={saveBasicInfo.loading}
                 error={saveBasicInfo.error}
                 fieldErrors={saveBasicInfo.fieldErrors}
+                canEditRelation={hasRole('ADMIN')}
                 onSubmit={handleSaveBasicInfo}
               />
             </Card>
@@ -190,13 +191,20 @@ export function ProfilePage() {
             <Card title="Siguiente paso">
               <p className="text-sm text-stone-600">
                 {profile
-                  ? 'Ya tiene perfil deportivo. Busque un equipo y envíe su solicitud de vinculación.'
-                  : 'Cree su perfil deportivo para poder solicitar unirse a un equipo.'}
+                  ? 'Ya tiene perfil deportivo. Cree su propio equipo o busque uno y envíe su solicitud de vinculación.'
+                  : 'Cree su perfil deportivo para poder crear un equipo o solicitar unirse a uno.'}
               </p>
               {profile && (
-                <Link to="/teams" className="mt-3 inline-block">
-                  <Button size="sm">Ver equipos</Button>
-                </Link>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link to="/my-team">
+                    <Button size="sm">Crear equipo</Button>
+                  </Link>
+                  <Link to="/teams">
+                    <Button size="sm" variant="outline">
+                      Ver equipos
+                    </Button>
+                  </Link>
+                </div>
               )}
             </Card>
           )}

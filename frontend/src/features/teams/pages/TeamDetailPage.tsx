@@ -17,6 +17,7 @@ import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
 import { EligibilityPanel } from '../components/EligibilityPanel'
 import { useEligibility, useTeam } from '../hooks/useTeams'
+import { joinRequestAvailability, TEAM_NOT_RECRUITING_HINT } from '../rosterLock'
 
 export function TeamDetailPage() {
   const params = useParams<{ id: string }>()
@@ -38,8 +39,12 @@ export function TeamDetailPage() {
   const team = teamQuery.data
   const isMember = !!team && team.members.some((member) => member.userId === user?.id)
   const isCaptainOfTeam = !!team && team.captain.id === user?.id
-  const canRequestJoin =
-    hasRole('PLAYER') && !isMember && !user?.teamId && !!team && team.status === 'ACTIVE' && team.memberCount < 12
+  const joinAvailability = joinRequestAvailability(team, {
+    userId: user?.id ?? null,
+    isPlayer: hasRole('PLAYER'),
+    teamId: user?.teamId ?? null,
+  })
+  const canRequestJoin = joinAvailability === 'open'
 
   const submitJoin = () => {
     joinRequest
@@ -76,14 +81,25 @@ export function TeamDetailPage() {
                       </Button>
                     </Link>
                   )}
-                  {canRequestJoin && (
-                    <Button size="sm" onClick={() => setJoinOpen(true)} disabled={!user?.hasProfile}>
+                  {joinAvailability !== 'hidden' && (
+                    <Button
+                      size="sm"
+                      onClick={() => setJoinOpen(true)}
+                      disabled={!canRequestJoin || !user?.hasProfile}
+                      title={canRequestJoin ? undefined : TEAM_NOT_RECRUITING_HINT}
+                    >
                       Solicitar unirme
                     </Button>
                   )}
                 </>
               }
             />
+
+            {joinAvailability === 'frozen' && (
+              <Alert kind="info" className="mb-4">
+                {TEAM_NOT_RECRUITING_HINT}
+              </Alert>
+            )}
 
             {canRequestJoin && !user?.hasProfile && (
               <Alert kind="info" className="mb-4">

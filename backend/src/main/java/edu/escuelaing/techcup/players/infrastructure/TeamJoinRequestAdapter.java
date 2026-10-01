@@ -32,13 +32,16 @@ public class TeamJoinRequestAdapter implements TeamJoinRequestPort {
 
     @Override
     @Transactional
-    public int cancelPendingRequestsOf(Long actorUserId, Long teamId) {
+    public int cancelPendingRequestsOf(Long actorUserId, Long teamId, String reason) {
         List<JoinRequest> pending =
                 requests.findByTeamIdAndStatusOrderByCreatedAtDesc(teamId, JoinRequestStatus.PENDING);
         for (JoinRequest joinRequest : pending) {
             joinRequest.cancel();
-            auditService.record(actorUserId, AuditAction.JOIN_REQUEST_CANCELLED, ENTITY_TYPE, joinRequest.getId(),
-                    Map.of("teamId", teamId, "reason", "TEAM_INACTIVATED"));
+            AuditAction action = joinRequest.isInvitation()
+                    ? AuditAction.INVITATION_CANCELLED
+                    : AuditAction.JOIN_REQUEST_CANCELLED;
+            auditService.record(actorUserId, action, ENTITY_TYPE, joinRequest.getId(),
+                    Map.of("teamId", teamId, "reason", reason));
         }
         return pending.size();
     }

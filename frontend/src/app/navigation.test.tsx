@@ -38,7 +38,7 @@ function visibleLabels(roles: Role[]): string[] {
 describe('NAV_ITEMS visibility', () => {
   it('hides personal-scope items from an ADMIN who does not literally hold the role', () => {
     const labels = visibleLabels(['ADMIN'])
-    expect(labels).not.toContain('Mis solicitudes')
+    expect(labels).not.toContain('Solicitudes')
     expect(labels).not.toContain('Mi equipo')
     expect(labels).not.toContain('Arbitraje')
     // Management items keep the ADMIN implication.
@@ -48,7 +48,17 @@ describe('NAV_ITEMS visibility', () => {
   })
 
   it('shows personal-scope items to users who hold the role, including an ADMIN who is also a captain', () => {
-    expect(visibleLabels(['PLAYER'])).toEqual(['Inicio', 'Torneos', 'Equipos', 'Mi perfil', 'Mis solicitudes'])
+    expect(visibleLabels(['PLAYER'])).toEqual(['Inicio', 'Torneos', 'Equipos', 'Mi perfil', 'Solicitudes', 'Mi equipo'])
+    expect(visibleLabels(['PLAYER', 'CAPTAIN'])).toEqual([
+      'Inicio',
+      'Torneos',
+      'Equipos',
+      'Mi perfil',
+      'Solicitudes',
+      'Mi equipo',
+      'Jugadores',
+    ])
+    expect(visibleLabels(['GUEST'])).not.toContain('Mi equipo')
     expect(visibleLabels(['ADMIN', 'CAPTAIN'])).toContain('Mi equipo')
     expect(visibleLabels(['REFEREE'])).toContain('Arbitraje')
   })

@@ -7,17 +7,19 @@ import java.util.stream.Collectors;
 
 /**
  * Lifecycle of a match, modelled with the same <b>State pattern</b> as
- * {@code TournamentStatus}: a scheduled match is either played or cancelled, and both outcomes
- * are terminal (a result is corrected by re-recording it, never by re-opening the state machine).
+ * {@code TournamentStatus}: a scheduled match is either played or cancelled. While the tournament
+ * is in progress an organizer may <em>reopen</em> a played or cancelled match, which sends it back
+ * to SCHEDULED so any mistake can be fixed (a PLAYED result may also be corrected in place by
+ * re-recording it).
  *
  * <pre>
- *   SCHEDULED --result--&gt; PLAYED
- *             --cancel--&gt; CANCELLED
+ *   SCHEDULED --result--&gt; PLAYED    --reopen--&gt; SCHEDULED
+ *             --cancel--&gt; CANCELLED --reopen--&gt; SCHEDULED
  * </pre>
  */
 public enum MatchStatus {
 
-    /** Fixture created, waiting to be played. Only in this state may it be rescheduled. */
+    /** Fixture created, waiting to be played. */
     SCHEDULED("programado") {
         @Override
         public Set<MatchStatus> allowedTargets() {
@@ -29,7 +31,7 @@ public enum MatchStatus {
     PLAYED("jugado") {
         @Override
         public Set<MatchStatus> allowedTargets() {
-            return EnumSet.noneOf(MatchStatus.class);
+            return EnumSet.of(SCHEDULED);
         }
     },
 
@@ -37,7 +39,7 @@ public enum MatchStatus {
     CANCELLED("cancelado") {
         @Override
         public Set<MatchStatus> allowedTargets() {
-            return EnumSet.noneOf(MatchStatus.class);
+            return EnumSet.of(SCHEDULED);
         }
     };
 
@@ -76,7 +78,7 @@ public enum MatchStatus {
         return target;
     }
 
-    /** The Spanish names of {@link #allowedTargets()}, or "ninguno" for a terminal state. */
+    /** The Spanish names of {@link #allowedTargets()}, or "ninguno" when the state has no way out. */
     private String describeAllowedTargets() {
         return allowedTargets().isEmpty()
                 ? "ninguno"

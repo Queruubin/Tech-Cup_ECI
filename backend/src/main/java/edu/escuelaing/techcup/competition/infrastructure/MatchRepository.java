@@ -4,6 +4,7 @@ import edu.escuelaing.techcup.competition.domain.Match;
 import edu.escuelaing.techcup.competition.domain.MatchPhase;
 import edu.escuelaing.techcup.competition.domain.MatchStatus;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -15,9 +16,17 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
 
     boolean existsByTournamentIdAndPhaseAndStatus(Long tournamentId, MatchPhase phase, MatchStatus status);
 
+    /** A match of the phase cancelled with a team sent through by walkover. */
+    boolean existsByTournamentIdAndPhaseAndStatusAndWalkoverWinnerTeamIsNotNull(Long tournamentId, MatchPhase phase,
+                                                                              MatchStatus status);
+
     boolean existsByTournamentIdAndStatus(Long tournamentId, MatchStatus status);
 
     List<Match> findByTournamentIdOrderByScheduledAtAscIdAsc(Long tournamentId);
+
+    /** The tournament of a match, without loading either entity (used to lock the tournament first). */
+    @Query("SELECT m.tournament.id FROM Match m WHERE m.id = :matchId")
+    Optional<Long> findTournamentIdById(@Param("matchId") Long matchId);
 
     List<Match> findByTournamentIdAndPhaseOrderByIdAsc(Long tournamentId, MatchPhase phase);
 
@@ -28,10 +37,6 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
     /** Highest round number already used in the tournament; 0 when there is no match yet. */
     @Query("SELECT COALESCE(MAX(m.roundNumber), 0) FROM Match m WHERE m.tournament.id = :tournamentId")
     int findMaxRoundNumber(@Param("tournamentId") Long tournamentId);
-
-    /** The phases that have at least one match in the tournament, in no particular order. */
-    @Query("SELECT DISTINCT m.phase FROM Match m WHERE m.tournament.id = :tournamentId")
-    List<MatchPhase> findDistinctPhases(@Param("tournamentId") Long tournamentId);
 
     /** PLAYED matches of a team, most recent first; backs the "previous match" sanction rule. */
     @Query("""

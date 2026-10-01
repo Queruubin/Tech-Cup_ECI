@@ -1,5 +1,12 @@
 import { api } from '@/lib/api'
-import type { AuditLogResponse, CreateRefereeRequest, ResetPasswordRequest, Role, UserResponse } from '@/types/api'
+import type {
+  AuditLogResponse,
+  CreateRefereeRequest,
+  ResetPasswordRequest,
+  Role,
+  UpdateUserRequest,
+  UserResponse,
+} from '@/types/api'
 
 export const adminApi = {
   searchUsers: (search: string, signal?: AbortSignal) =>
@@ -11,9 +18,9 @@ export const adminApi = {
   /** ADMIN only: sets a new password for the user without knowing the current one. */
   resetPassword: (userId: number, payload: ResetPasswordRequest) =>
     api.post<void>(`/admin/users/${userId}/password`, payload),
+  /** ADMIN may edit every field of any user, including the school relation. */
+  updateUser: (userId: number, payload: UpdateUserRequest) => api.patch<UserResponse>(`/users/${userId}`, payload),
 
-  grantCaptain: (userId: number) => api.post<UserResponse>(`/organizer/users/${userId}/captain`),
-  revokeCaptain: (userId: number) => api.delete<UserResponse>(`/organizer/users/${userId}/captain`),
   createReferee: (payload: CreateRefereeRequest) => api.post<UserResponse>('/organizer/referees', payload),
   listReferees: (signal?: AbortSignal) => api.get<UserResponse[]>('/organizer/referees', undefined, signal),
 

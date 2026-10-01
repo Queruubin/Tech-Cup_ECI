@@ -6,8 +6,9 @@
 #
 # It talks to the running REST API only -- it never writes to the database
 # directly -- so it also works as an end-to-end smoke test of the whole flow:
-# registration, roles, sport profiles, teams, join requests, tournament
-# lifecycle, payment review, fixtures, results and standings.
+# registration, roles, sport profiles, teams (whose creators become captains),
+# join requests, invitations, tournament lifecycle, payment review, fixtures,
+# results and standings.
 #
 # Usage:
 #   docker compose up -d
@@ -53,14 +54,21 @@ login() {
   json '' POST /auth/login "{\"email\":\"$email\",\"password\":\"$password\"}" | pick "['token']"
 }
 
-# register <email> <full name> <relation> <program> <semester|null> <role>
+# Players must be between 5 and 100 years old (app.player.min-age / max-age), so
+# every PLAYER account is born exactly ten years before today; everybody else is
+# an adult. Python keeps the date arithmetic portable across GNU and BSD `date`.
+PLAYER_BIRTH_DATE="$(python -c "import datetime as d; t=d.date.today(); print(t.replace(year=t.year-10) if not (t.month==2 and t.day==29) else t.replace(year=t.year-10, day=28))")"
+ADULT_BIRTH_DATE="1988-03-15"
+
+# register <email> <full name> <relation> <program> <semester|null> <role> [birth date]
 register() {
   local email="$1" name="$2" relation="$3" program="$4" semester="$5" role="$6"
+  local birth="${7:-$PLAYER_BIRTH_DATE}"
   local doc=$((RANDOM * 1000 + RANDOM))
   json '' POST /auth/register "$(cat <<JSON
 {"fullName":"$name","email":"$email","password":"$PASSWORD",
  "schoolRelation":"$relation","academicProgram":"$program","semester":$semester,
- "birthDate":"2002-03-15","documentType":"CC","documentNumber":"$doc","initialRole":"$role"}
+ "birthDate":"$birth","documentType":"CC","documentNumber":"$doc","initialRole":"$role"}
 JSON
 )" | pick "['id']"
 }
@@ -97,7 +105,7 @@ echo "ok"
 
 step "Creating the tournament organizer"
 ORG_EMAIL="organizador$SUFFIX@escuelaing.edu.co"
-ORG_ID="$(register "$ORG_EMAIL" "Olivia Organizadora" ADMINISTRATIVE OTHER null GUEST)"
+ORG_ID="$(register "$ORG_EMAIL" "Olivia Organizadora" ADMINISTRATIVE OTHER null GUEST "$ADULT_BIRTH_DATE")"
 json "$ADMIN_TOKEN" POST "/admin/users/$ORG_ID/roles" '{"role":"ORGANIZER"}' > /dev/null
 ORG_TOKEN="$(login "$ORG_EMAIL")"
 echo "organizer #$ORG_ID -> $ORG_EMAIL"
@@ -113,12 +121,14 @@ JSON
 done
 
 step "Creating 4 teams with 7 players each"
+# Captains are not appointed: a player who creates a team becomes its captain.
+# Roles are read from the database on every request, so the captain's token keeps
+# working for the captain-only calls right after the team is created.
 declare -a CAPTAIN_TOKENS TEAM_IDS
 player=0
 for t in 0 1 2 3; do
   cap_email="capitan$((t + 1)).$SUFFIX@escuelaing.edu.co"
-  cap_id="$(register "$cap_email" "${NAMES[$player]}" STUDENT "${PROGRAMS[$t]}" 7 PLAYER)"
-  json "$ORG_TOKEN" POST "/organizer/users/$cap_id/captain" '' > /dev/null
+  register "$cap_email" "${NAMES[$player]}" STUDENT "${PROGRAMS[$t]}" 7 PLAYER > /dev/null
   cap_token="$(login "$cap_email")"
   json "$cap_token" PUT /players/me/profile "{\"position\":\"GOALKEEPER\",\"jerseyNumber\":1}" > /dev/null
   team_id="$(json "$cap_token" POST /teams \
@@ -232,6 +242,22 @@ JSON
 done < "$TMP/results.txt"
 echo "recorded $(wc -l < "$TMP/results.txt" | tr -d ' ') results with goals and cards"
 
+step "Sending a demo invitation"
+# The four tournament teams are registered in a tournament in progress, so their rosters are
+# frozen. The invitation comes from a fifth team that is not registered, so it can be accepted.
+RESERVE_CAPTAIN="capitan5.$SUFFIX@escuelaing.edu.co"
+register "$RESERVE_CAPTAIN" "Rodrigo Reserva" STUDENT SYSTEMS_ENGINEERING 6 PLAYER > /dev/null
+RESERVE_TOKEN="$(login "$RESERVE_CAPTAIN")"
+json "$RESERVE_TOKEN" PUT /players/me/profile '{"position":"GOALKEEPER","jerseyNumber":1}' > /dev/null
+RESERVE_TEAM_ID="$(json "$RESERVE_TOKEN" POST /teams '{"name":"Reserva FC","colors":"blanco/rojo"}' | pick "['id']")"
+FREE_EMAIL="libre.$SUFFIX@escuelaing.edu.co"
+FREE_ID="$(register "$FREE_EMAIL" "Lucas Libre" FAMILY OTHER null PLAYER)"
+FREE_TOKEN="$(login "$FREE_EMAIL")"
+json "$FREE_TOKEN" PUT /players/me/profile '{"position":"FORWARD","jerseyNumber":10}' > /dev/null
+INVITATION_ID="$(json "$RESERVE_TOKEN" POST "/teams/$RESERVE_TEAM_ID/invitations" \
+  "{\"playerId\":$FREE_ID,\"message\":\"Te queremos en Reserva FC\"}" | pick "['id']")"
+echo "invitation #$INVITATION_ID: Reserva FC invited free player $FREE_EMAIL (pending)"
+
 step "Demo data ready"
 cat <<EOF
 
@@ -247,6 +273,8 @@ Accounts (password for every demo account: $PASSWORD)
   Organizer      $ORG_EMAIL
   Captains       capitan1.$SUFFIX@escuelaing.edu.co ... capitan4.$SUFFIX@escuelaing.edu.co
   Players        jugador1.$SUFFIX@escuelaing.edu.co ... jugador27.$SUFFIX@escuelaing.edu.co
+  Free player    $FREE_EMAIL  (pending invitation from Reserva FC)
+  Reserve team   $RESERVE_CAPTAIN  (captain of Reserva FC, not registered)
   Referees       arbitro1.$SUFFIX@escuelaing.edu.co, arbitro2.$SUFFIX@escuelaing.edu.co
 
 The last group round is still scheduled, so results, lineups and rescheduling

@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** A single match: detail, rescheduling, cancellation, result, lineups and sanctions. */
+/** A single match: detail, correction, cancellation, result, reopening, lineups and sanctions. */
 @RestController
 @RequestMapping("/api/matches")
 @Tag(name = "Competition")
@@ -52,7 +52,8 @@ public class MatchController {
 
     @PatchMapping("/{id}")
     @PreAuthorize("hasRole('ORGANIZER')")
-    @Operation(summary = "Reschedule a match that has not kicked off (time, venue, referee)")
+    @Operation(summary = "Correct a match while the tournament is in progress: time (past allowed), venue, "
+            + "referee, and the teams while teamsEditable is true")
     public MatchResponse update(@CurrentUser AuthenticatedUser actor, @PathVariable Long id,
                                 @Valid @RequestBody UpdateMatchRequest request) {
         return matchService.update(actor, id, request);
@@ -74,6 +75,13 @@ public class MatchController {
     public MatchResponse recordResult(@CurrentUser AuthenticatedUser actor, @PathVariable Long id,
                                       @Valid @RequestBody RecordResultRequest request) {
         return matchService.recordResult(actor, id, request);
+    }
+
+    @PostMapping("/{id}/reopen")
+    @PreAuthorize("hasRole('ORGANIZER')")
+    @Operation(summary = "Send a PLAYED or CANCELLED match back to SCHEDULED, clearing its outcome (reopenable)")
+    public MatchResponse reopen(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
+        return matchService.reopen(actor, id);
     }
 
     @PutMapping("/{id}/lineups")

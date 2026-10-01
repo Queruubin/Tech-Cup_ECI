@@ -26,29 +26,27 @@ export function registrationHref(tournamentId: number | null | undefined): strin
 
 export function MyTeamCard({ team, registration, isCaptain, isPlayer, tournamentOpen, tournamentId = null }: MyTeamCardProps) {
   if (!team) {
+    // Any player (or captain) without a team may create one and becomes its captain.
+    const canCreate = isCaptain || isPlayer
     return (
       <Card title="Mi equipo">
         <p className="text-sm text-stone-600">
-          {isCaptain
-            ? 'Aún no ha creado su equipo.'
-            : isPlayer
-              ? 'Todavía no pertenece a un equipo. Explore los equipos disponibles y envíe una solicitud.'
-              : 'No pertenece a ningún equipo.'}
+          {canCreate
+            ? 'Todavía no pertenece a un equipo. Cree el suyo y será su capitán, o solicite unirse a uno existente.'
+            : 'No pertenece a ningún equipo.'}
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {isCaptain && (
+        {canCreate && (
+          <div className="mt-3 flex flex-wrap gap-2">
             <Link to="/my-team">
               <Button size="sm">Crear equipo</Button>
             </Link>
-          )}
-          {isPlayer && (
             <Link to="/teams">
               <Button size="sm" variant="outline">
                 Ver equipos
               </Button>
             </Link>
-          )}
-        </div>
+          </div>
+        )}
       </Card>
     )
   }

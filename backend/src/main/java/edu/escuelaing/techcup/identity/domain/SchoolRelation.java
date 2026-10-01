@@ -1,15 +1,13 @@
 package edu.escuelaing.techcup.identity.domain;
 
-/** Relationship of a user with the school; drives the e-mail domain policy. */
+/**
+ * Relationship of a user with the school. Informational only: any e-mail may register, and
+ * only an ADMIN may change it after registration.
+ */
 public enum SchoolRelation {
     STUDENT,
     PROFESSOR,
     ADMINISTRATIVE,
     GRADUATE,
-    FAMILY;
-
-    /** Students, professors, staff and graduates must register with an institutional e-mail. */
-    public boolean requiresInstitutionalEmail() {
-        return this != FAMILY;
-    }
+    FAMILY
 }

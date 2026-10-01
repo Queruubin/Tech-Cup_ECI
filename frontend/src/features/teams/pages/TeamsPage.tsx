@@ -8,10 +8,13 @@ import { TeamCard } from '../components/TeamCard'
 import { useTeams } from '../hooks/useTeams'
 
 export function TeamsPage() {
-  const { user, hasRole } = useAuth()
+  const { user, hasExactRole } = useAuth()
   const { data, loading, error, refetch } = useTeams()
-  const isCaptain = hasRole('CAPTAIN')
+  // Any player without a team may create one (and becomes its captain).
   const myTeamId = user?.teamId ?? null
+  const isCaptain = hasExactRole('CAPTAIN')
+  const canCreate = hasExactRole('PLAYER', 'CAPTAIN') && myTeamId === null
+  const showTeamCta = canCreate || (isCaptain && myTeamId !== null)
 
   const teams = [...(data ?? [])].sort((a, b) => {
     if (a.status !== b.status) return a.status === 'ACTIVE' ? -1 : 1
@@ -24,7 +27,7 @@ export function TeamsPage() {
         title="Equipos"
         description="Equipos registrados en la plataforma."
         actions={
-          isCaptain && (
+          showTeamCta && (
             <Link to="/my-team">
               <Button size="sm" variant={myTeamId ? 'outline' : 'primary'}>
                 {myTeamId ? 'Gestionar mi equipo' : 'Crear equipo'}
@@ -38,12 +41,12 @@ export function TeamsPage() {
           <EmptyState
             title="Aún no hay equipos"
             description={
-              isCaptain
+              canCreate
                 ? 'Sea el primero en crear un equipo para el torneo.'
                 : 'Cuando los capitanes creen sus equipos, aparecerán aquí.'
             }
             action={
-              isCaptain ? (
+              canCreate ? (
                 <Link to="/my-team">
                   <Button size="sm">Crear equipo</Button>
                 </Link>

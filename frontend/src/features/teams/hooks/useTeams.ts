@@ -1,4 +1,5 @@
 import { useQuery } from '@/lib/useQuery'
+import type { JoinRequestStatus } from '@/types/api'
 import { teamsApi } from '../api'
 
 export function useTeams() {
@@ -16,4 +17,11 @@ export function useMyTeam() {
 
 export function useEligibility(teamId: number | null) {
   return useQuery((signal) => teamsApi.eligibility(teamId as number, signal), [teamId], { enabled: teamId !== null })
+}
+
+/** Invitations sent by a team (captain/ADMIN). Disabled while `teamId` is null. */
+export function useTeamInvitations(teamId: number | null, status?: JoinRequestStatus) {
+  return useQuery((signal) => teamsApi.invitations(teamId as number, status, signal), [teamId, status], {
+    enabled: teamId !== null,
+  })
 }

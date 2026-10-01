@@ -36,9 +36,9 @@ public class TeamController {
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('CAPTAIN')")
+    @PreAuthorize("hasRole('PLAYER')")
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "Create a team; the captain becomes its first member")
+    @Operation(summary = "Create a team; the creator becomes its captain and first member")
     public TeamResponse create(@CurrentUser AuthenticatedUser actor, @Valid @RequestBody CreateTeamRequest request) {
         return teamService.create(actor, request);
     }
