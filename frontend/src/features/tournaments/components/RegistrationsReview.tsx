@@ -6,22 +6,30 @@ import { Textarea } from '@/components/atoms/Textarea'
 import { Alert } from '@/components/molecules/Alert'
 import { Card } from '@/components/molecules/Card'
 import { FormField } from '@/components/molecules/FormField'
-import { Modal } from '@/components/molecules/Modal'
+import { ConfirmDialog, Modal } from '@/components/molecules/Modal'
 import { QueryState } from '@/components/molecules/QueryState'
 import { formatDateTime } from '@/lib/format'
 import { reloadOnError } from '@/lib/reloadOnError'
 import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
-import type { RegistrationResponse } from '@/types/api'
+import type { RegistrationResponse, TournamentStatus } from '@/types/api'
 import { tournamentsApi } from '../api'
 import { useRegistrations } from '../hooks/useTournaments'
 import { FilePreview } from './FilePreview'
 
 type Decision = { registration: RegistrationResponse; action: 'approve' | 'reject' }
 
-export function RegistrationsReview({ tournamentId, onDecided }: { tournamentId: number; onDecided?: () => void }) {
+interface RegistrationsReviewProps {
+  tournamentId: number
+  /** Teams can only be removed while the tournament is ACTIVE (registrations open, not started). */
+  tournamentStatus?: TournamentStatus
+  onDecided?: () => void
+}
+
+export function RegistrationsReview({ tournamentId, tournamentStatus, onDecided }: RegistrationsReviewProps) {
   const query = useRegistrations(tournamentId)
   const [preview, setPreview] = useState<RegistrationResponse | null>(null)
+  const [removing, setRemoving] = useState<RegistrationResponse | null>(null)
   const [decision, setDecision] = useState<Decision | null>(null)
   const [note, setNote] = useState('')
 
@@ -38,6 +46,29 @@ export function RegistrationsReview({ tournamentId, onDecided }: { tournamentId:
     query.setData((previous) => previous?.map((item) => (item.id === updated.id ? updated : item)) ?? null)
     return updated
   })
+
+  const removeTeam = useMutation(async (registration: RegistrationResponse) => {
+    // Already started or changed by someone else: on failure reload so the row shows its real state.
+    await reloadOnError(() => tournamentsApi.removeRegistration(registration.id), query)
+    query.setData((previous) => previous?.filter((item) => item.id !== registration.id) ?? null)
+  })
+
+  const closeRemoval = () => {
+    setRemoving(null)
+    removeTeam.reset()
+  }
+
+  const confirmRemoval = () => {
+    if (!removing) return
+    removeTeam
+      .mutate(removing)
+      .then(() => {
+        toast.success(`${removing.teamName} fue eliminado del torneo.`)
+        closeRemoval()
+        onDecided?.()
+      })
+      .catch(() => undefined)
+  }
 
   // Closing the modal (confirm, cancel, Escape, overlay) always drops the note so it never leaks to another team.
   const closeDecision = () => {
@@ -95,6 +126,11 @@ export function RegistrationsReview({ tournamentId, onDecided }: { tournamentId:
                       Ver comprobante
                     </Button>
                   )}
+                  {registration.status === 'APPROVED' && tournamentStatus === 'ACTIVE' && (
+                    <Button size="sm" variant="danger" onClick={() => setRemoving(registration)}>
+                      Eliminar equipo
+                    </Button>
+                  )}
                   {registration.status === 'UNDER_REVIEW' && (
                     <>
                       <Button size="sm" onClick={() => setDecision({ registration, action: 'approve' })}>
@@ -115,6 +151,27 @@ export function RegistrationsReview({ tournamentId, onDecided }: { tournamentId:
       <Modal open={preview !== null} onClose={() => setPreview(null)} title="Comprobante de pago" description={preview?.teamName} size="lg">
         <FilePreview fileId={preview?.receiptFileId} alt={`Comprobante de ${preview?.teamName ?? ''}`} />
       </Modal>
+
+      <ConfirmDialog
+        open={removing !== null}
+        title="Eliminar equipo del torneo"
+        description={removing ? `Se quitará a ${removing.teamName} del torneo y se borrará su comprobante de pago.` : undefined}
+        confirmLabel="Eliminar equipo"
+        danger
+        loading={removeTeam.loading}
+        onConfirm={confirmRemoval}
+        onCancel={closeRemoval}
+      >
+        {removeTeam.error && (
+          <Alert kind="error" className="mb-3">
+            {removeTeam.error}
+          </Alert>
+        )}
+        <p className="text-sm text-stone-600">
+          El equipo y sus jugadores no se eliminan: solo dejan de participar en este torneo. Esta acción solo es posible
+          antes de que el torneo inicie.
+        </p>
+      </ConfirmDialog>
 
       <Modal
         open={decision !== null}

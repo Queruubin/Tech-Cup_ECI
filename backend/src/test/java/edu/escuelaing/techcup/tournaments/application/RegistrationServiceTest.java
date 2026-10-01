@@ -16,6 +16,7 @@ import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.exception.ForbiddenOperationException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
+import edu.escuelaing.techcup.shared.storage.FileDeletionScheduler;
 import edu.escuelaing.techcup.shared.storage.FileKind;
 import edu.escuelaing.techcup.shared.storage.FileOwner;
 import edu.escuelaing.techcup.shared.storage.FileStorage;
@@ -82,7 +83,7 @@ class RegistrationServiceTest {
     void setUp() {
         Clock clock = Clock.fixed(TODAY.atStartOfDay(ZONE).toInstant(), ZONE);
         service = new RegistrationService(registrations, tournamentService, teamService, userService,
-                fileStorage, auditService, clock);
+                fileStorage, new FileDeletionScheduler(fileStorage), auditService, clock);
     }
 
     // --- create -------------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import edu.escuelaing.techcup.shared.exception.ForbiddenOperationException;
 import edu.escuelaing.techcup.shared.exception.Messages;
 import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
+import edu.escuelaing.techcup.shared.storage.FileDeletionScheduler;
 import edu.escuelaing.techcup.shared.storage.FileKind;
 import edu.escuelaing.techcup.shared.storage.FileOwner;
 import edu.escuelaing.techcup.shared.storage.FileStorage;
@@ -66,17 +67,19 @@ public class RegistrationService {
     private final TeamService teamService;
     private final UserService userService;
     private final FileStorage fileStorage;
+    private final FileDeletionScheduler fileDeletion;
     private final AuditService auditService;
     private final Clock clock;
 
     public RegistrationService(RegistrationRepository registrations, TournamentService tournamentService,
                                TeamService teamService, UserService userService, FileStorage fileStorage,
-                               AuditService auditService, Clock clock) {
+                               FileDeletionScheduler fileDeletion, AuditService auditService, Clock clock) {
         this.registrations = registrations;
         this.tournamentService = tournamentService;
         this.teamService = teamService;
         this.userService = userService;
         this.fileStorage = fileStorage;
+        this.fileDeletion = fileDeletion;
         this.auditService = auditService;
         this.clock = clock;
     }
@@ -203,6 +206,36 @@ public class RegistrationService {
                 Map.of("teamId", registration.getTeam().getId(),
                         "tournamentId", registration.getTournament().getId()));
         return RegistrationResponse.from(registration);
+    }
+
+    /**
+     * Removes an APPROVED team from a tournament that has not started yet (ORGANIZER; ADMIN inherits
+     * the role). The registration is deleted together with its receipt, so the team is no longer
+     * locked and may register again while registrations are open; the team and its players are
+     * untouched. Once the tournament is IN_PROGRESS the fixture exists and the team can only be
+     * handled with the match tools. The tournament row is locked first, like {@code approve}, so the
+     * removal cannot race with the tournament starting.
+     */
+    @Transactional
+    public void remove(AuthenticatedUser actor, Long registrationId) {
+        Registration registration = requireRegistration(registrationId);
+        Tournament tournament = tournamentService.requireTournamentForUpdate(registration.getTournament().getId());
+        if (tournament.getStatus() != TournamentStatus.ACTIVE) {
+            throw new BusinessRuleException("Solo se puede eliminar un equipo antes de que el torneo inicie; "
+                    + "su estado actual es «" + tournament.getStatus().label() + "».");
+        }
+        if (registration.getStatus() != RegistrationStatus.APPROVED) {
+            throw new BusinessRuleException("Solo se puede eliminar un equipo con la inscripción aprobada; "
+                    + "esta inscripción está «" + registration.getStatus().label() + "».");
+        }
+        Long teamId = registration.getTeam().getId();
+        String receiptFileId = registration.getReceiptFileId();
+        registrations.delete(registration);
+        if (receiptFileId != null) {
+            fileDeletion.deleteAfterCommit(receiptFileId);
+        }
+        auditService.record(actor.id(), AuditAction.REGISTRATION_CANCELLED, ENTITY_TYPE, registrationId,
+                Map.of("teamId", teamId, "tournamentId", tournament.getId(), "reason", "REMOVED_BY_ORGANIZER"));
     }
 
     // --- helpers ---------------------------------------------------------------------------

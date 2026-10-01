@@ -275,3 +275,72 @@ receipts, rulebook). Back up both, ideally from a daily cron job, and copy them 
 
 Useful commands: `docker compose ps`, `docker compose logs postgres`, `sudo systemctl restart
 techcup-backend`, `sudo nginx -t && sudo systemctl reload nginx`.
+
+## 11. Docker-only deployment and automatic updates
+
+Sections 1–10 install the backend and nginx natively. The simpler alternative, used on the
+university server, runs **everything in Docker** (databases, backend and web) with one command and
+needs only Docker, Git and `curl` on the host.
+
+### 11.1 First installation
+
+```bash
+git clone https://github.com/Queruubin/Tech-Cup_ECI.git
+cd Tech-Cup_ECI
+```
+
+Create `.env` (it is not in git). Generate every password; use `openssl rand -hex` so the MongoDB
+password is safe inside its URL:
+
+```bash
+printf 'DB_PASSWORD=%s\nMONGO_USER=techcup\nMONGO_PASSWORD=%s\nJWT_SECRET=%s\nADMIN_EMAIL=%s\nADMIN_PASSWORD=%s\n' \
+  "$(openssl rand -hex 24)" "$(openssl rand -hex 24)" "$(openssl rand -hex 32)" "admin@example.com" "ChooseAStrongOne1" > .env
+chmod 600 .env
+```
+
+Optional lines for the same file, to avoid clashes with other applications on the server and to
+state the public address of the site:
+
+```bash
+printf 'WEB_PORT=18090\nBACKEND_HOST_PORT=18080\nPOSTGRES_HOST_PORT=15433\nMONGO_HOST_PORT=27118\nCORS_ORIGINS=http://SERVER-IP:18090\n' >> .env
+```
+
+Start it:
+
+```bash
+docker compose --profile app up -d --build
+```
+
+Only `WEB_PORT` (default 5173) has to be reachable from other machines; the backend and both
+databases are bound to `127.0.0.1`.
+
+### 11.2 Updating
+
+`deploy/update.sh` pulls the new commits of `main`, rebuilds the containers, waits until the
+backend answers its health check and prunes old images. If the new version does not become
+healthy it goes back to the previous commit and does not retry the broken one until a newer commit
+arrives. Data and `.env` are never touched.
+
+```bash
+bash deploy/update.sh            # updates only when there is something new
+bash deploy/update.sh --force    # rebuilds even without new commits
+```
+
+Do not edit tracked files on the server (the update refuses to overwrite local changes).
+
+### 11.3 Automatic updates (every 5 minutes)
+
+GitHub cannot reach a private network, so the server pulls instead. As the user that runs Docker:
+
+```bash
+( crontab -l 2>/dev/null; echo '*/5 * * * * bash /path/to/Tech-Cup_ECI/deploy/update.sh >> /var/log/techcup-deploy.log 2>&1' ) | crontab -
+```
+
+Follow it with `tail -f /var/log/techcup-deploy.log`. Each run prints nothing when there is no new
+commit. Anything merged into `main` goes live within five minutes, so merge only tested work; the
+`CI` workflow (`.github/workflows/ci.yml`) runs the backend and frontend tests on every push and
+pull request on GitHub's own runners.
+
+**Rolling back by hand:** `git checkout <previous commit>` on the server, then
+`docker compose --profile app up -d --build`. Database migrations are not undone, so prefer
+fixing forward with a new commit.

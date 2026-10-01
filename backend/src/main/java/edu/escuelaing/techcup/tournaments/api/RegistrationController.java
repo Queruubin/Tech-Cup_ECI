@@ -8,11 +8,14 @@ import edu.escuelaing.techcup.tournaments.application.RegistrationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Decisions on an existing registration: organizer review and captain withdrawal. */
@@ -41,6 +44,14 @@ public class RegistrationController {
     public RegistrationResponse reject(@CurrentUser AuthenticatedUser actor, @PathVariable Long id,
                                        @Valid @RequestBody(required = false) ReviewRegistrationRequest request) {
         return registrationService.reject(actor, id, ReviewRegistrationRequest.orEmpty(request).note());
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ORGANIZER')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Remove an approved team from a tournament that has not started yet")
+    public void remove(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
+        registrationService.remove(actor, id);
     }
 
     @PostMapping("/{id}/cancel")

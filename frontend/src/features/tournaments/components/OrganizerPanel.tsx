@@ -389,7 +389,7 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
         />
       </Card>
 
-      <RegistrationsReview tournamentId={tournament.id} onDecided={() => tournamentsApi.get(tournament.id).then(onUpdated).catch(() => undefined)} />
+      <RegistrationsReview tournamentId={tournament.id} tournamentStatus={tournament.status} onDecided={() => tournamentsApi.get(tournament.id).then(onUpdated).catch(() => undefined)} />
 
       <ConfirmDialog
         open={pending !== null}

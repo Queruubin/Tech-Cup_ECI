@@ -44,6 +44,8 @@ export const tournamentsApi = {
   rejectRegistration: (registrationId: number, payload: ReviewRegistrationRequest) =>
     api.post<RegistrationResponse>(`/registrations/${registrationId}/reject`, payload),
   cancelRegistration: (registrationId: number) => api.post<RegistrationResponse>(`/registrations/${registrationId}/cancel`),
+  /** Organizer: removes an approved team from a tournament that has not started (409 otherwise). */
+  removeRegistration: (registrationId: number) => api.delete<void>(`/registrations/${registrationId}`),
 
   generateMatches: (id: number) => api.post<MatchResponse[]>(`/tournaments/${id}/matches/generate`),
   advanceMatches: (id: number) => api.post<MatchResponse[]>(`/tournaments/${id}/matches/advance`),
