@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/atoms/Button'
 import { Input } from '@/components/atoms/Input'
+import { PasswordInput } from '@/components/atoms/PasswordInput'
 import { Select } from '@/components/atoms/Select'
 import { Alert } from '@/components/molecules/Alert'
 import { FormField } from '@/components/molecules/FormField'
@@ -8,7 +9,7 @@ import { ACADEMIC_PROGRAM_LABELS, DOCUMENT_TYPE_LABELS, toOptions } from '@/lib/
 import { ACADEMIC_PROGRAMS, DOCUMENT_TYPES, type AcademicProgram, type DocumentType } from '@/types/api'
 import {
   EMPTY_REGISTER_VALUES,
-  PASSWORD_MIN_LENGTH,
+  PASSWORD_RULE_HINT,
   PLAYER_AGE_HINT,
   validateRegister,
   type RegisterFormErrors,
@@ -118,22 +119,15 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
             onChange={(event) => update('email', event.target.value)}
           />
         </FormField>
-        <FormField
-          label="Contraseña"
-          required
-          error={errorFor('password')}
-          hint={`Mínimo ${PASSWORD_MIN_LENGTH} caracteres.`}
-        >
-          <Input
-            type="password"
+        <FormField label="Contraseña" required error={errorFor('password')} hint={PASSWORD_RULE_HINT}>
+          <PasswordInput
             autoComplete="new-password"
             value={values.password}
             onChange={(event) => update('password', event.target.value)}
           />
         </FormField>
         <FormField label="Confirmar contraseña" required error={errorFor('confirmPassword')}>
-          <Input
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             value={values.confirmPassword}
             onChange={(event) => update('confirmPassword', event.target.value)}

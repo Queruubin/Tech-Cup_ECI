@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/atoms/Button'
-import { Input } from '@/components/atoms/Input'
+import { PasswordInput } from '@/components/atoms/PasswordInput'
 import { Alert } from '@/components/molecules/Alert'
 import { FormField } from '@/components/molecules/FormField'
 import type { ChangePasswordRequest } from '@/types/api'
@@ -32,24 +32,21 @@ export function ChangePasswordForm({ loading, error, fieldErrors, onSubmit }: Ch
     <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
       {error && <Alert kind="error">{error}</Alert>}
       <FormField label="Contraseña actual" required error={errors.currentPassword ?? fieldErrors.currentPassword}>
-        <Input
-          type="password"
+        <PasswordInput
           autoComplete="current-password"
           value={currentPassword}
           onChange={(event) => setCurrentPassword(event.target.value)}
         />
       </FormField>
       <FormField label="Nueva contraseña" required hint={PASSWORD_RULE_HINT} error={errors.newPassword ?? fieldErrors.newPassword}>
-        <Input
-          type="password"
+        <PasswordInput
           autoComplete="new-password"
           value={newPassword}
           onChange={(event) => setNewPassword(event.target.value)}
         />
       </FormField>
       <FormField label="Confirmar nueva contraseña" required error={errors.confirmPassword}>
-        <Input
-          type="password"
+        <PasswordInput
           autoComplete="new-password"
           value={confirmPassword}
           onChange={(event) => setConfirmPassword(event.target.value)}

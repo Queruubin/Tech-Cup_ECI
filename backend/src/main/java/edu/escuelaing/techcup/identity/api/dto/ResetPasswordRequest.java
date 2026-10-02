@@ -8,6 +8,6 @@ import jakarta.validation.constraints.Size;
 public record ResetPasswordRequest(
         @NotBlank(message = "La contraseña nueva es obligatoria.")
         @Size(min = 8, max = 72, message = "La contraseña debe tener entre 8 y 72 caracteres.")
-        @Pattern(regexp = PasswordRules.LETTER_AND_DIGIT, message = PasswordRules.LETTER_AND_DIGIT_MESSAGE)
+        @Pattern(regexp = PasswordRules.UPPERCASE_AND_DIGIT, message = PasswordRules.UPPERCASE_AND_DIGIT_MESSAGE)
         String newPassword) {
 }

@@ -5,6 +5,7 @@ import { todayIso } from '@/lib/format'
 import { ChangePasswordForm } from './components/ChangePasswordForm'
 import {
   EMPTY_REGISTER_VALUES,
+  PASSWORD_UPPERCASE_AND_DIGIT_ERROR,
   PLAYER_AGE_ERROR,
   ageInFullYears,
   validateEmail,
@@ -77,6 +78,16 @@ describe('validateRegister', () => {
     )
   })
 
+  it('applies the shared password rule and keeps the confirmation check', () => {
+    const withPassword = (password: string) => validateRegister({ ...valid, password, confirmPassword: password })
+
+    expect(withPassword('clave1234').password).toBe(PASSWORD_UPPERCASE_AND_DIGIT_ERROR)
+    expect(withPassword('ClaveSegura').password).toBe(PASSWORD_UPPERCASE_AND_DIGIT_ERROR)
+    expect(withPassword('Clave12').password).toMatch(/entre 8 y 72 caracteres/)
+    expect(withPassword('Clave1234')).toEqual({})
+    expect(validateRegister({ ...valid, confirmPassword: 'Clave12345' }).confirmPassword).toBe('Las contraseñas no coinciden.')
+  })
+
   it('registers every account as a player without a school relation', () => {
     const request = toRegisterRequest(valid)
     expect(request.initialRole).toBe('PLAYER')
@@ -104,21 +115,27 @@ describe('ageInFullYears', () => {
 })
 
 describe('validateNewPassword', () => {
-  it('accepts 8 to 72 characters with at least one letter and one digit', () => {
-    expect(validateNewPassword('abcdefg1')).toBeUndefined()
-    expect(validateNewPassword(`${'a'.repeat(71)}1`)).toBeUndefined()
+  it('accepts 8 to 72 characters with at least one uppercase letter and one digit', () => {
+    expect(validateNewPassword('Abcdefg1')).toBeUndefined()
+    expect(validateNewPassword(`A${'a'.repeat(70)}1`)).toBeUndefined()
     expect(validateNewPassword('Clave-Segura-2026')).toBeUndefined()
+    expect(validateNewPassword('ÁRBOL2026')).toBeUndefined()
   })
 
   it('rejects passwords outside the length range', () => {
-    expect(validateNewPassword('abc1234')).toMatch(/entre 8 y 72 caracteres/)
-    expect(validateNewPassword(`${'a'.repeat(72)}1`)).toMatch(/entre 8 y 72 caracteres/)
+    expect(validateNewPassword('Abc1234')).toMatch(/entre 8 y 72 caracteres/)
+    expect(validateNewPassword(`A${'a'.repeat(71)}1`)).toMatch(/entre 8 y 72 caracteres/)
   })
 
-  it('rejects passwords without a letter or without a digit', () => {
-    expect(validateNewPassword('12345678')).toMatch(/una letra y un número/)
-    expect(validateNewPassword('abcdefgh')).toMatch(/una letra y un número/)
-    expect(validateNewPassword('!!!!!!!!')).toMatch(/una letra y un número/)
+  it('rejects passwords without an uppercase letter or without a digit', () => {
+    expect(validateNewPassword('12345678')).toBe(PASSWORD_UPPERCASE_AND_DIGIT_ERROR)
+    expect(validateNewPassword('clave1234')).toBe(PASSWORD_UPPERCASE_AND_DIGIT_ERROR)
+    expect(validateNewPassword('ClaveSegura')).toBe(PASSWORD_UPPERCASE_AND_DIGIT_ERROR)
+    expect(validateNewPassword('!!!!!!!!')).toBe(PASSWORD_UPPERCASE_AND_DIGIT_ERROR)
+  })
+
+  it('uses the same message as the backend', () => {
+    expect(PASSWORD_UPPERCASE_AND_DIGIT_ERROR).toBe('La contraseña debe incluir al menos una letra mayúscula y un número.')
   })
 })
 
@@ -161,7 +178,7 @@ describe('ChangePasswordForm', () => {
 
     expect(onSubmit).not.toHaveBeenCalled()
     const alerts = screen.getAllByRole('alert').map((node) => node.textContent)
-    expect(alerts).toEqual(expect.arrayContaining([expect.stringMatching(/una letra y un número/), 'Las contraseñas no coinciden.']))
+    expect(alerts).toEqual(expect.arrayContaining([PASSWORD_UPPERCASE_AND_DIGIT_ERROR, 'Las contraseñas no coinciden.']))
   })
 
   it('submits only the current and new password once everything is valid', async () => {

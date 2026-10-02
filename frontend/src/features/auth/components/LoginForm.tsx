@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/atoms/Button'
 import { Input } from '@/components/atoms/Input'
+import { PasswordInput } from '@/components/atoms/PasswordInput'
 import { Alert } from '@/components/molecules/Alert'
 import { FormField } from '@/components/molecules/FormField'
 
@@ -39,8 +40,7 @@ export function LoginForm({ loading, error, fieldErrors, onSubmit }: LoginFormPr
         />
       </FormField>
       <FormField label="Contraseña" required error={localErrors.password ?? fieldErrors.password}>
-        <Input
-          type="password"
+        <PasswordInput
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}

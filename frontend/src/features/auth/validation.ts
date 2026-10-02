@@ -15,18 +15,19 @@ export function validateSemester(raw: string): string | undefined {
 
 export const PASSWORD_MIN_LENGTH = 8
 export const PASSWORD_MAX_LENGTH = 72
-export const PASSWORD_RULE_HINT = `Entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres, con al menos una letra y un número.`
+export const PASSWORD_RULE_HINT = `Entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres, con al menos una letra mayúscula y un número.`
+export const PASSWORD_UPPERCASE_AND_DIGIT_ERROR = 'La contraseña debe incluir al menos una letra mayúscula y un número.'
 
 /**
- * Password rule for `POST /auth/password` and `POST /admin/users/{id}/password`:
- * 8–72 characters, at least one letter and one digit.
+ * Password rule shared by every request that sets a password (register, referee creation, self-service
+ * change and admin reset): 8–72 characters, at least one uppercase letter and one digit. Mirrors the backend.
  */
 export function validateNewPassword(password: string): string | undefined {
   if (password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
     return `La contraseña debe tener entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres.`
   }
-  if (!/\p{L}/u.test(password) || !/\d/.test(password)) {
-    return 'La contraseña debe incluir al menos una letra y un número.'
+  if (!/\p{Lu}/u.test(password) || !/\d/.test(password)) {
+    return PASSWORD_UPPERCASE_AND_DIGIT_ERROR
   }
   return undefined
 }
@@ -131,9 +132,8 @@ export function validateRegister(values: RegisterFormValues): RegisterFormErrors
   const emailError = validateEmail(values.email)
   if (emailError) errors.email = emailError
 
-  if (values.password.length < PASSWORD_MIN_LENGTH) {
-    errors.password = `La contraseña debe tener al menos ${PASSWORD_MIN_LENGTH} caracteres.`
-  }
+  const passwordError = validateNewPassword(values.password)
+  if (passwordError) errors.password = passwordError
   if (values.confirmPassword !== values.password) errors.confirmPassword = 'Las contraseñas no coinciden.'
 
   if (!values.academicProgram) errors.academicProgram = 'Seleccione un programa académico.'

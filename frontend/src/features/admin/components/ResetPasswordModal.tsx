@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/atoms/Button'
-import { Input } from '@/components/atoms/Input'
+import { PasswordInput } from '@/components/atoms/PasswordInput'
 import { Alert } from '@/components/molecules/Alert'
 import { FormField } from '@/components/molecules/FormField'
 import { Modal } from '@/components/molecules/Modal'
@@ -54,16 +54,14 @@ export function ResetPasswordModal({ user, loading, error, fieldErrors, onSubmit
         {error && <Alert kind="error">{error}</Alert>}
         <p className="text-sm text-stone-600">Comunique la nueva contraseña al usuario por un medio seguro.</p>
         <FormField label="Nueva contraseña" required hint={PASSWORD_RULE_HINT} error={errors.newPassword ?? fieldErrors.newPassword}>
-          <Input
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             value={newPassword}
             onChange={(event) => setNewPassword(event.target.value)}
           />
         </FormField>
         <FormField label="Confirmar contraseña" required error={errors.confirmPassword}>
-          <Input
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}

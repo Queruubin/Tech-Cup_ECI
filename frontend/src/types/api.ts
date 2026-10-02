@@ -201,7 +201,7 @@ export interface AssignRoleRequest {
   role: Role
 }
 
-/** `POST /auth/password` (self-service). Password rule: 8–72 chars, at least one letter and one digit. */
+/** `POST /auth/password` (self-service). Password rule (also for register and referee creation): 8–72 chars, at least one uppercase letter and one digit. */
 export interface ChangePasswordRequest {
   currentPassword: string
   newPassword: string

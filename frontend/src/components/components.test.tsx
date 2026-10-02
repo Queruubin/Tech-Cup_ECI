@@ -1,11 +1,12 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { Badge, StatusBadge } from './atoms/Badge'
 import { Button } from './atoms/Button'
 import { FileInput } from './atoms/FileInput'
 import { Input } from './atoms/Input'
+import { PasswordInput } from './atoms/PasswordInput'
 import { FormField } from './molecules/FormField'
 import { Modal } from './molecules/Modal'
 
@@ -215,5 +216,46 @@ describe('FormField', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Correo inválido')
     expect(screen.queryByText('Ayuda')).not.toBeInTheDocument()
     expect(input.getAttribute('aria-describedby')).toContain('-error')
+  })
+})
+
+describe('PasswordInput', () => {
+  it('toggles between hidden and visible text without submitting the form', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn((event: FormEvent) => event.preventDefault())
+    render(
+      <form onSubmit={onSubmit}>
+        <FormField label="Contraseña" hint="Ayuda">
+          <PasswordInput defaultValue="Clave1234" autoComplete="current-password" />
+        </FormField>
+      </form>,
+    )
+    const input = screen.getByLabelText('Contraseña')
+    const toggle = screen.getByRole('button', { name: 'Mostrar contraseña' })
+    expect(input).toHaveAttribute('type', 'password')
+    expect(input).toHaveAttribute('autocomplete', 'current-password')
+    expect(input.getAttribute('aria-describedby')).toContain('-hint')
+    expect(toggle).toHaveAttribute('type', 'button')
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(toggle)
+    expect(input).toHaveAttribute('type', 'text')
+    expect(toggle).toHaveAccessibleName('Ocultar contraseña')
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+    toggle.focus()
+    await user.keyboard('{Enter}')
+    expect(input).toHaveAttribute('type', 'password')
+    expect(toggle).toHaveAccessibleName('Mostrar contraseña')
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('forwards the invalid state from FormField', () => {
+    render(
+      <FormField label="Contraseña" error="Obligatoria">
+        <PasswordInput defaultValue="" />
+      </FormField>,
+    )
+    expect(screen.getByLabelText('Contraseña')).toHaveAttribute('aria-invalid', 'true')
   })
 })

@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/atoms/Button'
 import { Input } from '@/components/atoms/Input'
+import { PasswordInput } from '@/components/atoms/PasswordInput'
 import { Select } from '@/components/atoms/Select'
 import { Alert } from '@/components/molecules/Alert'
 import { FormField } from '@/components/molecules/FormField'
-import { PASSWORD_MIN_LENGTH } from '@/features/auth/validation'
+import { PASSWORD_RULE_HINT, validateNewPassword } from '@/features/auth/validation'
 import { DOCUMENT_TYPE_LABELS, toOptions } from '@/lib/labels'
 import { DOCUMENT_TYPES, type CreateRefereeRequest, type DocumentType } from '@/types/api'
 
@@ -35,7 +36,8 @@ export function CreateRefereeForm({ loading, error, fieldErrors, onSubmit, onCan
     const next: Errors = {}
     if (fullName.trim().length < 3) next.fullName = 'Ingrese el nombre completo.'
     if (!EMAIL_PATTERN.test(email.trim())) next.email = 'Ingrese un correo válido.'
-    if (password.length < PASSWORD_MIN_LENGTH) next.password = `Mínimo ${PASSWORD_MIN_LENGTH} caracteres.`
+    const passwordError = validateNewPassword(password)
+    if (passwordError) next.password = passwordError
     if (!birthDate) next.birthDate = 'Ingrese la fecha de nacimiento.'
     if (!documentType) next.documentType = 'Seleccione el tipo de documento.'
     if (!documentNumber.trim()) next.documentNumber = 'Ingrese el número de documento.'
@@ -63,8 +65,8 @@ export function CreateRefereeForm({ loading, error, fieldErrors, onSubmit, onCan
         <FormField label="Correo electrónico" required error={errorFor('email')}>
           <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
         </FormField>
-        <FormField label="Contraseña inicial" required error={errorFor('password')}>
-          <Input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} />
+        <FormField label="Contraseña inicial" required hint={PASSWORD_RULE_HINT} error={errorFor('password')}>
+          <PasswordInput autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} />
         </FormField>
         <FormField label="Fecha de nacimiento" required error={errorFor('birthDate')}>
           <Input type="date" value={birthDate} onChange={(event) => setBirthDate(event.target.value)} />

@@ -83,7 +83,7 @@ models would double the code for a semester project with no benefit.
   `SecurityContext`. Inactive users are rejected with 401.
 - Method security with `@PreAuthorize("hasRole('ORGANIZER')")` etc. Roles: `GUEST, PLAYER, CAPTAIN, ORGANIZER, REFEREE, ADMIN`.
   A user can hold several roles (`user_roles` table). `ADMIN` implies everything (role hierarchy).
-- Passwords: BCrypt.
+- Passwords: BCrypt. Every request that sets a password (register, referee creation, self-service change, admin reset) requires 8–72 characters with at least one uppercase letter and one digit (`PasswordRules`); login does not re-validate, so older passwords keep working. `ADMIN_PASSWORD` is not validated against this rule.
 - E-mail: any address may register; there is no domain rule for any school relation or role.
 - Player age: the PLAYER role is limited to ages `app.player.min-age`..`app.player.max-age`
   (env `APP_PLAYER_MIN_AGE` / `APP_PLAYER_MAX_AGE`, default 5..100, inclusive, full years computed
