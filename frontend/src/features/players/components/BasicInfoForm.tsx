@@ -53,8 +53,10 @@ export function BasicInfoForm({
   const [localErrors, setLocalErrors] = useState<{ fullName?: string; semester?: string }>({})
   // A locked relation always reflects (and sends) the user's current value.
   const relation = canEditRelation ? schoolRelation : user.schoolRelation
-  // Referees have no affiliation: unless an admin is editing, those fields do not apply to them.
-  const showAffiliation = canEditRelation || user.schoolRelation !== null
+  // New self-registered users have no relation yet (an admin sets it) but do have a program;
+  // referees have neither. Unless an admin is editing, only the fields that apply are shown.
+  const showRelation = canEditRelation || user.schoolRelation !== null
+  const showProgram = canEditRelation || user.academicProgram !== null
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
@@ -85,7 +87,7 @@ export function BasicInfoForm({
         <FormField label="Correo electrónico" hint="El correo no se puede modificar.">
           <Input value={user.email ?? '—'} disabled readOnly />
         </FormField>
-        {showAffiliation && (
+        {showRelation && (
           <FormField
             label="Relación con la Escuela"
             error={fieldErrors.schoolRelation}
@@ -100,7 +102,7 @@ export function BasicInfoForm({
             />
           </FormField>
         )}
-        {showAffiliation && (
+        {showProgram && (
           <FormField label="Programa académico" error={fieldErrors.academicProgram}>
             <Select
               options={PROGRAM_OPTIONS}

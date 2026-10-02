@@ -113,7 +113,9 @@ public class RegistrationService {
 
     @Transactional
     public RegistrationResponse register(AuthenticatedUser actor, Long tournamentId, MultipartFile receipt) {
-        Tournament tournament = tournamentService.requireTournament(tournamentId);
+        // Locked so a registration cannot land in a tournament that is being started concurrently
+        // (start cancels every UNDER_REVIEW registration and must see this one).
+        Tournament tournament = tournamentService.requireTournamentForUpdate(tournamentId);
         if (tournament.getStatus() != TournamentStatus.ACTIVE) {
             throw new BusinessRuleException("Solo se aceptan inscripciones mientras el torneo esté activo; "
                     + "su estado actual es «" + tournament.getStatus().label() + "».");

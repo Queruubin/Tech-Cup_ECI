@@ -208,6 +208,16 @@ class MatchServiceTest {
     }
 
     @Test
+    void penaltiesAreDroppedOutsideAknockoutDraw() {
+        Match group = givenMatch(match(MatchPhase.GROUP, MatchStatus.SCHEDULED));
+
+        service.recordResult(ORGANIZER, 3L, new RecordResultRequest(0, 0, 5, 4, List.of()));
+
+        assertThat(group.getHomePenalties()).isNull();
+        assertThat(group.getAwayPenalties()).isNull();
+    }
+
+    @Test
     void aknockoutDrawNeedsAPenaltyShootOut() {
         givenMatch(match(MatchPhase.SEMIFINAL, MatchStatus.SCHEDULED));
 

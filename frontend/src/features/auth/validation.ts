@@ -1,5 +1,5 @@
 import { todayIso } from '@/lib/format'
-import type { AcademicProgram, DocumentType, InitialRole, RegisterRequest, SchoolRelation } from '@/types/api'
+import type { AcademicProgram, DocumentType, RegisterRequest } from '@/types/api'
 
 /** Semester range accepted by the backend for students. */
 export const SEMESTER_MIN = 1
@@ -61,13 +61,10 @@ export interface RegisterFormValues {
   email: string
   password: string
   confirmPassword: string
-  schoolRelation: SchoolRelation | ''
   academicProgram: AcademicProgram | ''
-  semester: string
   birthDate: string
   documentType: DocumentType | ''
   documentNumber: string
-  initialRole: InitialRole
 }
 
 export type RegisterFormErrors = Partial<Record<keyof RegisterFormValues, string>>
@@ -77,13 +74,10 @@ export const EMPTY_REGISTER_VALUES: RegisterFormValues = {
   email: '',
   password: '',
   confirmPassword: '',
-  schoolRelation: '',
   academicProgram: '',
-  semester: '',
   birthDate: '',
   documentType: '',
   documentNumber: '',
-  initialRole: 'PLAYER',
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -142,20 +136,15 @@ export function validateRegister(values: RegisterFormValues): RegisterFormErrors
   }
   if (values.confirmPassword !== values.password) errors.confirmPassword = 'Las contraseñas no coinciden.'
 
-  if (!values.schoolRelation) errors.schoolRelation = 'Seleccione su relación con la Escuela.'
   if (!values.academicProgram) errors.academicProgram = 'Seleccione un programa académico.'
-
-  if (values.schoolRelation === 'STUDENT') {
-    const semesterError = validateSemester(values.semester)
-    if (semesterError) errors.semester = semesterError
-  }
 
   if (!values.birthDate) {
     errors.birthDate = 'Ingrese su fecha de nacimiento.'
   } else if (values.birthDate >= todayIso()) {
     // ISO `YYYY-MM-DD` strings compare lexicographically; today and future dates are rejected.
     errors.birthDate = 'La fecha de nacimiento debe ser anterior a hoy.'
-  } else if (values.initialRole === 'PLAYER') {
+  } else {
+    // Every self-registered account is a player, so the player age range always applies.
     const ageError = validatePlayerAge(values.birthDate)
     if (ageError) errors.birthDate = ageError
   }
@@ -172,12 +161,13 @@ export function toRegisterRequest(values: RegisterFormValues): RegisterRequest {
     fullName: values.fullName.trim(),
     email: values.email.trim().toLowerCase(),
     password: values.password,
-    schoolRelation: values.schoolRelation as SchoolRelation,
+    // The school relation (and therefore the semester) is assigned later by an administrator.
+    schoolRelation: null,
     academicProgram: values.academicProgram as AcademicProgram,
-    semester: values.schoolRelation === 'STUDENT' ? Number(values.semester) : null,
+    semester: null,
     birthDate: values.birthDate,
     documentType: values.documentType as DocumentType,
     documentNumber: values.documentNumber.trim(),
-    initialRole: values.initialRole,
+    initialRole: 'PLAYER',
   }
 }

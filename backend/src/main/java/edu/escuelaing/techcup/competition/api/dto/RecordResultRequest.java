@@ -5,6 +5,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 
 /**
@@ -15,15 +16,20 @@ import java.util.List;
 public record RecordResultRequest(
         @NotNull(message = "Los goles del equipo local son obligatorios.")
         @Min(value = 0, message = "Los goles del equipo local no pueden ser negativos.")
+        @Max(value = 99, message = "Los goles del equipo local no pueden superar 99.")
         Integer homeScore,
         @NotNull(message = "Los goles del equipo visitante son obligatorios.")
         @Min(value = 0, message = "Los goles del equipo visitante no pueden ser negativos.")
+        @Max(value = 99, message = "Los goles del equipo visitante no pueden superar 99.")
         Integer awayScore,
         @Min(value = 0, message = "Los penales del equipo local no pueden ser negativos.")
+        @Max(value = 99, message = "Los penales del equipo local no pueden superar 99.")
         Integer homePenalties,
         @Min(value = 0, message = "Los penales del equipo visitante no pueden ser negativos.")
+        @Max(value = 99, message = "Los penales del equipo visitante no pueden superar 99.")
         Integer awayPenalties,
-        @Valid List<Event> events) {
+        @Size(max = 300, message = "Un partido no puede tener más de 300 eventos.")
+        @Valid List<@NotNull(message = "Los eventos del partido no pueden estar vacíos.") Event> events) {
 
     public record Event(
             @NotNull(message = "El equipo del evento es obligatorio.") Long teamId,

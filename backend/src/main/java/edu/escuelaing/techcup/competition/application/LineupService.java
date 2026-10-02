@@ -70,7 +70,9 @@ public class LineupService {
 
     @Transactional
     public LineupResponse save(AuthenticatedUser actor, Long matchId, LineupRequest request) {
-        Match match = matchService.requireMatch(matchId);
+        // Same lock as a team change, so a lineup can never be written for a team that a
+        // concurrent edit is removing from the match.
+        Match match = matchService.requireMatchLockingTournament(matchId);
         Team team = requireCaptainOfAPlayingTeam(actor, match);
         requireBeforeKickOff(match);
 

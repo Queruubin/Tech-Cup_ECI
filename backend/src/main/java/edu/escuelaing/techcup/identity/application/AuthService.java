@@ -75,11 +75,14 @@ public class AuthService {
 
     @Transactional
     public UserResponse register(RegisterRequest request) {
-        if (!request.initialRole().isSelfAssignable()) {
+        // The registration form no longer offers a role: accounts are players unless a client
+        // explicitly asks for GUEST. The school relation is optional and set later by an admin.
+        Role initialRole = request.initialRole() != null ? request.initialRole() : Role.PLAYER;
+        if (!initialRole.isSelfAssignable()) {
             throw new BusinessRuleException("El rol inicial solo puede ser jugador o invitado.");
         }
         UserService.validateSemester(request.schoolRelation(), request.semester());
-        if (request.initialRole() == Role.PLAYER) {
+        if (initialRole == Role.PLAYER) {
             playerAgePolicy.validate(request.birthDate());
         }
         String email = normalizeEmail(request.email());
@@ -96,12 +99,12 @@ public class AuthService {
                 .birthDate(request.birthDate())
                 .documentType(request.documentType())
                 .documentNumber(request.documentNumber().trim())
-                .roles(new HashSet<>(Set.of(request.initialRole())))
+                .roles(new HashSet<>(Set.of(initialRole)))
                 .build();
         user = users.save(user);
 
         auditService.record(null, AuditAction.USER_REGISTERED, UserService.ENTITY_TYPE, user.getId(),
-                Map.of("email", user.getEmail(), "initialRole", request.initialRole().name()));
+                Map.of("email", user.getEmail(), "initialRole", initialRole.name()));
         return userService.toResponse(user);
     }
 

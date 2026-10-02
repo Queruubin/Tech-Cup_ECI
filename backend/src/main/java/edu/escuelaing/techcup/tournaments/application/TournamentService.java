@@ -5,6 +5,7 @@ import edu.escuelaing.techcup.identity.domain.AppUser;
 import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
+import edu.escuelaing.techcup.shared.exception.InvalidRequestException;
 import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.shared.storage.FileDeletionScheduler;
@@ -58,6 +59,9 @@ import org.springframework.web.multipart.MultipartFile;
 public class TournamentService {
 
     static final String ENTITY_TYPE = "TOURNAMENT";
+    /** Plausible calendar range; anything outside it is a typo and would overflow the database. */
+    static final int MIN_YEAR = 2000;
+    static final int MAX_YEAR = 2100;
     static final String VENUE_ENTITY_TYPE = "VENUE";
     static final String REGISTRATION_ENTITY_TYPE = "REGISTRATION";
     static final int MIN_TEAMS_TO_START = 2;
@@ -258,7 +262,9 @@ public class TournamentService {
      */
     @Transactional
     public TournamentResponse start(AuthenticatedUser actor, Long id) {
-        Tournament tournament = requireTournament(id);
+        // Locked like approve/remove/register: a registration removed, approved or created
+        // concurrently must be seen by the approved-teams check, not slip past it.
+        Tournament tournament = requireTournamentForUpdate(id);
         LocalDate today = LocalDate.now(clock);
         if (today.isBefore(tournament.getStartDate())) {
             throw new BusinessRuleException("El torneo solo se puede iniciar a partir de su fecha de inicio ("
@@ -413,6 +419,12 @@ public class TournamentService {
     }
 
     static void validateDates(LocalDate registrationDeadline, LocalDate startDate, LocalDate endDate) {
+        for (LocalDate date : new LocalDate[]{registrationDeadline, startDate, endDate}) {
+            if (date.getYear() < MIN_YEAR || date.getYear() > MAX_YEAR) {
+                throw new InvalidRequestException("Las fechas del torneo deben estar entre los años "
+                        + MIN_YEAR + " y " + MAX_YEAR + ".");
+            }
+        }
         if (startDate.isAfter(endDate)) {
             throw new BusinessRuleException("La fecha de inicio no puede ser posterior a la fecha de cierre.");
         }

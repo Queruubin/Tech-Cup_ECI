@@ -164,11 +164,12 @@ export interface UserResponse {
   teamId?: number | null
 }
 
+/** Self-registration: the school relation is set later by an administrator; the role is always PLAYER. */
 export interface RegisterRequest {
   fullName: string
   email: string
   password: string
-  schoolRelation: SchoolRelation
+  schoolRelation: SchoolRelation | null
   academicProgram: AcademicProgram
   semester?: number | null
   birthDate: string

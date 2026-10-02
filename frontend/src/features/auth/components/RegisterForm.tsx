@@ -4,28 +4,12 @@ import { Input } from '@/components/atoms/Input'
 import { Select } from '@/components/atoms/Select'
 import { Alert } from '@/components/molecules/Alert'
 import { FormField } from '@/components/molecules/FormField'
-import {
-  ACADEMIC_PROGRAM_LABELS,
-  DOCUMENT_TYPE_LABELS,
-  INITIAL_ROLE_LABELS,
-  SCHOOL_RELATION_LABELS,
-  toOptions,
-} from '@/lib/labels'
-import {
-  ACADEMIC_PROGRAMS,
-  DOCUMENT_TYPES,
-  INITIAL_ROLES,
-  SCHOOL_RELATIONS,
-  type AcademicProgram,
-  type DocumentType,
-  type InitialRole,
-  type SchoolRelation,
-} from '@/types/api'
+import { ACADEMIC_PROGRAM_LABELS, DOCUMENT_TYPE_LABELS, toOptions } from '@/lib/labels'
+import { ACADEMIC_PROGRAMS, DOCUMENT_TYPES, type AcademicProgram, type DocumentType } from '@/types/api'
 import {
   EMPTY_REGISTER_VALUES,
   PASSWORD_MIN_LENGTH,
   PLAYER_AGE_HINT,
-  SEMESTER_MAX,
   validateRegister,
   type RegisterFormErrors,
   type RegisterFormValues,
@@ -39,7 +23,6 @@ export interface RegisterFormProps {
   onSubmit: (values: RegisterFormValues) => void
 }
 
-const RELATION_OPTIONS = toOptions(SCHOOL_RELATIONS, SCHOOL_RELATION_LABELS)
 const PROGRAM_OPTIONS = toOptions(ACADEMIC_PROGRAMS, ACADEMIC_PROGRAM_LABELS)
 const DOCUMENT_OPTIONS = toOptions(DOCUMENT_TYPES, DOCUMENT_TYPE_LABELS)
 
@@ -66,8 +49,6 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
   }
 
   const errorFor = (key: keyof RegisterFormValues) => errors[key] ?? fieldErrors[key]
-  const isStudent = values.schoolRelation === 'STUDENT'
-  const isPlayer = values.initialRole === 'PLAYER'
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
@@ -86,7 +67,7 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
           label="Fecha de nacimiento"
           required
           error={errorFor('birthDate')}
-          hint={isPlayer ? PLAYER_AGE_HINT : undefined}
+          hint={PLAYER_AGE_HINT}
         >
           <Input
             type="date"
@@ -114,15 +95,7 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
 
       <fieldset className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <legend className="mb-2 text-sm font-semibold text-ink">Vínculo con la Escuela</legend>
-        <FormField label="Relación con la Escuela" required error={errorFor('schoolRelation')}>
-          <Select
-            options={RELATION_OPTIONS}
-            placeholder="Seleccione"
-            value={values.schoolRelation}
-            onChange={(event) => update('schoolRelation', event.target.value as SchoolRelation | '')}
-          />
-        </FormField>
-        <FormField label="Programa académico" required error={errorFor('academicProgram')}>
+        <FormField label="Programa académico" required error={errorFor('academicProgram')} className="sm:col-span-2">
           <Select
             options={PROGRAM_OPTIONS}
             placeholder="Seleccione"
@@ -130,30 +103,9 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
             onChange={(event) => update('academicProgram', event.target.value as AcademicProgram | '')}
           />
         </FormField>
-        {isStudent && (
-          <FormField label="Semestre" required error={errorFor('semester')}>
-            <Input
-              type="number"
-              min={1}
-              max={SEMESTER_MAX}
-              inputMode="numeric"
-              value={values.semester}
-              onChange={(event) => update('semester', event.target.value)}
-            />
-          </FormField>
-        )}
-        <FormField
-          label="Rol inicial"
-          required
-          error={errorFor('initialRole')}
-          hint="Los jugadores pueden crear su perfil deportivo, crear un equipo o unirse a uno."
-        >
-          <Select
-            options={toOptions(INITIAL_ROLES, INITIAL_ROLE_LABELS)}
-            value={values.initialRole}
-            onChange={(event) => update('initialRole', event.target.value as InitialRole)}
-          />
-        </FormField>
+        <p className="text-xs text-stone-500 sm:col-span-2">
+          Su cuenta se crea como jugador. Un administrador registrará después su relación con la Escuela.
+        </p>
       </fieldset>
 
       <fieldset className="grid grid-cols-1 gap-4 sm:grid-cols-2">

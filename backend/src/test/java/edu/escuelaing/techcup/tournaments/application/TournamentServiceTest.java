@@ -134,7 +134,7 @@ class TournamentServiceTest {
     void startIsRefusedBeforeTheStartDate() {
         Tournament tournament = withStatus(TournamentStatus.ACTIVE, "rulebook-file");
         tournament.setStartDate(TODAY.plusDays(1));
-        given(tournament);
+        givenLocked(tournament);
 
         assertThatThrownBy(() -> service.start(ORGANIZER, 1L))
                 .isInstanceOf(BusinessRuleException.class)
@@ -145,7 +145,7 @@ class TournamentServiceTest {
     void startIsAllowedAfterTheStartDateWhileTheEndDateHasNotPassed() {
         Tournament tournament = withStatus(TournamentStatus.ACTIVE, "rulebook-file");
         tournament.setStartDate(TODAY.minusDays(3));
-        given(tournament);
+        givenLocked(tournament);
         when(registrations.countByTournamentIdAndStatus(1L, RegistrationStatus.APPROVED)).thenReturn(2L);
 
         service.start(ORGANIZER, 1L);
@@ -158,7 +158,7 @@ class TournamentServiceTest {
         Tournament tournament = withStatus(TournamentStatus.ACTIVE, "rulebook-file");
         tournament.setStartDate(TODAY.minusDays(40));
         tournament.setEndDate(TODAY.minusDays(1));
-        given(tournament);
+        givenLocked(tournament);
 
         assertThatThrownBy(() -> service.start(ORGANIZER, 1L))
                 .isInstanceOf(BusinessRuleException.class)
@@ -167,7 +167,7 @@ class TournamentServiceTest {
 
     @Test
     void startNeedsTwoApprovedRegistrations() {
-        given(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+        givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
         when(registrations.countByTournamentIdAndStatus(1L, RegistrationStatus.APPROVED)).thenReturn(1L);
 
         assertThatThrownBy(() -> service.start(ORGANIZER, 1L))
@@ -177,7 +177,7 @@ class TournamentServiceTest {
 
     @Test
     void startMovesActiveToInProgressOnTheStartDate() {
-        Tournament tournament = given(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+        Tournament tournament = givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
         when(registrations.countByTournamentIdAndStatus(1L, RegistrationStatus.APPROVED)).thenReturn(2L);
 
         service.start(ORGANIZER, 1L);
@@ -187,7 +187,7 @@ class TournamentServiceTest {
 
     @Test
     void startCancelsTheRegistrationsStillUnderReview() {
-        Tournament tournament = given(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+        Tournament tournament = givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
         Registration pending = Registration.builder().id(9L).tournament(tournament)
                 .team(Team.builder().id(5L).name("Tigers").build())
                 .receiptFileId("receipt").status(RegistrationStatus.UNDER_REVIEW).build();
@@ -205,12 +205,24 @@ class TournamentServiceTest {
 
     @Test
     void aDraftTournamentCannotBeStarted() {
-        given(draft("rulebook-file"));
+        givenLocked(draft("rulebook-file"));
         when(registrations.countByTournamentIdAndStatus(1L, RegistrationStatus.APPROVED)).thenReturn(4L);
 
         assertThatThrownBy(() -> service.start(ORGANIZER, 1L))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("«borrador»");
+    }
+
+    /** A registration removed or created concurrently must be seen, so start takes the row lock. */
+    @Test
+    void startLoadsTheTournamentWithTheWriteLock() {
+        givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+        when(registrations.countByTournamentIdAndStatus(1L, RegistrationStatus.APPROVED)).thenReturn(2L);
+
+        service.start(ORGANIZER, 1L);
+
+        verify(tournaments).findByIdForUpdate(1L);
+        verify(tournaments, never()).findById(any());
     }
 
     // --- finish -------------------------------------------------------------------------------

@@ -24,7 +24,7 @@ public record RegisterRequest(
         @NotBlank(message = "La contraseña es obligatoria.")
         @Size(min = 8, max = 72, message = "La contraseña debe tener entre 8 y 72 caracteres.")
         String password,
-        @NotNull(message = "El vínculo con la universidad es obligatorio.")
+        /** Optional: self-registration no longer asks for it; an administrator sets it later. */
         SchoolRelation schoolRelation,
         @NotNull(message = "El programa académico es obligatorio.")
         AcademicProgram academicProgram,
@@ -39,6 +39,6 @@ public record RegisterRequest(
         @NotBlank(message = "El número de documento es obligatorio.")
         @Size(max = 30, message = "El número de documento no puede superar los 30 caracteres.")
         String documentNumber,
-        @NotNull(message = "El rol inicial es obligatorio.")
+        /** Optional: every self-registered account is a PLAYER unless GUEST is sent explicitly. */
         Role initialRole) {
 }

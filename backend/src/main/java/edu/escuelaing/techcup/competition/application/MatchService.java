@@ -21,6 +21,7 @@ import edu.escuelaing.techcup.identity.domain.Role;
 import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
+import edu.escuelaing.techcup.shared.exception.InvalidRequestException;
 import edu.escuelaing.techcup.shared.exception.Messages;
 import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
@@ -103,6 +104,8 @@ public class MatchService {
     /** Fixture generation is an event of the tournament, not of any single match. */
     static final String TOURNAMENT_ENTITY_TYPE = "TOURNAMENT";
     static final int KICK_OFF_HOUR = 18;
+    private static final Instant EARLIEST_KICK_OFF = Instant.parse("2000-01-01T00:00:00Z");
+    private static final Instant LATEST_KICK_OFF = Instant.parse("2101-01-01T00:00:00Z");
     private static final int TEAMS_FOR_QUARTERFINALS = 8;
     private static final int TEAMS_FOR_SEMIFINALS = 4;
     private static final int TEAMS_FOR_FINAL = 2;
@@ -452,6 +455,9 @@ public class MatchService {
             changeTeams(match, request, changes);
         }
         if (request.scheduledAt() != null) {
+            if (request.scheduledAt().isBefore(EARLIEST_KICK_OFF) || !request.scheduledAt().isBefore(LATEST_KICK_OFF)) {
+                throw new InvalidRequestException("La fecha del partido debe estar entre los años 2000 y 2100.");
+            }
             match.setScheduledAt(request.scheduledAt());
             changes.put("scheduledAt", request.scheduledAt().toString());
         }
@@ -697,8 +703,11 @@ public class MatchService {
         }
         match.setHomeScore(homeScore);
         match.setAwayScore(awayScore);
-        match.setHomePenalties(request.homePenalties());
-        match.setAwayPenalties(request.awayPenalties());
+        // Penalties only mean something for a knockout match that ended level; anywhere else
+        // they are dropped so they can never contradict the score.
+        boolean shootout = match.getPhase().isKnockout() && homeScore == awayScore;
+        match.setHomePenalties(shootout ? request.homePenalties() : null);
+        match.setAwayPenalties(shootout ? request.awayPenalties() : null);
         match.clearEvents();
         events.forEach(match::addEvent);
 
@@ -816,7 +825,8 @@ public class MatchService {
      * the tournament is read under the lock before the match, so the status seen by
      * {@link #requireInProgress} is the committed one.
      */
-    private Match requireMatchLockingTournament(Long matchId) {
+    /** Package-visible so {@link LineupService} serialises lineup saves with team changes. */
+    Match requireMatchLockingTournament(Long matchId) {
         Long tournamentId = matches.findTournamentIdById(matchId)
                 .orElseThrow(() -> NotFoundException.of("el partido", matchId));
         tournamentService.requireTournamentForUpdate(tournamentId);

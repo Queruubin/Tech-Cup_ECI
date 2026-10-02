@@ -313,7 +313,9 @@ class RegistrationServiceTest {
 
     private Tournament givenTournament(TournamentStatus status, LocalDate deadline, int maxTeams) {
         Tournament tournament = tournament(status, deadline, maxTeams);
-        when(tournamentService.requireTournament(1L)).thenReturn(tournament);
+        // register() loads it with the write lock, the read-only queries without it.
+        lenient().when(tournamentService.requireTournament(1L)).thenReturn(tournament);
+        lenient().when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament);
         return tournament;
     }
 

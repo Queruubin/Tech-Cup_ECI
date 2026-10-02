@@ -173,7 +173,7 @@ lineup_players (lineup_id FK, player_user_id FK, starter BOOLEAN) PK(lineup_id, 
 ### 3.4 Business rules (where enforced)
 
 **identity**
-- Register: captures all spec fields; `initialRole` ∈ {PLAYER, GUEST}; `semester` required iff STUDENT; any e-mail; PLAYER only within the age range (409 "Para ser jugador la edad debe estar entre 5 y 100 años.", built from the configured bounds); status ACTIVE. Audit `USER_REGISTERED`.
+- Register: the form no longer asks for the school relation (nor semester) or the role: `schoolRelation` is optional (null until an ADMIN sets it via `PATCH /users/{id}`) and `initialRole` defaults to PLAYER (GUEST still accepted from the API); `semester` required iff STUDENT; any e-mail; PLAYER only within the age range (409 "Para ser jugador la edad debe estar entre 5 y 100 años.", built from the configured bounds); status ACTIVE. Audit `USER_REGISTERED`.
 - Login → JWT. Audit `LOGIN`. Logout audit `LOGOUT`.
 - Admin assigns/removes/lists any role (except cannot remove own ADMIN). Assigning PLAYER re-checks the age range; CAPTAIN requires PLAYER and cannot be removed by hand while the user captains an ACTIVE team; likewise PLAYER cannot be removed while the user captains or belongs to an ACTIVE team (409). PLAYER and CAPTAIN cannot be removed while the user is locked by a tournament (member of a locked team, 409).
 - CAPTAIN is not appointed by anyone: `RoleService.grantCaptainForNewTeam(userId, teamId)` grants it to whoever creates a team (same transaction, audit `ROLE_ASSIGNED` `{role: CAPTAIN, reason: TEAM_CREATED, teamId}`, actor = creator) and `RoleService.revokeCaptainForClosedTeam(actorId, userId, teamId)` removes it when the team is inactivated (audit `ROLE_REMOVED`, reason `TEAM_INACTIVATED`, actor = who inactivated). Dependency is one-way: `teams` calls `identity`, never the reverse.
@@ -198,7 +198,7 @@ lineup_players (lineup_id FK, player_user_id FK, starter BOOLEAN) PK(lineup_id, 
 
 **tournaments**
 - Create (ORGANIZER): status DRAFT. Update fields only in DRAFT. Delete only in DRAFT. Audit `TOURNAMENT_*`.
-- Activate: DRAFT → ACTIVE (requires rulebook uploaded and ≥ 1 venue). Start: ACTIVE → IN_PROGRESS only if `start_date == today`; requires ≥ 2 APPROVED registrations. Finish: IN_PROGRESS → FINISHED when the end date has been reached (`today >= end_date`, as implemented in `TournamentService.finish`) **or** the FINAL has decided the champion: PLAYED, or CANCELLED with a walkover winner (`FinalMatchAdapter`). Refused while SCHEDULED matches remain. Finish locks the tournament row like advance/generate.
+- Activate: DRAFT → ACTIVE (requires rulebook uploaded and ≥ 1 venue). Start: ACTIVE → IN_PROGRESS from the start date until the end date (`start_date <= today <= end_date`); requires ≥ 2 APPROVED registrations. Finish: IN_PROGRESS → FINISHED when the end date has been reached (`today >= end_date`, as implemented in `TournamentService.finish`) **or** the FINAL has decided the champion: PLAYED, or CANCELLED with a walkover winner (`FinalMatchAdapter`). Refused while SCHEDULED matches remain. Finish locks the tournament row like advance/generate.
 - Rulebook: `POST /api/tournaments/{id}/rulebook` multipart PDF (DRAFT/ACTIVE). Venues: CRUD with image, only while not FINISHED.
 - Registration (CAPTAIN of the team): tournament ACTIVE, `today <= registration_deadline`, approved count < max_teams, team passes eligibility, no existing non-cancelled/non-rejected registration. Receipt file required (image or PDF). Status UNDER_REVIEW. Audit `REGISTRATION_CREATED`.
 - Organizer approve/reject (only from UNDER_REVIEW; approve also re-checks capacity). Captain cancel only from UNDER_REVIEW. Audit.
@@ -242,7 +242,7 @@ Pagination is not needed at this scale; lists return arrays.
 
 ```
 AUTH / IDENTITY
-POST   /auth/register                     {fullName,email,password,schoolRelation,academicProgram,semester?,birthDate,documentType,documentNumber,initialRole}  → 201 UserResponse (any e-mail; PLAYER outside the age range → 409)
+POST   /auth/register                     {fullName,email,password,schoolRelation?,academicProgram,semester?,birthDate,documentType,documentNumber,initialRole?}  → 201 UserResponse (any e-mail; PLAYER outside the age range → 409)
 POST   /auth/login                        {email,password} → {token,expiresAt,user}
 POST   /auth/logout                       → 204
 GET    /auth/me                           → UserResponse {id,fullName,email,schoolRelation,academicProgram,semester,status,birthDate,documentType,documentNumber,roles[],hasProfile,teamId?}

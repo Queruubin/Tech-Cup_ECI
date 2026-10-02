@@ -202,7 +202,10 @@ class LineupServiceTest {
     // --- helpers ---------------------------------------------------------------------------------
 
     private void givenMatch(MatchStatus status, Instant scheduledAt) {
-        when(matchService.requireMatch(3L)).thenReturn(match(status, scheduledAt));
+        // Saving locks the tournament (requireMatchLockingTournament); reading does not (requireMatch).
+        Match match = match(status, scheduledAt);
+        lenient().when(matchService.requireMatchLockingTournament(3L)).thenReturn(match);
+        lenient().when(matchService.requireMatch(3L)).thenReturn(match);
         lenient().when(teamService.requireTeam(10L)).thenReturn(homeTeam());
     }
 

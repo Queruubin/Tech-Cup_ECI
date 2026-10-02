@@ -11,22 +11,20 @@ import {
   validateNewPassword,
   validatePasswordChange,
   validatePlayerAge,
+  toRegisterRequest,
   validateRegister,
   validateSemester,
 } from './validation'
 
 describe('validateRegister', () => {
-  // An adult guest: the PLAYER age rule is covered separately below.
+  // Every self-registered account is a player; an adult within the 5-100 range is valid.
   const valid = {
     ...EMPTY_REGISTER_VALUES,
-    initialRole: 'GUEST' as const,
     fullName: 'Ana Pérez',
     email: 'ana.perez@escuelaing.edu.co',
     password: 'Clave1234',
     confirmPassword: 'Clave1234',
-    schoolRelation: 'STUDENT' as const,
     academicProgram: 'SYSTEMS_ENGINEERING' as const,
-    semester: '5',
     birthDate: '2003-04-10',
     documentType: 'CC' as const,
     documentNumber: '1001',
@@ -39,8 +37,6 @@ describe('validateRegister', () => {
     expect(validateSemester('21')).toMatch(/1 a 20/)
     expect(validateSemester('2.5')).toMatch(/1 a 20/)
     expect(validateSemester('')).toMatch(/1 a 20/)
-    expect(validateRegister({ ...valid, semester: '15' }).semester).toBeUndefined()
-    expect(validateRegister({ ...valid, semester: '21' }).semester).toMatch(/1 a 20/)
   })
 
   it('rejects a birth date of today or later', () => {
@@ -55,18 +51,16 @@ describe('validateRegister', () => {
     expect(validateRegister(valid)).toEqual({})
   })
 
-  it('accepts any syntactically valid e-mail for every school relation', () => {
-    for (const schoolRelation of ['STUDENT', 'PROFESSOR', 'ADMINISTRATIVE', 'GRADUATE', 'FAMILY'] as const) {
-      expect(validateRegister({ ...valid, schoolRelation, email: 'ana@gmail.com' }).email).toBeUndefined()
-      expect(validateRegister({ ...valid, schoolRelation, email: 'ana@escuelaing.edu.co' }).email).toBeUndefined()
-    }
+  it('accepts any syntactically valid e-mail', () => {
+    expect(validateRegister({ ...valid, email: 'ana@gmail.com' }).email).toBeUndefined()
+    expect(validateRegister({ ...valid, email: 'ana@escuelaing.edu.co' }).email).toBeUndefined()
     expect(validateEmail('')).toBe('El correo es obligatorio.')
     expect(validateEmail('ana@')).toBe('Ingrese un correo válido.')
     expect(validateEmail('ana perez@mail.com')).toBe('Ingrese un correo válido.')
   })
 
-  it('requires an age of 5 to 100 full years for players and none for guests', () => {
-    const child = { ...valid, initialRole: 'PLAYER' as const, schoolRelation: 'FAMILY' as const, semester: '' }
+  it('requires an age of 5 to 100 full years, since every account is a player', () => {
+    const child = { ...valid }
     const yearsAgo = (years: number, dayOffset = 0) => {
       const [y = 0, m = 1, d = 1] = todayIso().split('-').map(Number)
       const date = new Date(y - years, m - 1, d + dayOffset)
@@ -81,9 +75,13 @@ describe('validateRegister', () => {
     expect(validateRegister({ ...child, birthDate: '1900-04-10' }).birthDate).toBe(
       'Para ser jugador la edad debe estar entre 5 y 100 años.',
     )
-    // Guests have no age limit.
-    expect(validateRegister({ ...child, initialRole: 'GUEST', birthDate: '1970-01-01' }).birthDate).toBeUndefined()
-    expect(validateRegister({ ...child, initialRole: 'GUEST', birthDate: yearsAgo(2) }).birthDate).toBeUndefined()
+  })
+
+  it('registers every account as a player without a school relation', () => {
+    const request = toRegisterRequest(valid)
+    expect(request.initialRole).toBe('PLAYER')
+    expect(request.schoolRelation).toBeNull()
+    expect(request.semester).toBeNull()
   })
 })
 

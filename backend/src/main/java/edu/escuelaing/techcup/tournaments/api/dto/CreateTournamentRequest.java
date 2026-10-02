@@ -1,5 +1,6 @@
 package edu.escuelaing.techcup.tournaments.api.dto;
 
+import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -23,5 +24,6 @@ public record CreateTournamentRequest(
         Integer maxTeams,
         @NotNull(message = "El valor de la inscripción es obligatorio.")
         @DecimalMin(value = "0.0", message = "El valor de la inscripción no puede ser negativo.")
+        @DecimalMax(value = "9999999999.99", message = "El valor de la inscripción es demasiado alto.")
         BigDecimal fee) {
 }
