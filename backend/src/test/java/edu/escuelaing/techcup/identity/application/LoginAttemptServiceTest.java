@@ -12,7 +12,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
 
-/** Five failures per e-mail or per address in fifteen minutes; success or time clears them. */
+/** Five failures per e-mail in fifteen minutes; success or time clears them. */
 class LoginAttemptServiceTest {
 
     private static final Instant START = Instant.parse("2026-03-10T10:00:00Z");
@@ -22,103 +22,99 @@ class LoginAttemptServiceTest {
 
     @Test
     void fourFailuresDoNotBlock() {
-        fail("ana@escuelaing.edu.co", "10.0.0.1", 4);
+        fail("ana@escuelaing.edu.co", 4);
 
-        assertThatCode(() -> service.assertAllowed("ana@escuelaing.edu.co", "10.0.0.1")).doesNotThrowAnyException();
+        assertThatCode(() -> service.assertAllowed("ana@escuelaing.edu.co")).doesNotThrowAnyException();
     }
 
     @Test
-    void fiveFailuresBlockTheEmailFromAnyAddress() {
-        fail("ana@escuelaing.edu.co", "10.0.0.1", 5);
+    void fiveFailuresBlockTheEmailIgnoringCase() {
+        fail("ana@escuelaing.edu.co", 5);
 
-        assertThatThrownBy(() -> service.assertAllowed("Ana@Escuelaing.edu.co", "10.0.0.99"))
+        assertThatThrownBy(() -> service.assertAllowed("Ana@Escuelaing.edu.co"))
                 .isInstanceOf(LoginRateLimitException.class)
                 .hasMessageContaining("Demasiados intentos");
     }
 
+    /** Users behind one shared address must never lock each other out. */
     @Test
-    void fiveFailuresBlockTheAddressForAnyEmail() {
-        for (int attempt = 0; attempt < 5; attempt++) {
-            service.recordFailure("user" + attempt + "@escuelaing.edu.co", "10.0.0.1");
+    void failuresForOtherEmailsNeverBlockAnAccount() {
+        for (int attempt = 0; attempt < 10; attempt++) {
+            service.recordFailure("user" + attempt + "@escuelaing.edu.co");
         }
 
-        assertThatThrownBy(() -> service.assertAllowed("someone-else@escuelaing.edu.co", "10.0.0.1"))
-                .isInstanceOf(LoginRateLimitException.class);
-        assertThatCode(() -> service.assertAllowed("someone-else@escuelaing.edu.co", "10.0.0.2"))
-                .doesNotThrowAnyException();
+        assertThatCode(() -> service.assertAllowed("someone-else@escuelaing.edu.co")).doesNotThrowAnyException();
     }
 
     @Test
-    void aSuccessfulLoginClearsTheCounters() {
-        fail("ana@escuelaing.edu.co", "10.0.0.1", 5);
+    void aSuccessfulLoginClearsTheCounter() {
+        fail("ana@escuelaing.edu.co", 5);
 
-        service.reset("ana@escuelaing.edu.co", "10.0.0.1");
+        service.reset("ana@escuelaing.edu.co");
 
-        assertThatCode(() -> service.assertAllowed("ana@escuelaing.edu.co", "10.0.0.1")).doesNotThrowAnyException();
+        assertThatCode(() -> service.assertAllowed("ana@escuelaing.edu.co")).doesNotThrowAnyException();
     }
 
     @Test
     void theBlockExpiresWithTheWindow() {
-        fail("ana@escuelaing.edu.co", "10.0.0.1", 5);
+        fail("ana@escuelaing.edu.co", 5);
         clock.advance(LoginAttemptService.WINDOW.plusSeconds(1));
 
-        assertThatCode(() -> service.assertAllowed("ana@escuelaing.edu.co", "10.0.0.1")).doesNotThrowAnyException();
+        assertThatCode(() -> service.assertAllowed("ana@escuelaing.edu.co")).doesNotThrowAnyException();
     }
 
     @Test
     void onlyFailuresInsideTheWindowCount() {
-        fail("ana@escuelaing.edu.co", "10.0.0.1", 3);
+        fail("ana@escuelaing.edu.co", 3);
         clock.advance(LoginAttemptService.WINDOW.plusSeconds(1));
-        fail("ana@escuelaing.edu.co", "10.0.0.1", 2);
+        fail("ana@escuelaing.edu.co", 2);
 
-        assertThatCode(() -> service.assertAllowed("ana@escuelaing.edu.co", "10.0.0.1")).doesNotThrowAnyException();
+        assertThatCode(() -> service.assertAllowed("ana@escuelaing.edu.co")).doesNotThrowAnyException();
     }
 
     // --- memory bound ------------------------------------------------------------------------
 
     @Test
     void theScheduledPurgeDropsOnlyKeysWhoseFailuresLeftTheWindow() {
-        fail("old@escuelaing.edu.co", "10.0.0.1", 2);
+        fail("old@escuelaing.edu.co", 2);
         clock.advance(LoginAttemptService.WINDOW.plusSeconds(1));
-        fail("recent@escuelaing.edu.co", "10.0.0.2", 5);
+        fail("recent@escuelaing.edu.co", 5);
 
         service.purgeExpired();
 
-        assertThat(service.trackedKeys()).isEqualTo(2);
-        assertThatThrownBy(() -> service.assertAllowed("recent@escuelaing.edu.co", "10.0.0.3"))
-                .isInstanceOf(LoginRateLimitException.class);
-        assertThatThrownBy(() -> service.assertAllowed("other@escuelaing.edu.co", "10.0.0.2"))
+        assertThat(service.trackedKeys()).isEqualTo(1);
+        assertThatThrownBy(() -> service.assertAllowed("recent@escuelaing.edu.co"))
                 .isInstanceOf(LoginRateLimitException.class);
     }
 
     @Test
-    void spoofedKeysAreForgottenOnceExpiredWhenTheMapGrowsPastTheThreshold() {
+    void randomKeysAreForgottenOnceExpiredWhenTheMapGrowsPastTheThreshold() {
         LoginAttemptService bounded = new LoginAttemptService(clock, 4);
-        for (int attempt = 0; attempt < 3; attempt++) {
-            bounded.recordFailure("random" + attempt + "@example.com", "198.51.100." + attempt);
+        for (int attempt = 0; attempt < 5; attempt++) {
+            bounded.recordFailure("random" + attempt + "@example.com");
         }
-        assertThat(bounded.trackedKeys()).isEqualTo(6);
+        assertThat(bounded.trackedKeys()).isEqualTo(5);
 
         clock.advance(LoginAttemptService.WINDOW.plusSeconds(1));
-        bounded.recordFailure("ana@escuelaing.edu.co", "10.0.0.1");
+        bounded.recordFailure("ana@escuelaing.edu.co");
 
-        assertThat(bounded.trackedKeys()).isEqualTo(2);
+        assertThat(bounded.trackedKeys()).isEqualTo(1);
     }
 
     @Test
     void belowTheThresholdNothingIsPurgedOnARecordedFailure() {
         LoginAttemptService bounded = new LoginAttemptService(clock, 100);
-        bounded.recordFailure("old@escuelaing.edu.co", "10.0.0.1");
+        bounded.recordFailure("old@escuelaing.edu.co");
         clock.advance(LoginAttemptService.WINDOW.plusSeconds(1));
 
-        bounded.recordFailure("ana@escuelaing.edu.co", "10.0.0.2");
+        bounded.recordFailure("ana@escuelaing.edu.co");
 
-        assertThat(bounded.trackedKeys()).isEqualTo(4);
+        assertThat(bounded.trackedKeys()).isEqualTo(2);
     }
 
-    private void fail(String email, String ip, int times) {
+    private void fail(String email, int times) {
         for (int attempt = 0; attempt < times; attempt++) {
-            service.recordFailure(email, ip);
+            service.recordFailure(email);
         }
     }
 

@@ -40,7 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
  *       endpoint cannot be used to find out which e-mails are registered); new accounts start
  *       ACTIVE.</li>
  *   <li>Login requires an ACTIVE account and issues a stateless JWT; repeated failures for one
- *       e-mail or one client address are throttled by {@link LoginAttemptService}.</li>
+ *       e-mail are throttled by {@link LoginAttemptService}.</li>
  *   <li>Logout revokes the presented token through the {@link TokenDenylist}.</li>
  * </ul>
  * Every use case is audited (USER_REGISTERED, LOGIN, LOGIN_FAILED, LOGOUT).
@@ -114,18 +114,15 @@ public class AuthService {
      * the whole (slow, BCrypt-bound) attempt while the failure audit needs a second one, so a burst
      * of failed logins could exhaust the connection pool. The only write of a successful login is
      * its audit row, so nothing is lost by not sharing a transaction.
-     *
-     * @param clientIp the address the request came from, used together with the e-mail to
-     *                 throttle brute-force attempts
      */
-    public LoginResponse login(LoginRequest request, String clientIp) {
+    public LoginResponse login(LoginRequest request) {
         String email = normalizeEmail(request.email());
-        loginAttempts.assertAllowed(email, clientIp);
+        loginAttempts.assertAllowed(email);
 
         Optional<AppUser> match = users.findByEmailIgnoreCase(email)
                 .filter(u -> passwordEncoder.matches(request.password(), u.getPasswordHash()));
         if (match.isEmpty()) {
-            loginAttempts.recordFailure(email, clientIp);
+            loginAttempts.recordFailure(email);
             // Detached: the audit row must survive the exception below, even if a caller ever wraps
             // this method in a transaction again.
             auditService.recordDetached(null, AuditAction.LOGIN_FAILED, UserService.ENTITY_TYPE, null,
@@ -136,7 +133,7 @@ public class AuthService {
         if (!user.isActive()) {
             throw new DisabledException("La cuenta está inactiva. Comuníquese con un administrador.");
         }
-        loginAttempts.reset(email, clientIp);
+        loginAttempts.reset(email);
         JwtService.IssuedToken token = jwtService.issue(user.getId(), user.getEmail(),
                 user.getRoles().stream().map(Role::name).toList());
         auditService.record(user.getId(), AuditAction.LOGIN, UserService.ENTITY_TYPE, user.getId());

@@ -16,11 +16,14 @@ import org.springframework.stereotype.Component;
 
 /**
  * Brute-force protection for the login endpoint: after {@value #MAX_ATTEMPTS} failed attempts for
- * the same e-mail <em>or</em> the same client address within {@link #WINDOW}, further attempts are
- * refused until the oldest failure leaves the window. A successful login clears both counters.
+ * the same e-mail within {@link #WINDOW}, further attempts for that e-mail are refused until the
+ * oldest failure leaves the window. A successful login clears the counter.
+ *
+ * <p>Throttled per e-mail only, never per client address: behind a shared proxy or NAT every user
+ * can appear with the same address, and one person's typos would lock the login for everybody.
  *
  * <p>In-memory on purpose (single instance, ~100 users); a restart only forgets a few minutes of
- * failures. Memory stays bounded even against random e-mails or addresses: keys whose failures
+ * failures. Memory stays bounded even against random e-mails: keys whose failures
  * all left the window are purged every {@link #WINDOW} by a scheduled task, and also right away
  * (at most once per {@link #PURGE_INTERVAL}) when a failure is recorded while more than
  * {@value #DEFAULT_PURGE_THRESHOLD} keys are tracked.
@@ -36,7 +39,6 @@ public class LoginAttemptService {
     static final Duration PURGE_INTERVAL = Duration.ofMinutes(1);
 
     private static final String EMAIL_PREFIX = "email:";
-    private static final String IP_PREFIX = "ip:";
 
     private final ConcurrentMap<String, Deque<Instant>> failures = new ConcurrentHashMap<>();
     private final Clock clock;
@@ -53,25 +55,23 @@ public class LoginAttemptService {
         this.purgeThreshold = purgeThreshold;
     }
 
-    /** @throws LoginRateLimitException when either the e-mail or the address is currently blocked */
-    public void assertAllowed(String email, String clientIp) {
-        if (isBlocked(emailKey(email)) || isBlocked(ipKey(clientIp))) {
+    /** @throws LoginRateLimitException when the e-mail is currently blocked */
+    public void assertAllowed(String email) {
+        if (isBlocked(emailKey(email))) {
             throw new LoginRateLimitException(BLOCKED_MESSAGE);
         }
     }
 
-    public void recordFailure(String email, String clientIp) {
+    public void recordFailure(String email) {
         Instant now = clock.instant();
         record(emailKey(email), now);
-        record(ipKey(clientIp), now);
         if (failures.size() > purgeThreshold && !now.isBefore(lastPurge.plus(PURGE_INTERVAL))) {
             purgeExpired();
         }
     }
 
-    public void reset(String email, String clientIp) {
+    public void reset(String email) {
         failures.remove(emailKey(email));
-        failures.remove(ipKey(clientIp));
     }
 
     /** Drops every key whose failures have all left the window. */
@@ -89,7 +89,7 @@ public class LoginAttemptService {
         }
     }
 
-    /** Number of e-mails and addresses currently tracked. */
+    /** Number of e-mails currently tracked. */
     int trackedKeys() {
         return failures.size();
     }
@@ -135,9 +135,5 @@ public class LoginAttemptService {
 
     static String emailKey(String email) {
         return email == null || email.isBlank() ? null : EMAIL_PREFIX + email.trim().toLowerCase(Locale.ROOT);
-    }
-
-    static String ipKey(String clientIp) {
-        return clientIp == null || clientIp.isBlank() ? null : IP_PREFIX + clientIp.trim();
     }
 }

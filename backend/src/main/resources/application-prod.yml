@@ -13,11 +13,10 @@ server:
   # RemoteIpValve, which only trusts X-Forwarded-For / X-Forwarded-Proto when the direct peer is an
   # internal proxy (default server.tomcat.remoteip.internal-proxies: 127/8, 10/8, 172.16/12,
   # 192.168/16, 169.254/16 and IPv6 loopback/ULA, which covers the host's native nginx and the
-  # Docker network) and then takes the right-most untrusted X-Forwarded-For entry as the client IP
-  # seen by the login rate limiter. It ignores the RFC 7239 "Forwarded" header entirely.
+  # Docker network) and then takes the right-most untrusted X-Forwarded-For entry as the client IP.
+  # It ignores the RFC 7239 "Forwarded" header entirely.
   # Do NOT use "framework": Spring's ForwardedHeaderFilter believes "Forwarded" and
-  # X-Forwarded-* from any client, which would let an attacker pick its own address and bypass
-  # the per-IP login throttle.
+  # X-Forwarded-* from any client, which would let an attacker pick its own address and scheme.
   forward-headers-strategy: native
   # Finish in-flight requests before stopping (systemd / docker stop send SIGTERM).
   shutdown: graceful

@@ -49,7 +49,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 class AuthServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-03-10T10:00:00Z");
-    private static final String IP = "10.0.0.1";
 
     @Mock
     private AppUserRepository users;
@@ -190,7 +189,7 @@ class AuthServiceTest {
     void aFailedLoginIsAuditedInItsOwnTransaction() {
         when(users.findByEmailIgnoreCase("ana@escuelaing.edu.co")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> authService.login(new LoginRequest("Ana@escuelaing.edu.co", "wrong"), IP))
+        assertThatThrownBy(() -> authService.login(new LoginRequest("Ana@escuelaing.edu.co", "wrong")))
                 .isInstanceOf(BadCredentialsException.class);
 
         verify(auditService).recordDetached(isNull(), eq(AuditAction.LOGIN_FAILED), anyString(), isNull(), any());
@@ -203,7 +202,7 @@ class AuthServiceTest {
      */
     @Test
     void loginDoesNotRunInsideASurroundingTransaction() throws NoSuchMethodException {
-        var login = AuthService.class.getMethod("login", LoginRequest.class, String.class);
+        var login = AuthService.class.getMethod("login", LoginRequest.class);
 
         assertThat(login.isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class)).isFalse();
         assertThat(AuthService.class.isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class))
@@ -215,10 +214,10 @@ class AuthServiceTest {
         when(users.findByEmailIgnoreCase("ana@escuelaing.edu.co")).thenReturn(Optional.empty());
         LoginRequest request = new LoginRequest("ana@escuelaing.edu.co", "wrong");
         for (int attempt = 0; attempt < 5; attempt++) {
-            assertThatThrownBy(() -> authService.login(request, IP)).isInstanceOf(BadCredentialsException.class);
+            assertThatThrownBy(() -> authService.login(request)).isInstanceOf(BadCredentialsException.class);
         }
 
-        assertThatThrownBy(() -> authService.login(request, IP)).isInstanceOf(LoginRateLimitException.class);
+        assertThatThrownBy(() -> authService.login(request)).isInstanceOf(LoginRateLimitException.class);
 
         verify(users, times(5)).findByEmailIgnoreCase("ana@escuelaing.edu.co");
     }
@@ -232,11 +231,11 @@ class AuthServiceTest {
         when(jwtService.issue(eq(10L), eq("ana@escuelaing.edu.co"), any()))
                 .thenReturn(new JwtService.IssuedToken("jwt", NOW.plusSeconds(3600)));
         for (int attempt = 0; attempt < 4; attempt++) {
-            assertThatThrownBy(() -> authService.login(new LoginRequest("ana@escuelaing.edu.co", "wrong"), IP))
+            assertThatThrownBy(() -> authService.login(new LoginRequest("ana@escuelaing.edu.co", "wrong")))
                     .isInstanceOf(BadCredentialsException.class);
         }
 
-        var response = authService.login(new LoginRequest("ana@escuelaing.edu.co", "Secret123*"), IP);
+        var response = authService.login(new LoginRequest("ana@escuelaing.edu.co", "Secret123*"));
 
         assertThat(response.token()).isEqualTo("jwt");
         assertThat(loginAttempts.isBlocked(LoginAttemptService.emailKey("ana@escuelaing.edu.co"))).isFalse();

@@ -13,7 +13,6 @@ import edu.escuelaing.techcup.shared.security.JwtAuthenticationFilter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -49,8 +48,8 @@ public class AuthController {
     @PostMapping("/login")
     @SecurityRequirements
     @Operation(summary = "Authenticate with e-mail and password, returns a JWT (429 after repeated failures)")
-    public LoginResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
-        return authService.login(request, http.getRemoteAddr());
+    public LoginResponse login(@Valid @RequestBody LoginRequest request) {
+        return authService.login(request);
     }
 
     @PostMapping("/logout")
