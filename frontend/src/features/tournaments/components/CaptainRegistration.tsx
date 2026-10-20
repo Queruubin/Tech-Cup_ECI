@@ -7,8 +7,10 @@ import { Alert } from '@/components/molecules/Alert'
 import { Card } from '@/components/molecules/Card'
 import { ConfirmDialog, Modal } from '@/components/molecules/Modal'
 import { QueryState } from '@/components/molecules/QueryState'
+import { useAuth } from '@/features/auth/hooks/useAuth'
 import { EligibilityPanel } from '@/features/teams/components/EligibilityPanel'
 import { useEligibility, useMyTeam } from '@/features/teams/hooks/useTeams'
+import { canCreateTeam } from '@/features/teams/myTeamView'
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format'
 import { MAX_UPLOAD_BYTES, RECEIPT_ACCEPT, RECEIPT_HINT } from '@/lib/uploads'
 import { reloadOnError } from '@/lib/reloadOnError'
@@ -25,6 +27,7 @@ export interface CaptainRegistrationProps {
 }
 
 export function CaptainRegistration({ tournament, onRegistered }: CaptainRegistrationProps) {
+  const { user } = useAuth()
   const teamQuery = useMyTeam()
   const team = teamQuery.data
   const eligibility = useEligibility(team?.id ?? null)
@@ -63,9 +66,11 @@ export function CaptainRegistration({ tournament, onRegistered }: CaptainRegistr
       {!team ? (
         <Card title="Inscripción">
           <p className="text-sm text-stone-600">Debe crear su equipo antes de inscribirlo en un torneo.</p>
-          <Link to="/my-team" className="mt-3 inline-block">
-            <Button size="sm">Crear equipo</Button>
-          </Link>
+          {canCreateTeam(user) && (
+            <Link to="/my-team" className="mt-3 inline-block">
+              <Button size="sm">Crear equipo</Button>
+            </Link>
+          )}
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

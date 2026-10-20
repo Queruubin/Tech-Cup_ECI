@@ -82,6 +82,14 @@ public class TeamController {
         return teamService.inactivate(actor, id);
     }
 
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Delete a team for good (ADMIN; refused while it plays a match or holds a live registration)")
+    public void delete(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
+        teamService.delete(actor, id);
+    }
+
     @GetMapping("/{id}/eligibility")
     @Operation(summary = "Whether the team may register for a tournament, with the list of problems")
     public EligibilityResponse eligibility(@PathVariable Long id) {

@@ -29,9 +29,9 @@ describe('undoPhaseState', () => {
 describe('undo phase copy', () => {
   it('describes what will be deleted and how to regenerate it', () => {
     expect(undoPhaseConfirmDescription('SEMIFINAL', 2)).toBe(
-      'Se eliminarán los 2 partidos de las semifinales. Podrá volver a generar la fase con Avanzar fase.',
+      'Se eliminarán los 2 partidos de las semifinales. Podrá volver a crearla con Armar eliminatoria (primera ronda) o Avanzar fase (rondas siguientes).',
     )
-    expect(undoPhaseConfirmDescription('GROUP', 6)).toMatch(/Generar fixture\.$/)
+    expect(undoPhaseConfirmDescription('GROUP', 6)).toMatch(/Generar todos contra todos\.$/)
     expect(undoPhaseConfirmDescription('FINAL', 1)).toMatch(/^Se eliminará el partido de la final\./)
   })
 

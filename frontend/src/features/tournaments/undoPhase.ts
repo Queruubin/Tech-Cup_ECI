@@ -45,8 +45,8 @@ export function undoPhaseState(matches: readonly Pick<MatchResponse, 'phase' | '
 
 export function undoPhaseConfirmDescription(phase: MatchPhase, count: number): string {
   const what = count === 1 ? `Se eliminará el partido de ${PHASE_NOUN[phase]}.` : `Se eliminarán los ${count} partidos de ${PHASE_NOUN[phase]}.`
-  const regenerate = phase === 'GROUP' ? 'Generar fixture' : 'Avanzar fase'
-  return `${what} Podrá volver a generar la fase con ${regenerate}.`
+  if (phase === 'GROUP') return `${what} Podrá volver a crearlos desde Gestión → Crear partido o Generar todos contra todos.`
+  return `${what} Podrá volver a crearla con Armar eliminatoria (primera ronda) o Avanzar fase (rondas siguientes).`
 }
 
 export function undoPhaseSuccessMessage(phase: MatchPhase, deletedMatches: number): string {

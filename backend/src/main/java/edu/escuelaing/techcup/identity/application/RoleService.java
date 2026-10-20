@@ -40,6 +40,7 @@ public class RoleService {
 
     static final String TEAM_CREATED = "TEAM_CREATED";
     static final String TEAM_INACTIVATED = "TEAM_INACTIVATED";
+    static final String TEAM_DELETED = "TEAM_DELETED";
     static final String PLAYER_IN_ACTIVE_TEAM = "El usuario pertenece a un equipo activo; retírelo del equipo "
             + "o inactive el equipo antes de quitarle el rol de jugador.";
     static final String LOCKED_PLAYER_ROLES = "El usuario está inscrito con su equipo en un torneo activo o en curso; "
@@ -132,6 +133,27 @@ public class RoleService {
         if (user.getRoles().remove(Role.CAPTAIN)) {
             auditService.record(actorUserId, AuditAction.ROLE_REMOVED, UserService.ENTITY_TYPE, userId,
                     Map.of("role", Role.CAPTAIN.name(), "reason", TEAM_INACTIVATED, "teamId", teamId));
+        }
+    }
+
+    /**
+     * Takes CAPTAIN away from the former captain of a team that was just deleted, unless they still
+     * captain an ACTIVE team (the deleted team may have been inactive already while they went on to
+     * found another one). Internal: called by the teams module in the deletion transaction, after
+     * the delete has been flushed so the "captains an ACTIVE team" query no longer sees it. Does
+     * nothing when the user no longer holds CAPTAIN.
+     *
+     * @param actorUserId the ADMIN who deleted the team, recorded as audit actor
+     */
+    @Transactional
+    public void revokeCaptainForDeletedTeam(Long actorUserId, Long userId, Long teamId) {
+        if (userService.captainsActiveTeam(userId)) {
+            return;
+        }
+        AppUser user = userService.getUser(userId);
+        if (user.getRoles().remove(Role.CAPTAIN)) {
+            auditService.record(actorUserId, AuditAction.ROLE_REMOVED, UserService.ENTITY_TYPE, userId,
+                    Map.of("role", Role.CAPTAIN.name(), "reason", TEAM_DELETED, "teamId", teamId));
         }
     }
 

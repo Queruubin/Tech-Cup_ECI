@@ -131,7 +131,8 @@ export function RegistrationsReview({ tournamentId, tournamentStatus, onDecided 
                       Eliminar equipo
                     </Button>
                   )}
-                  {registration.status === 'UNDER_REVIEW' && (
+                  {/* A suspended tournament refuses every decision (409): nothing to offer until it is resumed. */}
+                  {registration.status === 'UNDER_REVIEW' && tournamentStatus !== 'SUSPENDED' && (
                     <>
                       <Button size="sm" onClick={() => setDecision({ registration, action: 'approve' })}>
                         Aprobar

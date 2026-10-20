@@ -54,6 +54,15 @@ public class Match {
     @Column(nullable = false, length = 15)
     private MatchPhase phase;
 
+    /**
+     * The group of a GROUP-phase match; null for knockout matches and for group matches created
+     * before groups existed (they behave as one implicit group: they only count for the general
+     * table).
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "group_id")
+    private TournamentGroup group;
+
     /** 1-based ordinal of the matchday inside the tournament; knockout phases continue the numbering. */
     @Column(name = "round_number", nullable = false)
     private int roundNumber;
@@ -123,6 +132,11 @@ public class Match {
 
     public boolean involves(Long teamId) {
         return homeTeam.getId().equals(teamId) || awayTeam.getId().equals(teamId);
+    }
+
+    /** Whether this match is between the two teams, in either orientation. */
+    public boolean isBetween(Long teamId, Long otherTeamId) {
+        return involves(teamId) && involves(otherTeamId) && !teamId.equals(otherTeamId);
     }
 
     /** The other side of the fixture. */

@@ -17,14 +17,22 @@ export const PASSWORD_MIN_LENGTH = 8
 export const PASSWORD_MAX_LENGTH = 72
 export const PASSWORD_RULE_HINT = `Entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres, con al menos una letra mayúscula y un número.`
 export const PASSWORD_UPPERCASE_AND_DIGIT_ERROR = 'La contraseña debe incluir al menos una letra mayúscula y un número.'
+/** BCrypt hashes at most 72 bytes: accented letters take two bytes in UTF-8 and emojis four. */
+export const PASSWORD_MAX_BYTES = 72
+export const PASSWORD_MAX_BYTES_ERROR =
+  'La contraseña no puede ocupar más de 72 bytes: algunos caracteres especiales o emojis cuentan doble.'
 
 /**
  * Password rule shared by every request that sets a password (register, referee creation, self-service
- * change and admin reset): 8–72 characters, at least one uppercase letter and one digit. Mirrors the backend.
+ * change and admin reset): 8–72 characters that fit in 72 UTF-8 bytes, at least one uppercase letter and
+ * one digit. Mirrors the backend.
  */
 export function validateNewPassword(password: string): string | undefined {
   if (password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
     return `La contraseña debe tener entre ${PASSWORD_MIN_LENGTH} y ${PASSWORD_MAX_LENGTH} caracteres.`
+  }
+  if (new TextEncoder().encode(password).length > PASSWORD_MAX_BYTES) {
+    return PASSWORD_MAX_BYTES_ERROR
   }
   if (!/\p{Lu}/u.test(password) || !/\d/.test(password)) {
     return PASSWORD_UPPERCASE_AND_DIGIT_ERROR

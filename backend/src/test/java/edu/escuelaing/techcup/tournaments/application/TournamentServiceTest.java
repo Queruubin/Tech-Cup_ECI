@@ -15,6 +15,9 @@ import edu.escuelaing.techcup.identity.domain.AppUser;
 import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
+import edu.escuelaing.techcup.shared.exception.ForbiddenOperationException;
+import edu.escuelaing.techcup.shared.exception.InvalidRequestException;
+import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.shared.storage.FileDeletionScheduler;
 import edu.escuelaing.techcup.shared.storage.FileKind;
@@ -37,6 +40,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -481,6 +485,193 @@ class TournamentServiceTest {
         verify(venues).delete(venue);
         verify(fileDeletion).deleteAfterCommit("venue-image");
         verify(fileStorage, never()).delete(any());
+    }
+
+    // --- suspend / resume ----------------------------------------------------------------------
+
+    private static final AuthenticatedUser ADMIN =
+            new AuthenticatedUser(1L, "admin@escuelaing.edu.co", Set.of("ADMIN"));
+    private static final AuthenticatedUser PLAYER =
+            new AuthenticatedUser(20L, "player@escuelaing.edu.co", Set.of("PLAYER", "CAPTAIN"));
+
+    @Test
+    void suspendAndResumeRestoreExactlyThePreviousStatus() {
+        for (TournamentStatus from : List.of(TournamentStatus.DRAFT, TournamentStatus.ACTIVE,
+                TournamentStatus.IN_PROGRESS)) {
+            Tournament tournament = withStatus(from, "rulebook-file");
+            when(tournaments.findByIdForUpdate(1L)).thenReturn(Optional.of(tournament));
+
+            var suspended = service.suspend(ADMIN, 1L);
+            assertThat(suspended.status()).isEqualTo(TournamentStatus.SUSPENDED);
+            assertThat(suspended.suspendedFromStatus()).isEqualTo(from);
+
+            var resumed = service.resume(ORGANIZER, 1L);
+            assertThat(resumed.status()).isEqualTo(from);
+            assertThat(tournament.getSuspendedFromStatus()).isNull();
+            verify(auditService).record(ADMIN.id(), AuditAction.TOURNAMENT_SUSPENDED, "TOURNAMENT", 1L,
+                    Map.of("fromStatus", from.name()));
+            verify(auditService).record(ORGANIZER.id(), AuditAction.TOURNAMENT_RESUMED, "TOURNAMENT", 1L,
+                    Map.of("toStatus", from.name()));
+        }
+    }
+
+    @Test
+    void suspendLoadsTheTournamentWithTheWriteLock() {
+        givenLocked(withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file"));
+
+        service.suspend(ORGANIZER, 1L);
+
+        verify(tournaments, never()).findById(any());
+    }
+
+    @Test
+    void aFinishedTournamentCannotBeSuspended() {
+        givenLocked(withStatus(TournamentStatus.FINISHED, "rulebook-file"));
+
+        assertThatThrownBy(() -> service.suspend(ADMIN, 1L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("«finalizado»");
+    }
+
+    @Test
+    void aSuspendedTournamentCannotBeSuspendedAgainNorANonSuspendedOneResumed() {
+        Tournament tournament = givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+
+        assertThatThrownBy(() -> service.resume(ADMIN, 1L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("no está suspendido");
+        tournament.suspend();
+        assertThatThrownBy(() -> service.suspend(ADMIN, 1L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("ya está suspendido");
+    }
+
+    @Test
+    void aSuspendedTournamentRefusesEveryLifecycleAndEditAction() {
+        Tournament tournament = withStatus(TournamentStatus.ACTIVE, "rulebook-file");
+        tournament.suspend();
+        lenient().when(tournaments.findById(1L)).thenReturn(Optional.of(tournament));
+        lenient().when(tournaments.findByIdForUpdate(1L)).thenReturn(Optional.of(tournament));
+
+        assertThatThrownBy(() -> service.start(ORGANIZER, 1L)).hasMessageContaining("no se puede iniciar");
+        assertThatThrownBy(() -> service.finish(ORGANIZER, 1L)).hasMessageContaining("no se puede finalizar");
+        assertThatThrownBy(() -> service.activate(ORGANIZER, 1L)).hasMessageContaining("no se puede activar");
+        assertThatThrownBy(() -> service.update(ORGANIZER, 1L,
+                new UpdateTournamentRequest(null, null, TODAY.plusDays(40), null, null, null)))
+                .hasMessageContaining("modificar sus datos");
+        assertThatThrownBy(() -> service.uploadRulebook(ORGANIZER, 1L,
+                new MockMultipartFile("file", "rules.pdf", "application/pdf", new byte[]{1})))
+                .hasMessageContaining("cargar el reglamento");
+        assertThatThrownBy(() -> service.createVenue(ORGANIZER, 1L, "Field", null, null))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("está suspendido")
+                .hasMessageContaining("modificar sus canchas");
+        assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.SUSPENDED);
+        verify(fileStorage, never()).store(any(), any(), any());
+    }
+
+    @Test
+    void suspendedTournamentsAreHiddenFromThePublicListButNotFromStaff() {
+        Tournament visible = withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file");
+        Tournament suspended = withStatus(TournamentStatus.ACTIVE, "rulebook-file");
+        suspended.setId(2L);
+        suspended.suspend();
+        when(tournaments.findAllByStatusNotOrderByStartDateDescIdDesc(TournamentStatus.SUSPENDED))
+                .thenReturn(List.of(visible));
+        when(tournaments.findAllByOrderByStartDateDescIdDesc()).thenReturn(List.of(visible, suspended));
+
+        assertThat(service.list(null)).extracting("id").containsExactly(1L);
+        assertThat(service.list(PLAYER)).extracting("id").containsExactly(1L);
+        assertThat(service.list(ORGANIZER)).extracting("id").containsExactly(1L, 2L);
+        assertThat(service.list(ADMIN)).extracting("id").containsExactly(1L, 2L);
+    }
+
+    @Test
+    void aSuspendedTournamentIsNotFoundForThePublic() {
+        Tournament tournament = given(withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file"));
+        tournament.suspend();
+
+        assertThatThrownBy(() -> service.get(1L, null)).isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> service.get(1L, PLAYER)).isInstanceOf(NotFoundException.class);
+        assertThat(service.get(1L, ORGANIZER).status()).isEqualTo(TournamentStatus.SUSPENDED);
+    }
+
+    /** Matches, tables, bracket, statistics, groups and venues all go through requireVisible. */
+    @Test
+    void everyPublicReadOfASuspendedTournamentIsNotFoundForThePublic() {
+        Tournament tournament = given(withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file"));
+        tournament.suspend();
+
+        assertThatThrownBy(() -> service.requireVisible(1L, null)).isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> service.requireVisible(1L, PLAYER)).isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> service.venuesOf(1L, PLAYER)).isInstanceOf(NotFoundException.class);
+        assertThat(service.requireVisible(1L, ORGANIZER)).isSameAs(tournament);
+        assertThat(service.requireVisible(1L, ADMIN)).isSameAs(tournament);
+    }
+
+    @Test
+    void aTournamentThatIsNotSuspendedIsVisibleToEverybody() {
+        Tournament tournament = given(withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file"));
+
+        assertThat(service.requireVisible(1L, null)).isSameAs(tournament);
+    }
+
+    @Test
+    void aSuspendedTournamentIsNeverTheCurrentOne() {
+        when(tournaments.findFirstByStatusOrderByStartDateDescIdDesc(any())).thenReturn(Optional.empty());
+
+        assertThat(service.currentTournament()).isEmpty();
+        verify(tournaments, never()).findFirstByStatusOrderByStartDateDescIdDesc(TournamentStatus.SUSPENDED);
+    }
+
+    // --- hard delete ----------------------------------------------------------------------------
+
+    @Test
+    void onlyAnAdminCanHardDeleteATournament() {
+        assertThatThrownBy(() -> service.hardDelete(ORGANIZER, 1L, "TechCup 2026-1"))
+                .isInstanceOf(ForbiddenOperationException.class);
+        verify(tournaments, never()).delete(any());
+    }
+
+    @Test
+    void hardDeleteRequiresTheExactTournamentName() {
+        givenLocked(withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file"));
+
+        for (String wrong : new String[]{null, "", "techcup 2026-1", "TechCup"}) {
+            assertThatThrownBy(() -> service.hardDelete(ADMIN, 1L, wrong))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("escriba exactamente el nombre del torneo («TechCup 2026-1»)");
+        }
+        verify(tournaments, never()).delete(any());
+        verify(fileDeletion, never()).deleteAfterCommit(anyString());
+    }
+
+    @Test
+    void hardDeleteRemovesTheTournamentInAnyStatusAndItsFilesAfterCommit() {
+        Tournament tournament = givenLocked(withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file"));
+        tournament.addVenue(Venue.builder().id(3L).name("Field").imageFileId("venue-image").build());
+        when(registrations.findReceiptFileIdsByTournamentId(1L)).thenReturn(List.of("receipt-1", "receipt-2"));
+
+        service.hardDelete(ADMIN, 1L, "  TechCup 2026-1 ");
+
+        verify(tournaments).delete(tournament);
+        verify(fileDeletion).deleteAfterCommit("rulebook-file");
+        verify(fileDeletion).deleteAfterCommit("venue-image");
+        verify(fileDeletion).deleteAfterCommit("receipt-1");
+        verify(fileDeletion).deleteAfterCommit("receipt-2");
+        verify(fileStorage, never()).delete(any());
+        verify(auditService).record(eq(ADMIN.id()), eq(AuditAction.TOURNAMENT_DELETED), eq("TOURNAMENT"), eq(1L),
+                any(Map.class));
+    }
+
+    @Test
+    void aSuspendedTournamentCanBeHardDeleted() {
+        Tournament tournament = givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+        tournament.suspend();
+
+        service.hardDelete(ADMIN, 1L, "TechCup 2026-1");
+
+        verify(tournaments).delete(tournament);
     }
 
     // --- helpers ------------------------------------------------------------------------------

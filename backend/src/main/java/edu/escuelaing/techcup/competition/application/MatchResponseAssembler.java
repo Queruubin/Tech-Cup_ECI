@@ -28,6 +28,9 @@ public class MatchResponseAssembler {
                 match.getTournament().getId(),
                 match.getPhase(),
                 match.getRoundNumber(),
+                match.getGroup() == null
+                        ? null
+                        : new MatchResponse.GroupRef(match.getGroup().getId(), match.getGroup().getName()),
                 teamRef(match.getHomeTeam()),
                 teamRef(match.getAwayTeam()),
                 venueRef(match.getVenue()),

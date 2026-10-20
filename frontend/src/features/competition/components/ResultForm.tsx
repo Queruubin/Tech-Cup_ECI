@@ -64,7 +64,8 @@ export interface ResultFormProps {
 export function ResultForm({ match, rosters, initial, loading, error, fieldErrors, onSubmit }: ResultFormProps) {
   const correction = initial !== undefined
   const [values, setValues] = useState<ResultFormValues>(initial ?? EMPTY_RESULT_VALUES)
-  const [validation, setValidation] = useState(() => validateResult(initial ?? EMPTY_RESULT_VALUES, match.phase))
+  const teamNames = { home: match.homeTeam.name, away: match.awayTeam.name }
+  const [validation, setValidation] = useState(() => validateResult(initial ?? EMPTY_RESULT_VALUES, match.phase, teamNames))
   const [submitted, setSubmitted] = useState(false)
   const nextKey = useRef(1)
 
@@ -76,7 +77,7 @@ export function ResultForm({ match, rosters, initial, loading, error, fieldError
 
   const update = (next: ResultFormValues) => {
     setValues(next)
-    if (submitted) setValidation(validateResult(next, match.phase))
+    if (submitted) setValidation(validateResult(next, match.phase, teamNames))
   }
 
   const updateEvent = (key: string, patch: Partial<ResultEventDraft>) => {
@@ -98,7 +99,7 @@ export function ResultForm({ match, rosters, initial, loading, error, fieldError
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
     setSubmitted(true)
-    const result = validateResult(values, match.phase)
+    const result = validateResult(values, match.phase, teamNames)
     setValidation(result)
     if (!result.valid) return
     onSubmit(toResultRequest(values, { home: match.homeTeam.id, away: match.awayTeam.id }, match.phase))
@@ -166,6 +167,9 @@ export function ResultForm({ match, rosters, initial, loading, error, fieldError
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h4 className="text-sm font-semibold text-ink">Eventos del partido</h4>
+            <p className="text-xs text-stone-500">
+              Cada gol del marcador necesita su goleador: agregue un evento «Gol» por cada uno, con el jugador que lo marcó.
+            </p>
             <p className="text-xs text-stone-500">
               Goles registrados: {match.homeTeam.name} {homeGoals} · {match.awayTeam.name} {awayGoals}. Deben coincidir con el
               marcador.

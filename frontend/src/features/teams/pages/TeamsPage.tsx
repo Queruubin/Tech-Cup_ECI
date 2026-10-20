@@ -6,14 +6,15 @@ import { QueryState } from '@/components/molecules/QueryState'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { TeamCard } from '../components/TeamCard'
 import { useTeams } from '../hooks/useTeams'
+import { canCreateTeam } from '../myTeamView'
 
 export function TeamsPage() {
   const { user, hasExactRole } = useAuth()
   const { data, loading, error, refetch } = useTeams()
-  // Any player without a team may create one (and becomes its captain).
+  // Any player without a team may create one (and becomes its captain); ADMIN alone may not.
   const myTeamId = user?.teamId ?? null
   const isCaptain = hasExactRole('CAPTAIN')
-  const canCreate = hasExactRole('PLAYER', 'CAPTAIN') && myTeamId === null
+  const canCreate = canCreateTeam(user)
   const showTeamCta = canCreate || (isCaptain && myTeamId !== null)
 
   const teams = [...(data ?? [])].sort((a, b) => {

@@ -48,6 +48,8 @@ import org.springframework.web.multipart.MultipartFile;
  *       row, because several registrations may be waiting at the same time, and re-runs the
  *       eligibility rule on a team that must still be ACTIVE (the roster is not locked while the
  *       registration is under review). Cancel is captain-only and also starts from UNDER_REVIEW.</li>
+ *   <li>Nothing changes while the tournament is SUSPENDED: every use case locks the tournament row
+ *       and refuses with {@link Tournament#requireNotSuspended}.</li>
  * </ul>
  * The legal transitions themselves belong to the {@link RegistrationStatus} State machine.
  * Approving a registration is what "locks" a team (see {@code teams.application.TeamLockPort}):
@@ -116,6 +118,7 @@ public class RegistrationService {
         // Locked so a registration cannot land in a tournament that is being started concurrently
         // (start cancels every UNDER_REVIEW registration and must see this one).
         Tournament tournament = tournamentService.requireTournamentForUpdate(tournamentId);
+        tournament.requireNotSuspended("inscribir equipos");
         if (tournament.getStatus() != TournamentStatus.ACTIVE) {
             throw new BusinessRuleException("Solo se aceptan inscripciones mientras el torneo esté activo; "
                     + "su estado actual es «" + tournament.getStatus().label() + "».");
@@ -168,6 +171,7 @@ public class RegistrationService {
             throw new ForbiddenOperationException("Solo el capitán del equipo '"
                     + registration.getTeam().getName() + "' puede cancelar esta inscripción.");
         }
+        requireTournamentNotSuspended(registration, "cancelar inscripciones");
         registration.moveTo(RegistrationStatus.CANCELLED, null, null);
         auditService.record(actor.id(), AuditAction.REGISTRATION_CANCELLED, ENTITY_TYPE, registrationId,
                 Map.of("teamId", registration.getTeam().getId()));
@@ -185,6 +189,7 @@ public class RegistrationService {
     public RegistrationResponse approve(AuthenticatedUser actor, Long registrationId, String note) {
         Registration registration = requireRegistration(registrationId);
         Tournament tournament = tournamentService.requireTournamentForUpdate(registration.getTournament().getId());
+        tournament.requireNotSuspended("aprobar inscripciones");
         if (tournament.getStatus() != TournamentStatus.ACTIVE) {
             throw new BusinessRuleException("Solo se pueden aprobar inscripciones mientras el torneo esté activo; "
                     + "su estado actual es «" + tournament.getStatus().label() + "».");
@@ -203,6 +208,7 @@ public class RegistrationService {
     @Transactional
     public RegistrationResponse reject(AuthenticatedUser actor, Long registrationId, String note) {
         Registration registration = requireRegistration(registrationId);
+        requireTournamentNotSuspended(registration, "rechazar inscripciones");
         registration.moveTo(RegistrationStatus.REJECTED, userService.getUser(actor.id()), note);
         auditService.record(actor.id(), AuditAction.REGISTRATION_REJECTED, ENTITY_TYPE, registrationId,
                 Map.of("teamId", registration.getTeam().getId(),
@@ -222,6 +228,7 @@ public class RegistrationService {
     public void remove(AuthenticatedUser actor, Long registrationId) {
         Registration registration = requireRegistration(registrationId);
         Tournament tournament = tournamentService.requireTournamentForUpdate(registration.getTournament().getId());
+        tournament.requireNotSuspended("retirar equipos");
         if (tournament.getStatus() != TournamentStatus.ACTIVE) {
             throw new BusinessRuleException("Solo se puede eliminar un equipo antes de que el torneo inicie; "
                     + "su estado actual es «" + tournament.getStatus().label() + "».");
@@ -241,6 +248,14 @@ public class RegistrationService {
     }
 
     // --- helpers ---------------------------------------------------------------------------
+
+    /**
+     * Locks the registration's tournament (so the check cannot race a concurrent suspension) and
+     * refuses when it is suspended.
+     */
+    private void requireTournamentNotSuspended(Registration registration, String action) {
+        tournamentService.requireTournamentForUpdate(registration.getTournament().getId()).requireNotSuspended(action);
+    }
 
     private Registration requireRegistration(Long registrationId) {
         return registrations.findById(registrationId)

@@ -11,7 +11,8 @@ import edu.escuelaing.techcup.competition.domain.Match;
 import edu.escuelaing.techcup.competition.domain.MatchEvent;
 import edu.escuelaing.techcup.competition.domain.MatchPhase;
 import edu.escuelaing.techcup.competition.domain.MatchStatus;
-import edu.escuelaing.techcup.competition.domain.Standings;
+import edu.escuelaing.techcup.competition.domain.TournamentGroup;
+import edu.escuelaing.techcup.competition.infrastructure.GroupTeamRepository;
 import edu.escuelaing.techcup.competition.infrastructure.LineupRepository;
 import edu.escuelaing.techcup.competition.infrastructure.MatchRepository;
 import edu.escuelaing.techcup.identity.application.RefereeService;
@@ -39,43 +40,50 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Fixture and result use cases (spec 7.5). Rules enforced here:
+ * Fixture and result use cases (spec 7.5). The group matches are created by hand, group by group
+ * ({@link GroupStageService}), and the first knockout round is built by the organizer from an
+ * editable suggestion ({@link KnockoutService}). Rules enforced here:
  * <ul>
- *   <li><b>Generate</b> (ORGANIZER): the tournament must be IN_PROGRESS and have no match yet;
- *       the approved teams are drawn into a single round robin by
- *       {@link RoundRobinFixtureStrategy}. Venues and ACTIVE referees are handed out by cycling
- *       the available lists and each matchday kicks off at {@value #KICK_OFF_HOUR}:00, one day
- *       after the previous one, starting on the tournament's start date or on the first later
- *       day whose kick-off is still in the future (see {@link #firstAvailableMatchDay(LocalDate)}).</li>
- *   <li><b>Advance</b> (ORGANIZER): every match of the current phase must be PLAYED or CANCELLED.
- *       Coming out of the group stage the qualified teams are taken from the standings
- *       (8 or more teams &rarr; quarter-finals, 4 to 7 &rarr; semi-finals, fewer &rarr; final);
- *       afterwards the winners move on, a cancelled knockout match contributing its walkover
- *       winner, always in bracket order (the order the phase was drawn in, never kick-off order).
- *       Both are paired by {@link KnockoutFixtureStrategy}. A knockout draw with no penalties is
- *       rejected with an explanation instead of guessing who goes through.</li>
+ *   <li><b>Later knockout rounds</b>: as soon as the last match of a knockout phase gets its
+ *       outcome (result or walkover) and the next phase does not exist yet, the next phase is
+ *       drawn automatically: the winners move on, a cancelled knockout match contributing its
+ *       walkover winner, always in bracket order (the order the phase was drawn in, never
+ *       kick-off order), paired by {@link KnockoutFixtureStrategy} (winner of the first match
+ *       against the winner of the last one, and so on). {@code advance} does the same by hand
+ *       (after an undo, for example); it never leaves the group stage. Venues and ACTIVE referees
+ *       are handed out by cycling the available lists and each matchday kicks off at
+ *       {@value #KICK_OFF_HOUR}:00, starting the day after the latest kick-off or on the first
+ *       later day whose kick-off is still in the future (see {@link #firstAvailableMatchDay(LocalDate)}).
+ *       A knockout draw with no penalties is rejected with an explanation instead of guessing who
+ *       goes through.</li>
  *   <li><b>Undo phase</b> (ORGANIZER, tournament IN_PROGRESS): deletes every match of the latest
- *       phase when none of them is PLAYED, so it can be drawn again.</li>
+ *       phase when none of them is PLAYED, so it can be drawn again (undoing the first knockout
+ *       round goes back to the group stage).</li>
  * </ul>
  * While the tournament is IN_PROGRESS the organizer has full correction power over its matches
  * (FINISHED is read-only):
  * <ul>
  *   <li><b>Update</b>: kick-off time (past values allowed, to record what happened), venue of the
  *       tournament, ACTIVE referee, for any status; the teams only while the match is not PLAYED
- *       (both approved in the tournament, distinct, and not already playing another non-cancelled
- *       match of the same group round or knockout phase, nor sent through that knockout phase by
- *       walkover). A team leaving a knockout match must not already stand in the next phase (undo
- *       it first). A replaced team loses its lineup.</li>
+ *       (both approved in the tournament, distinct; in a match of a group both must belong to that
+ *       group and must not meet in another match of it; in a legacy group match or a knockout
+ *       match, not already playing another non-cancelled match of the same group round or
+ *       knockout phase, nor sent through that knockout phase by walkover). A team leaving a
+ *       knockout match must not already stand in the next phase (undo it first). A replaced team
+ *       loses its lineup.</li>
  *   <li><b>Cancel</b>: a soft delete that keeps the row with a {@link CancelReason}. A knockout
  *       match additionally needs the team that goes through (walkover). Cancelled matches never
  *       count for the standings.</li>
@@ -96,6 +104,9 @@ import org.springframework.transaction.annotation.Transactional;
  * cannot both change the phases and no result slips into a tournament being finished. Audited as
  * MATCHES_GENERATED / PHASE_UNDONE / MATCH_UPDATED / MATCH_CANCELLED / MATCH_RESULT_RECORDED /
  * MATCH_RESULT_CORRECTED / MATCH_REOPENED.
+ *
+ * <p>Every public read takes the viewer: the matches of a SUSPENDED tournament are answered with
+ * 404 to anybody but ADMIN/ORGANIZER, like the tournament itself.
  */
 @Service
 public class MatchService {
@@ -104,43 +115,40 @@ public class MatchService {
     /** Fixture generation is an event of the tournament, not of any single match. */
     static final String TOURNAMENT_ENTITY_TYPE = "TOURNAMENT";
     static final int KICK_OFF_HOUR = 18;
-    private static final Instant EARLIEST_KICK_OFF = Instant.parse("2000-01-01T00:00:00Z");
-    private static final Instant LATEST_KICK_OFF = Instant.parse("2101-01-01T00:00:00Z");
-    private static final int TEAMS_FOR_QUARTERFINALS = 8;
-    private static final int TEAMS_FOR_SEMIFINALS = 4;
-    private static final int TEAMS_FOR_FINAL = 2;
+    static final Instant EARLIEST_KICK_OFF = Instant.parse("2000-01-01T00:00:00Z");
+    static final Instant LATEST_KICK_OFF = Instant.parse("2101-01-01T00:00:00Z");
     /** The order matches were drawn in, which is the bracket order of a knockout phase. */
     private static final Comparator<Match> BRACKET_ORDER =
             Comparator.comparing(Match::getId, Comparator.nullsLast(Comparator.naturalOrder()));
+    /** 409 when a generated fixture would kick off after the window accepted for a match date. */
+    static final String NO_DATES_LEFT = "No hay fechas disponibles antes del año 2101 para programar los partidos.";
     /** Audit reason of a next-phase match changed because an earlier knockout outcome changed. */
     static final String RESULT_CORRECTION = "RESULT_CORRECTION";
 
     private final MatchRepository matches;
     private final LineupRepository lineups;
+    private final GroupTeamRepository groupTeams;
     private final TournamentService tournamentService;
     private final TeamService teamService;
     private final UserService userService;
     private final RefereeService refereeService;
-    private final StandingsService standingsService;
-    private final RoundRobinFixtureStrategy roundRobinStrategy;
     private final KnockoutFixtureStrategy knockoutStrategy;
     private final MatchResponseAssembler assembler;
     private final AuditService auditService;
     private final Clock clock;
 
-    public MatchService(MatchRepository matches, LineupRepository lineups, TournamentService tournamentService,
-                        TeamService teamService,
-                        UserService userService, RefereeService refereeService, StandingsService standingsService,
-                        RoundRobinFixtureStrategy roundRobinStrategy, KnockoutFixtureStrategy knockoutStrategy,
+    public MatchService(MatchRepository matches, LineupRepository lineups, GroupTeamRepository groupTeams,
+                        TournamentService tournamentService, TeamService teamService,
+                        UserService userService, RefereeService refereeService,
+                        KnockoutFixtureStrategy knockoutStrategy,
                         MatchResponseAssembler assembler, AuditService auditService, Clock clock) {
         this.matches = matches;
         this.lineups = lineups;
+        this.groupTeams = groupTeams;
         this.tournamentService = tournamentService;
         this.teamService = teamService;
         this.userService = userService;
         this.refereeService = refereeService;
-        this.standingsService = standingsService;
-        this.roundRobinStrategy = roundRobinStrategy;
         this.knockoutStrategy = knockoutStrategy;
         this.assembler = assembler;
         this.auditService = auditService;
@@ -149,29 +157,51 @@ public class MatchService {
 
     // --- queries ---------------------------------------------------------------------------
 
+    /** @param viewer the caller, or null for an anonymous visitor (see {@link TournamentService#requireVisible}) */
     @Transactional(readOnly = true)
-    public List<MatchResponse> list(Long tournamentId, MatchPhase phase) {
-        tournamentService.requireTournament(tournamentId);
+    public List<MatchResponse> list(Long tournamentId, MatchPhase phase, AuthenticatedUser viewer) {
+        tournamentService.requireVisible(tournamentId, viewer);
         List<Match> found = phase == null
                 ? matches.findByTournamentIdOrderByScheduledAtAscIdAsc(tournamentId)
                 : matches.findByTournamentIdAndPhaseOrderByIdAsc(tournamentId, phase);
         return assembler.toResponses(found);
     }
 
+    /** One match; 404 when its tournament is suspended and the viewer is not staff. */
     @Transactional(readOnly = true)
-    public MatchResponse get(Long matchId) {
-        return assembler.toResponse(requireMatch(matchId));
+    public MatchResponse get(Long matchId, AuthenticatedUser viewer) {
+        return assembler.toResponse(requireVisibleMatch(matchId, viewer));
     }
 
+    /**
+     * A match the viewer may see: 404 when its tournament is suspended and the viewer is not staff,
+     * exactly as if it did not exist. Every read of a single match (detail, lineups, sanctioned
+     * players) goes through here.
+     *
+     * @param viewer the caller, or null for an anonymous visitor
+     */
+    @Transactional(readOnly = true)
+    public Match requireVisibleMatch(Long matchId, AuthenticatedUser viewer) {
+        Match match = requireMatch(matchId);
+        if (match.getTournament().getStatus().isSuspended() && !TournamentService.isStaff(viewer)) {
+            throw NotFoundException.of("el partido", matchId);
+        }
+        return match;
+    }
+
+    /** The referee's own matches, leaving out those of a suspended tournament unless the caller is staff. */
     @Transactional(readOnly = true)
     public List<MatchResponse> refereeMatches(AuthenticatedUser actor) {
-        return assembler.toResponses(matches.findByRefereeIdOrderByScheduledAtAscIdAsc(actor.id()));
+        boolean staff = TournamentService.isStaff(actor);
+        return assembler.toResponses(matches.findByRefereeIdOrderByScheduledAtAscIdAsc(actor.id()).stream()
+                .filter(match -> staff || !match.getTournament().getStatus().isSuspended())
+                .toList());
     }
 
     /** PLAYED matches, most recently played first. */
     @Transactional(readOnly = true)
-    public List<MatchResponse> history(Long tournamentId) {
-        tournamentService.requireTournament(tournamentId);
+    public List<MatchResponse> history(Long tournamentId, AuthenticatedUser viewer) {
+        tournamentService.requireVisible(tournamentId, viewer);
         List<Match> played = new ArrayList<>(
                 matches.findByTournamentIdAndStatusOrderByScheduledAtAscIdAsc(tournamentId, MatchStatus.PLAYED));
         played.sort(Comparator.comparing((Match match) -> match.getScheduledAt(),
@@ -182,8 +212,8 @@ public class MatchService {
 
     /** Every match of one team in a tournament, in playing order. */
     @Transactional(readOnly = true)
-    public List<MatchResponse> teamResults(Long tournamentId, Long teamId) {
-        tournamentService.requireTournament(tournamentId);
+    public List<MatchResponse> teamResults(Long tournamentId, Long teamId, AuthenticatedUser viewer) {
+        tournamentService.requireVisible(tournamentId, viewer);
         teamService.requireTeam(teamId);
         return assembler.toResponses(matches.findOfTeam(tournamentId, teamId));
     }
@@ -196,8 +226,8 @@ public class MatchService {
     }
 
     @Transactional(readOnly = true)
-    public BracketResponse bracket(Long tournamentId) {
-        tournamentService.requireTournament(tournamentId);
+    public BracketResponse bracket(Long tournamentId, AuthenticatedUser viewer) {
+        tournamentService.requireVisible(tournamentId, viewer);
         Map<MatchPhase, List<Match>> byPhase = new EnumMap<>(MatchPhase.class);
         matches.findByTournamentIdOrderByScheduledAtAscIdAsc(tournamentId)
                 .forEach(match -> byPhase.computeIfAbsent(match.getPhase(), key -> new ArrayList<>()).add(match));
@@ -212,49 +242,31 @@ public class MatchService {
         return matches.findById(matchId).orElseThrow(() -> NotFoundException.of("el partido", matchId));
     }
 
-    // --- fixture generation ------------------------------------------------------------------
+    // --- knockout rounds ---------------------------------------------------------------------
 
-    @Transactional
-    public List<MatchResponse> generate(AuthenticatedUser actor, Long tournamentId) {
-        Tournament tournament = tournamentService.requireTournamentForUpdate(tournamentId);
-        if (tournament.getStatus() != TournamentStatus.IN_PROGRESS) {
-            throw new BusinessRuleException("El calendario solo se puede generar mientras el torneo esté en progreso; "
-                    + "su estado actual es «" + tournament.getStatus().label() + "».");
-        }
-        if (matches.existsByTournamentId(tournamentId)) {
-            throw new BusinessRuleException("El calendario de este torneo ya fue generado.");
-        }
-        List<Long> teamIds = tournamentService.approvedTeamIds(tournamentId);
-        if (teamIds.size() < TEAMS_FOR_FINAL) {
-            throw new BusinessRuleException("Se requieren al menos " + TEAMS_FOR_FINAL
-                    + " equipos aprobados para generar el calendario (se encontraron " + teamIds.size() + ").");
-        }
-
-        List<Match> created = persist(tournament, MatchPhase.GROUP, roundRobinStrategy.generate(teamIds),
-                0, firstAvailableMatchDay(tournament.getStartDate()));
-
-        auditService.record(actor.id(), AuditAction.MATCHES_GENERATED, TOURNAMENT_ENTITY_TYPE, tournamentId,
-                Map.of("tournamentId", tournamentId, "phase", MatchPhase.GROUP.name(),
-                        "matches", created.size(), "teams", teamIds.size()));
-        return assembler.toResponses(created);
-    }
-
+    /**
+     * Draws the next knockout round by hand once every match of the current knockout phase is
+     * PLAYED or CANCELLED. Normally unnecessary: the round is drawn automatically when the last
+     * match of the phase gets its outcome; this is the way back after undoing it. It never leaves
+     * the group stage: the first knockout round is built with {@link KnockoutService#create}.
+     */
     @Transactional
     public List<MatchResponse> advance(AuthenticatedUser actor, Long tournamentId) {
         Tournament tournament = tournamentService.requireTournamentForUpdate(tournamentId);
+        tournament.requireNotSuspended("avanzar de fase");
         if (tournament.getStatus() != TournamentStatus.IN_PROGRESS) {
             throw new BusinessRuleException("Las llaves solo pueden avanzar mientras el torneo esté en progreso; "
                     + "su estado actual es «" + tournament.getStatus().label() + "».");
         }
         List<Match> all = matches.findByTournamentIdOrderByScheduledAtAscIdAsc(tournamentId);
-        if (all.isEmpty()) {
-            throw new BusinessRuleException("Genere la fase de grupos antes de avanzar a las fases eliminatorias.");
-        }
-
         MatchPhase currentPhase = all.stream()
                 .map(Match::getPhase)
                 .max(Comparator.naturalOrder())
-                .orElseThrow();
+                .orElse(MatchPhase.GROUP);
+        if (currentPhase == MatchPhase.GROUP) {
+            throw new BusinessRuleException("La eliminatoria no se genera sola: use «Armar eliminatoria» para elegir "
+                    + "el tamaño, revisar los cruces sugeridos y confirmarlos.");
+        }
         // Bracket order is creation order (id), never kick-off order: the organizer may reschedule a
         // match, and the fold of KnockoutFixtureStrategy must still pair the winners of the
         // original bracket slots.
@@ -270,37 +282,87 @@ public class MatchService {
         if (currentPhase == MatchPhase.FINAL) {
             throw new BusinessRuleException("La final ya se jugó; lo que sigue es finalizar el torneo.");
         }
-
-        MatchPhase nextPhase;
-        List<Long> qualified;
-        if (currentPhase == MatchPhase.GROUP) {
-            List<Standings.Row> table = standingsService.rows(tournamentId);
-            int qualifierCount = qualifierCount(table.size());
-            nextPhase = phaseFor(qualifierCount);
-            qualified = table.stream().limit(qualifierCount).map(Standings.Row::teamId).toList();
-        } else {
-            nextPhase = currentPhase.nextKnockoutPhase();
-            qualified = winnersOf(currentMatches);
-        }
-
-        int roundOffset = matches.findMaxRoundNumber(tournamentId);
-        LocalDate lastDate = lastScheduledDate(all).orElse(tournament.getStartDate());
-        List<Match> created = persist(tournament, nextPhase, knockoutStrategy.generate(qualified),
-                roundOffset, firstAvailableMatchDay(lastDate.plusDays(1)));
-
-        auditService.record(actor.id(), AuditAction.MATCHES_GENERATED, TOURNAMENT_ENTITY_TYPE, tournamentId,
-                Map.of("tournamentId", tournamentId, "phase", nextPhase.name(), "matches", created.size()));
+        List<Match> created = drawNextRound(actor, tournament, currentPhase, winnersOf(currentMatches), all, false);
         return assembler.toResponses(created);
     }
 
     /**
+     * After an outcome (result or walkover) of a knockout match: when it completed its phase, every
+     * match of it has a winner and the next phase does not exist yet, draws the next phase. Does
+     * nothing otherwise, so a result is never refused because of this step. That includes a
+     * calendar with no day left before {@link #LATEST_KICK_OFF}: the result stays recorded and
+     * {@code advance} (by hand) explains why the round cannot be drawn until a kick-off is moved
+     * earlier.
+     */
+    private void advanceIfPhaseComplete(AuthenticatedUser actor, Match match) {
+        MatchPhase phase = match.getPhase();
+        MatchPhase nextPhase = phase.nextKnockoutPhase();
+        if (nextPhase == null) {
+            return;
+        }
+        Long tournamentId = match.getTournament().getId();
+        List<Match> phaseMatches = matches.findByTournamentIdAndPhaseOrderByIdAsc(tournamentId, phase).stream()
+                .sorted(BRACKET_ORDER)
+                .toList();
+        if (phaseMatches.isEmpty() || phaseMatches.size() % 2 != 0
+                || phaseMatches.stream().anyMatch(candidate -> outcomeWinner(candidate).isEmpty())
+                || !matches.findByTournamentIdAndPhaseOrderByIdAsc(tournamentId, nextPhase).isEmpty()) {
+            return;
+        }
+        List<Long> winners = phaseMatches.stream()
+                .map(candidate -> outcomeWinner(candidate).orElseThrow().getId())
+                .toList();
+        List<Match> all = matches.findByTournamentIdOrderByScheduledAtAscIdAsc(tournamentId);
+        if (!fitsCalendar(nextRoundDay(match.getTournament(), all))) {
+            return;
+        }
+        drawNextRound(actor, match.getTournament(), phase, winners, all, true);
+    }
+
+    /** Persists the round after {@code phase} from its winners (bracket order) and audits it. */
+    private List<Match> drawNextRound(AuthenticatedUser actor, Tournament tournament, MatchPhase phase,
+                                      List<Long> winners, List<Match> all, boolean automatic) {
+        MatchPhase nextPhase = phase.nextKnockoutPhase();
+        int roundOffset = matches.findMaxRoundNumber(tournament.getId());
+        List<Match> created = persist(tournament, nextPhase, knockoutStrategy.generate(winners),
+                roundOffset, nextRoundDay(tournament, all));
+
+        auditService.record(actor.id(), AuditAction.MATCHES_GENERATED, TOURNAMENT_ENTITY_TYPE, tournament.getId(),
+                Map.of("tournamentId", tournament.getId(), "phase", nextPhase.name(), "matches", created.size(),
+                        "automatic", automatic));
+        return created;
+    }
+
+    /** The day a new knockout round is played: the day after the latest kick-off, never in the past. */
+    LocalDate nextRoundDay(Tournament tournament, List<Match> all) {
+        LocalDate lastDate = lastScheduledDate(all).orElse(tournament.getStartDate());
+        return firstAvailableMatchDay(lastDate.plusDays(1));
+    }
+
+    /** Whether a generated match can kick off on {@code day} (before {@link #LATEST_KICK_OFF}). */
+    boolean fitsCalendar(LocalDate day) {
+        return kickOff(day).isBefore(LATEST_KICK_OFF);
+    }
+
+    /** The team that went through: the winner of a played match or the walkover winner of a cancelled one. */
+    private static Optional<Team> outcomeWinner(Match match) {
+        if (match.getStatus() == MatchStatus.CANCELLED) {
+            return Optional.ofNullable(match.getWalkoverWinnerTeam());
+        }
+        return match.winner();
+    }
+
+    /**
      * Deletes every match of the latest phase of the tournament, as long as none of them has been
-     * played, so the phase can be drawn again ({@code advance}, or {@code generate} when the group
-     * stage is undone). Events and lineups go with their matches (FK {@code ON DELETE CASCADE}).
+     * played, so the phase can be drawn again (the knockout is rebuilt with
+     * {@link KnockoutService#create}, the next round with {@code advance}; undoing the group stage
+     * deletes its unplayed matches). Events and lineups go with their matches (FK
+     * {@code ON DELETE CASCADE}).
      */
     @Transactional
     public PhaseUndoneResponse undoPhase(AuthenticatedUser actor, Long tournamentId) {
         Tournament tournament = tournamentService.requireTournamentForUpdate(tournamentId);
+        tournament.requireNotSuspended("deshacer una fase");
         if (tournament.getStatus() != TournamentStatus.IN_PROGRESS) {
             throw new BusinessRuleException("Solo se puede deshacer una fase mientras el torneo esté en progreso; "
                     + "su estado actual es «" + tournament.getStatus().label() + "».");
@@ -329,29 +391,6 @@ public class MatchService {
         return phase == MatchPhase.GROUP ? "de grupos" : phase.label();
     }
 
-    /** 8 or more teams play quarter-finals, 4 to 7 play semi-finals, fewer go straight to the final. */
-    private static int qualifierCount(int competitors) {
-        if (competitors >= TEAMS_FOR_QUARTERFINALS) {
-            return TEAMS_FOR_QUARTERFINALS;
-        }
-        if (competitors >= TEAMS_FOR_SEMIFINALS) {
-            return TEAMS_FOR_SEMIFINALS;
-        }
-        if (competitors >= TEAMS_FOR_FINAL) {
-            return TEAMS_FOR_FINAL;
-        }
-        throw new BusinessRuleException("Se requieren al menos " + TEAMS_FOR_FINAL
-                + " equipos para jugar una fase eliminatoria (se encontraron " + competitors + ").");
-    }
-
-    private static MatchPhase phaseFor(int qualifierCount) {
-        return switch (qualifierCount) {
-            case TEAMS_FOR_QUARTERFINALS -> MatchPhase.QUARTERFINAL;
-            case TEAMS_FOR_SEMIFINALS -> MatchPhase.SEMIFINAL;
-            default -> MatchPhase.FINAL;
-        };
-    }
-
     /**
      * The teams that went through, in the order of {@code phaseMatches} (bracket order, see
      * {@link #BRACKET_ORDER}): the winner of a played match, or the
@@ -378,37 +417,96 @@ public class MatchService {
         return winners;
     }
 
+    /** One match to be created: its matchday number, its two teams and the day it is played. */
+    record PlannedMatch(int roundNumber, Long homeTeamId, Long awayTeamId, LocalDate day) {
+    }
+
     /**
      * Persists the fixtures of one phase, cycling the venues and referees of the tournament and
      * spreading the matchdays one day apart from {@code firstMatchDay}.
      */
-    private List<Match> persist(Tournament tournament, MatchPhase phase, List<FixtureStrategy.Fixture> fixtures,
-                                int roundOffset, LocalDate firstMatchDay) {
+    List<Match> persist(Tournament tournament, MatchPhase phase, List<FixtureStrategy.Fixture> fixtures,
+                        int roundOffset, LocalDate firstMatchDay) {
+        List<PlannedMatch> planned = fixtures.stream()
+                .map(fixture -> new PlannedMatch(roundOffset + fixture.roundNumber(), fixture.homeTeamId(),
+                        fixture.awayTeamId(), firstMatchDay.plusDays(fixture.roundNumber() - 1L)))
+                .toList();
+        return persist(tournament, phase, null, planned);
+    }
+
+    /**
+     * Persists planned matches ({@code group} null outside a group), each kicking off at
+     * {@value #KICK_OFF_HOUR}:00 of its day, and hands out the venues of the tournament and the
+     * ACTIVE referees by cycling both lists. A venue or referee already busy at that kick-off (in a
+     * non-cancelled match of the tournament, including the ones created here) is skipped; when every
+     * one is busy the field stays empty for the organizer to fill in, never double-booked.
+     *
+     * @throws BusinessRuleException when a planned day falls after the year 2100 (nothing is saved)
+     */
+    List<Match> persist(Tournament tournament, MatchPhase phase, TournamentGroup group, List<PlannedMatch> planned) {
+        if (planned.stream().anyMatch(plan -> !fitsCalendar(plan.day()))) {
+            throw new BusinessRuleException(NO_DATES_LEFT);
+        }
         List<Venue> availableVenues = tournament.getVenues();
         List<AppUser> availableReferees = refereeService.activeReferees();
         Map<Long, Team> teamCache = new HashMap<>();
+        Map<Instant, Set<Long>> busyVenues = new HashMap<>();
+        Map<Instant, Set<Long>> busyReferees = new HashMap<>();
+        for (Match existing : matches.findByTournamentIdOrderByScheduledAtAscIdAsc(tournament.getId())) {
+            book(existing, busyVenues, busyReferees);
+        }
 
-        List<Match> created = new ArrayList<>(fixtures.size());
+        List<Match> created = new ArrayList<>(planned.size());
         int index = 0;
-        for (FixtureStrategy.Fixture fixture : fixtures) {
-            int roundNumber = roundOffset + fixture.roundNumber();
+        for (PlannedMatch plan : planned) {
+            Instant kickOff = kickOff(plan.day());
             Match match = Match.builder()
                     .tournament(tournament)
                     .phase(phase)
-                    .roundNumber(roundNumber)
-                    .homeTeam(teamCache.computeIfAbsent(fixture.homeTeamId(), teamService::requireTeam))
-                    .awayTeam(teamCache.computeIfAbsent(fixture.awayTeamId(), teamService::requireTeam))
-                    .venue(availableVenues.isEmpty() ? null : availableVenues.get(index % availableVenues.size()))
-                    .referee(availableReferees.isEmpty()
-                            ? null
-                            : availableReferees.get(index % availableReferees.size()))
-                    .scheduledAt(kickOff(firstMatchDay.plusDays(fixture.roundNumber() - 1L)))
+                    .group(group)
+                    .roundNumber(plan.roundNumber())
+                    .homeTeam(teamCache.computeIfAbsent(plan.homeTeamId(), teamService::requireTeam))
+                    .awayTeam(teamCache.computeIfAbsent(plan.awayTeamId(), teamService::requireTeam))
+                    .venue(firstFree(availableVenues, index, Venue::getId,
+                            busyVenues.getOrDefault(kickOff, Set.of())))
+                    .referee(firstFree(availableReferees, index, AppUser::getId,
+                            busyReferees.getOrDefault(kickOff, Set.of())))
+                    .scheduledAt(kickOff)
                     .status(MatchStatus.SCHEDULED)
                     .build();
-            created.add(matches.save(match));
+            Match saved = matches.save(match);
+            book(saved, busyVenues, busyReferees);
+            created.add(saved);
             index++;
         }
         return created;
+    }
+
+    /** Marks the venue and referee of a non-cancelled match as busy at its kick-off. */
+    private static void book(Match match, Map<Instant, Set<Long>> busyVenues, Map<Instant, Set<Long>> busyReferees) {
+        if (match.getScheduledAt() == null || match.getStatus() == MatchStatus.CANCELLED) {
+            return;
+        }
+        if (match.getVenue() != null) {
+            busyVenues.computeIfAbsent(match.getScheduledAt(), key -> new HashSet<>()).add(match.getVenue().getId());
+        }
+        if (match.getReferee() != null) {
+            busyReferees.computeIfAbsent(match.getScheduledAt(), key -> new HashSet<>()).add(match.getReferee().getId());
+        }
+    }
+
+    /**
+     * Cycles {@code candidates} from position {@code index} and returns the first one whose id is
+     * not in {@code busy}; null when the list is empty or every candidate is busy.
+     */
+    private static <T> T firstFree(List<T> candidates, int index, Function<T, Long> idOf, Set<Long> busy) {
+        for (int offset = 0; offset < candidates.size(); offset++) {
+            T candidate = candidates.get((index + offset) % candidates.size());
+            if (!busy.contains(idOf.apply(candidate))) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     /**
@@ -419,18 +517,18 @@ public class MatchService {
      * first round in the past, where captains can no longer submit a lineup for it until the
      * organizer moves every match by hand.
      */
-    private LocalDate firstAvailableMatchDay(LocalDate preferred) {
+    LocalDate firstAvailableMatchDay(LocalDate preferred) {
         LocalDate today = LocalDate.now(clock);
         LocalDate earliest = kickOff(today).isAfter(clock.instant()) ? today : today.plusDays(1);
         return preferred.isAfter(earliest) ? preferred : earliest;
     }
 
-    private Instant kickOff(LocalDate day) {
+    Instant kickOff(LocalDate day) {
         return day.atTime(LocalTime.of(KICK_OFF_HOUR, 0)).atZone(clock.getZone()).toInstant();
     }
 
     /** The calendar day, in the application zone, of the latest kick-off among {@code all}. */
-    private Optional<LocalDate> lastScheduledDate(List<Match> all) {
+    Optional<LocalDate> lastScheduledDate(List<Match> all) {
         return all.stream()
                 .map(Match::getScheduledAt)
                 .filter(Objects::nonNull)
@@ -455,30 +553,17 @@ public class MatchService {
             changeTeams(match, request, changes);
         }
         if (request.scheduledAt() != null) {
-            if (request.scheduledAt().isBefore(EARLIEST_KICK_OFF) || !request.scheduledAt().isBefore(LATEST_KICK_OFF)) {
-                throw new InvalidRequestException("La fecha del partido debe estar entre los años 2000 y 2100.");
-            }
+            requireKickOffInRange(request.scheduledAt());
             match.setScheduledAt(request.scheduledAt());
             changes.put("scheduledAt", request.scheduledAt().toString());
         }
         if (request.venueId() != null) {
-            Venue venue = match.getTournament().getVenues().stream()
-                    .filter(candidate -> candidate.getId().equals(request.venueId()))
-                    .findFirst()
-                    .orElseThrow(() -> new BusinessRuleException("La cancha " + request.venueId()
-                            + " no pertenece a este torneo."));
+            Venue venue = requireVenueOf(match.getTournament(), request.venueId());
             match.setVenue(venue);
             changes.put("venueId", venue.getId());
         }
         if (request.refereeId() != null) {
-            AppUser referee = userService.getUser(request.refereeId());
-            if (!referee.hasRole(Role.REFEREE)) {
-                throw new BusinessRuleException("El usuario " + request.refereeId() + " no es árbitro.");
-            }
-            if (!referee.isActive()) {
-                throw new BusinessRuleException("El árbitro " + referee.getFullName()
-                        + " está inactivo y no puede ser asignado.");
-            }
+            AppUser referee = requireActiveReferee(request.refereeId());
             match.setReferee(referee);
             changes.put("refereeId", referee.getId());
         }
@@ -489,6 +574,61 @@ public class MatchService {
 
         auditService.record(actor.id(), AuditAction.MATCH_UPDATED, ENTITY_TYPE, matchId, changes);
         return assembler.toResponse(match);
+    }
+
+    /** 400 unless the kick-off lies in the years 2000 to 2100. */
+    static void requireKickOffInRange(Instant scheduledAt) {
+        if (scheduledAt.isBefore(EARLIEST_KICK_OFF) || !scheduledAt.isBefore(LATEST_KICK_OFF)) {
+            throw new InvalidRequestException("La fecha del partido debe estar entre los años 2000 y 2100.");
+        }
+    }
+
+    /** A venue registered for this tournament (409 otherwise). */
+    static Venue requireVenueOf(Tournament tournament, Long venueId) {
+        return tournament.getVenues().stream()
+                .filter(candidate -> candidate.getId().equals(venueId))
+                .findFirst()
+                .orElseThrow(() -> new BusinessRuleException("La cancha " + venueId + " no pertenece a este torneo."));
+    }
+
+    /** An ACTIVE user holding the REFEREE role (409 otherwise). */
+    AppUser requireActiveReferee(Long refereeId) {
+        AppUser referee = userService.getUser(refereeId);
+        if (!referee.hasRole(Role.REFEREE)) {
+            throw new BusinessRuleException("El usuario " + refereeId + " no es árbitro.");
+        }
+        if (!referee.isActive()) {
+            throw new BusinessRuleException("El árbitro " + referee.getFullName()
+                    + " está inactivo y no puede ser asignado.");
+        }
+        return referee;
+    }
+
+    /**
+     * The two teams may meet in a match of {@code group}: both belong to it, they differ, and no
+     * other match of the group ({@code ignoredMatchId} aside, whatever its status) is already
+     * between them, in either orientation.
+     */
+    void requireGroupPairing(TournamentGroup group, Team home, Team away, Long ignoredMatchId) {
+        if (home.getId().equals(away.getId())) {
+            throw new BusinessRuleException("Un equipo no puede jugar contra sí mismo: elija dos equipos distintos.");
+        }
+        List<Long> members = groupTeams.findTeamIdsByGroupId(group.getId());
+        for (Team team : List.of(home, away)) {
+            if (!members.contains(team.getId())) {
+                throw new BusinessRuleException("El equipo '" + team.getName() + "' no pertenece al "
+                        + group.getName() + ".");
+            }
+        }
+        matches.findByGroupIdOrderByIdAsc(group.getId()).stream()
+                .filter(other -> !other.getId().equals(ignoredMatchId))
+                .filter(other -> other.isBetween(home.getId(), away.getId()))
+                .findFirst()
+                .ifPresent(other -> {
+                    throw new BusinessRuleException("En el " + group.getName() + " ya hay un partido entre '"
+                            + home.getName() + "' y '" + away.getName() + "' (partido " + other.getId()
+                            + "). Modifique o reabra ese partido en lugar de crear otro.");
+                });
     }
 
     /**
@@ -515,15 +655,23 @@ public class MatchService {
         Team newHome = teamOf(match, homeId);
         Team newAway = teamOf(match, awayId);
         List<Long> approved = tournamentService.approvedTeamIds(match.getTournament().getId());
-        List<Match> samePhase = matches.findByTournamentIdAndPhaseOrderByIdAsc(
-                match.getTournament().getId(), match.getPhase());
         for (Team team : List.of(newHome, newAway)) {
             if (!approved.contains(team.getId())) {
                 throw new BusinessRuleException("El equipo '" + team.getName()
                         + "' no tiene una inscripción aprobada en este torneo.");
             }
-            if (!match.involves(team.getId())) {
-                requireNoOtherMatchInSlot(match, team, samePhase);
+        }
+        if (match.getGroup() != null) {
+            // Matchdays of a group are not fixed rounds (its matches are created one by one), so the
+            // rule there is the pairing itself: both teams of the group, and one match per pairing.
+            requireGroupPairing(match.getGroup(), newHome, newAway, match.getId());
+        } else {
+            List<Match> samePhase = matches.findByTournamentIdAndPhaseOrderByIdAsc(
+                    match.getTournament().getId(), match.getPhase());
+            for (Team team : List.of(newHome, newAway)) {
+                if (!match.involves(team.getId())) {
+                    requireNoOtherMatchInSlot(match, team, samePhase);
+                }
             }
         }
         Team walkoverWinner = match.getWalkoverWinnerTeam();
@@ -659,6 +807,9 @@ public class MatchService {
         }
         auditService.record(actor.id(), AuditAction.MATCH_CANCELLED, ENTITY_TYPE, matchId, details);
         bracketFix.ifPresent(fix -> applyPropagation(actor, match, fix));
+        if (walkoverWinner != null) {
+            advanceIfPhaseComplete(actor, match);
+        }
         return assembler.toResponse(match);
     }
 
@@ -716,12 +867,18 @@ public class MatchService {
                 ENTITY_TYPE, matchId,
                 Map.of("homeScore", homeScore, "awayScore", awayScore, "events", events.size()));
         bracketFix.ifPresent(fix -> applyPropagation(actor, match, fix));
+        if (match.getPhase().isKnockout()) {
+            advanceIfPhaseComplete(actor, match);
+        }
         return assembler.toResponse(match);
     }
 
     /**
      * PLAYED or CANCELLED &rarr; SCHEDULED, clearing score, penalties, events, cancel reason and
-     * walkover winner, so the organizer can fix the teams or record the match again.
+     * walkover winner, so the organizer can fix the teams or record the match again. Later rounds
+     * are left alone: if the winner already went further, only the same winner is accepted back
+     * (see {@link #planPropagation(Match, Team)}). A group match is refused once the knockout exists:
+     * left SCHEDULED it would block finishing and undoing, while its result can be corrected anyway.
      */
     @Transactional
     public MatchResponse reopen(AuthenticatedUser actor, Long matchId) {
@@ -730,6 +887,13 @@ public class MatchService {
         if (!match.isReopenable()) {
             throw new BusinessRuleException("Solo se puede reabrir un partido jugado o cancelado; su estado actual es «"
                     + match.getStatus().label() + "».");
+        }
+        // A SCHEDULED group match blocks finishing the tournament and undoing the knockout, while
+        // a result can still be corrected without reopening: a reopen here only strands the tournament.
+        if (match.getPhase() == MatchPhase.GROUP
+                && matches.existsByTournamentIdAndPhaseNot(match.getTournament().getId(), MatchPhase.GROUP)) {
+            throw new BusinessRuleException("La fase de grupos ya terminó: deshaga la eliminatoria antes de reabrir "
+                    + "partidos de grupo.");
         }
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("previousStatus", match.getStatus().name());
@@ -792,7 +956,24 @@ public class MatchService {
             throw new BusinessRuleException("El partido de " + nextPhase.label() + " fue cancelado dando el pase a "
                     + loser.getName() + "; reábralo antes de corregir este resultado.");
         }
+        requireNotAdvancedBeyond(match.getTournament().getId(), nextPhase, loser);
         return Optional.of(new BracketFix(target, loser, winner));
+    }
+
+    /**
+     * The team about to be replaced in {@code phase} must not stand in any later knockout phase
+     * (it reached it from {@code phase} before that match was reopened): replacing it only in
+     * {@code phase} would leave it in a round it no longer earned, possibly as champion.
+     */
+    private void requireNotAdvancedBeyond(Long tournamentId, MatchPhase phase, Team team) {
+        for (MatchPhase later = phase.nextKnockoutPhase(); later != null; later = later.nextKnockoutPhase()) {
+            boolean present = matches.findByTournamentIdAndPhaseOrderByIdAsc(tournamentId, later).stream()
+                    .anyMatch(other -> other.involves(team.getId()) || isWalkoverWinner(other, team.getId()));
+            if (present) {
+                throw new BusinessRuleException("El equipo " + team.getName() + " ya avanzó a la " + later.label()
+                        + ": deshaga o corrija primero esa fase.");
+            }
+        }
     }
 
     private void applyPropagation(AuthenticatedUser actor, Match source, BracketFix fix) {
@@ -834,7 +1015,8 @@ public class MatchService {
     }
 
     /** @param verb the Spanish infinitive phrase of what is being attempted, e.g. {@code "cancelar"} */
-    private static void requireInProgress(Match match, String verb) {
+    static void requireInProgress(Match match, String verb) {
+        match.getTournament().requireNotSuspended(verb + " un partido");
         TournamentStatus status = match.getTournament().getStatus();
         if (status != TournamentStatus.IN_PROGRESS) {
             throw new BusinessRuleException("Solo se puede " + verb + " un partido mientras el torneo esté en progreso; "
@@ -883,22 +1065,29 @@ public class MatchService {
         }
 
         if (homeGoals != homeScore) {
-            throw new BusinessRuleException(goalMismatch(home.getName(), homeScore, homeGoals));
+            throw new BusinessRuleException(goalMismatch("local", home.getName(), homeScore, homeGoals));
         }
         if (awayGoals != awayScore) {
-            throw new BusinessRuleException(goalMismatch(away.getName(), awayScore, awayGoals));
+            throw new BusinessRuleException(goalMismatch("visitante", away.getName(), awayScore, awayGoals));
         }
         return events;
     }
 
     /**
-     * The reported score of a team does not match the goal events sent with it. Both halves of the
-     * sentence agree in number with their own quantity, which is why they are composed here.
+     * The reported score of a team does not match the goal events sent with it. Every goal needs
+     * its scorer, so the message says whether scorers are missing or left over, and what to do.
+     * Both quantities agree in number with their own noun, which is why it is composed here.
+     *
+     * @param side {@code "local"} or {@code "visitante"}
      */
-    private static String goalMismatch(String teamName, int reportedScore, int goalEvents) {
-        return Messages.agree(reportedScore, "Se registró", "Se registraron") + " "
-                + Messages.plural(reportedScore, "gol", "goles") + " para el equipo '" + teamName
-                + "', pero " + Messages.agree(goalEvents, "se envió", "se enviaron") + " "
-                + Messages.plural(goalEvents, "evento de gol", "eventos de gol") + ".";
+    static String goalMismatch(String side, String teamName, int reportedScore, int goalEvents) {
+        String facts = "el marcador indica " + Messages.plural(reportedScore, "gol", "goles") + " y hay "
+                + Messages.plural(goalEvents, "registrado", "registrados");
+        if (goalEvents < reportedScore) {
+            return "Faltan goleadores del equipo " + side + " '" + teamName + "': " + facts
+                    + ". Registre qué jugador marcó cada gol.";
+        }
+        return "Sobran goleadores del equipo " + side + " '" + teamName + "': " + facts
+                + ". Quite los goles de más o corrija el marcador.";
     }
 }

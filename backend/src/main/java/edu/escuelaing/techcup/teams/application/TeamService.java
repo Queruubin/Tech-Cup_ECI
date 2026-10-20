@@ -11,6 +11,8 @@ import edu.escuelaing.techcup.shared.exception.ForbiddenOperationException;
 import edu.escuelaing.techcup.shared.exception.Messages;
 import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
+import edu.escuelaing.techcup.shared.security.Roles;
+import edu.escuelaing.techcup.shared.storage.FileDeletionScheduler;
 import edu.escuelaing.techcup.teams.api.dto.CreateTeamRequest;
 import edu.escuelaing.techcup.teams.api.dto.TeamResponse;
 import edu.escuelaing.techcup.teams.api.dto.UpdateTeamRequest;
@@ -23,6 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,10 +44,16 @@ import org.springframework.transaction.annotation.Transactional;
  *       Inactivating a team also cancels its pending join requests and invitations
  *       ({@link TeamJoinRequestPort}) and revokes CAPTAIN from its captain
  *       ({@link RoleService#revokeCaptainForClosedTeam}).</li>
+ *   <li>Delete (ADMIN only): refused while the team plays any match ({@link TeamMatchPort}) or has
+ *       a registration UNDER_REVIEW or APPROVED ({@link TeamRegistrationPort}); the admin deletes
+ *       (or suspends, then deletes) that tournament first. Otherwise the team goes with its
+ *       memberships and join requests/invitations ({@code ON DELETE CASCADE}) and its REJECTED or
+ *       CANCELLED registrations, whose receipts are deleted after commit; the players stay as users.
+ *       Its captain loses CAPTAIN unless they still captain an ACTIVE team.</li>
  *   <li>Eligibility (7 to 12 members, unique jerseys, program majority, profiles) is delegated
  *       to the pure domain rule {@link TeamEligibility}.</li>
  * </ul>
- * Audited as TEAM_CREATED / TEAM_UPDATED / TEAM_MEMBER_REMOVED / TEAM_INACTIVATED.
+ * Audited as TEAM_CREATED / TEAM_UPDATED / TEAM_MEMBER_REMOVED / TEAM_INACTIVATED / TEAM_DELETED.
  */
 @Service
 public class TeamService {
@@ -59,11 +68,16 @@ public class TeamService {
     private final MemberProfilePort memberProfiles;
     private final TeamLockPort teamLock;
     private final TeamJoinRequestPort joinRequests;
+    private final TeamMatchPort teamMatches;
+    private final TeamRegistrationPort teamRegistrations;
+    private final FileDeletionScheduler fileDeletion;
     private final TeamResponseAssembler assembler;
     private final AuditService auditService;
 
     public TeamService(TeamRepository teams, UserService userService, RoleService roleService,
-                       MemberProfilePort memberProfiles, TeamLockPort teamLock, TeamJoinRequestPort joinRequests, TeamResponseAssembler assembler,
+                       MemberProfilePort memberProfiles, TeamLockPort teamLock, TeamJoinRequestPort joinRequests,
+                       TeamMatchPort teamMatches, TeamRegistrationPort teamRegistrations,
+                       FileDeletionScheduler fileDeletion, TeamResponseAssembler assembler,
                        AuditService auditService) {
         this.teams = teams;
         this.userService = userService;
@@ -71,12 +85,20 @@ public class TeamService {
         this.memberProfiles = memberProfiles;
         this.teamLock = teamLock;
         this.joinRequests = joinRequests;
+        this.teamMatches = teamMatches;
+        this.teamRegistrations = teamRegistrations;
+        this.fileDeletion = fileDeletion;
         this.assembler = assembler;
         this.auditService = auditService;
     }
 
     @Transactional
     public TeamResponse create(AuthenticatedUser actor, CreateTeamRequest request) {
+        // The ADMIN role implies PLAYER for endpoint security, but founding a team makes the caller
+        // its first member and captain: only somebody who actually holds PLAYER can be that.
+        if (!actor.hasRole(Roles.PLAYER)) {
+            throw new ForbiddenOperationException("Solo un usuario con el rol de jugador puede crear un equipo.");
+        }
         String name = request.name().trim();
         if (teams.existsByNameIgnoreCase(name)) {
             throw new ConflictException("Ya existe un equipo llamado '" + name + "'.");
@@ -179,6 +201,47 @@ public class TeamService {
         auditService.record(actor.id(), AuditAction.TEAM_INACTIVATED, ENTITY_TYPE, teamId,
                 Map.of("cancelledJoinRequests", cancelled));
         return assembler.toResponse(team);
+    }
+
+    /**
+     * Deletes the team for good (ADMIN only). See the class comment for what blocks it and what
+     * goes with it. The team row is locked first, so a concurrent change to it waits.
+     */
+    @Transactional
+    public void delete(AuthenticatedUser actor, Long teamId) {
+        if (!actor.isAdmin()) {
+            throw new ForbiddenOperationException("Solo un administrador puede eliminar un equipo.");
+        }
+        Team team = teams.findByIdForUpdate(teamId).orElseThrow(() -> NotFoundException.of("el equipo", teamId));
+        List<String> withMatches = teamMatches.tournamentsWithMatchesOf(teamId);
+        if (!withMatches.isEmpty()) {
+            throw new BusinessRuleException("El equipo '" + team.getName() + "' tiene partidos en "
+                    + tournamentList(withMatches) + ". Elimine primero ese torneo (puede suspenderlo mientras "
+                    + "tanto) y luego elimine el equipo.");
+        }
+        List<String> withLiveRegistration = teamRegistrations.tournamentsWithLiveRegistrationOf(teamId);
+        if (!withLiveRegistration.isEmpty()) {
+            throw new BusinessRuleException("El equipo '" + team.getName() + "' tiene una inscripción en revisión "
+                    + "o aprobada en " + tournamentList(withLiveRegistration) + ". Rechace o retire esa inscripción, "
+                    + "o elimine el torneo (puede suspenderlo mientras tanto), antes de eliminar el equipo.");
+        }
+
+        List<String> receipts = teamRegistrations.deleteClosedRegistrationsOf(teamId);
+        receipts.forEach(fileDeletion::deleteAfterCommit);
+        Long captainId = team.getCaptain().getId();
+        Map<String, Object> details = Map.of("name", team.getName(), "members", team.memberCount(),
+                "deletedRegistrations", receipts.size());
+        // Memberships go with the entity; join requests and invitations through ON DELETE CASCADE.
+        teams.delete(team);
+        teams.flush();
+        roleService.revokeCaptainForDeletedTeam(actor.id(), captainId, teamId);
+        auditService.record(actor.id(), AuditAction.TEAM_DELETED, ENTITY_TYPE, teamId, details);
+    }
+
+    /** "el torneo «A»" or "los torneos «A», «B»". */
+    private static String tournamentList(List<String> names) {
+        String quoted = names.stream().map(name -> "«" + name + "»").collect(Collectors.joining(", "));
+        return (names.size() == 1 ? "el torneo " : "los torneos ") + quoted;
     }
 
     @Transactional(readOnly = true)

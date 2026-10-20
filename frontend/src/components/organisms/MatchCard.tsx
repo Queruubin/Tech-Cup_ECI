@@ -48,7 +48,10 @@ function Score({ match }: { match: MatchResponse }) {
 }
 
 export function MatchCard({ match, highlightTeamId, actions, className }: MatchCardProps) {
-  const roundLabel = match.phase === 'GROUP' ? `Jornada ${match.roundNumber}` : MATCH_PHASE_LABELS[match.phase]
+  const roundLabel =
+    match.phase === 'GROUP'
+      ? `${match.group ? `${match.group.name} · ` : ''}Jornada ${match.roundNumber}`
+      : MATCH_PHASE_LABELS[match.phase]
   return (
     <article className={cn('rounded-2xl border border-stone-200 bg-white p-4 shadow-sm', className)}>
       <div className="mb-3 flex items-center justify-between gap-2 text-xs text-stone-500">

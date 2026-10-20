@@ -31,6 +31,7 @@ function makeMatch(overrides: Partial<MatchResponse> = {}): MatchResponse {
     tournamentId: 1,
     phase: 'GROUP',
     roundNumber: 1,
+    group: null,
     homeTeam: HOME,
     awayTeam: AWAY,
     venue: { id: 1, name: 'Cancha norte' },

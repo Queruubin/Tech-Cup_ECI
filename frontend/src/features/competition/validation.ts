@@ -92,10 +92,26 @@ export function goalsFor(events: ResultEventDraft[], side: MatchSide): number {
 }
 
 /**
- * Validates the result form. The core rule (docs/ARCHITECTURE.md 3.4, competition):
- * the goal events of each team must match that team's score.
+ * The score of one team does not match the goals recorded for it. Same wording as the backend
+ * (`MatchService.goalMismatch`): it says whether scorers are missing or left over, and what to do.
  */
-export function validateResult(values: ResultFormValues, phase: MatchPhase): ResultValidation {
+export function goalMismatchMessage(side: 'home' | 'away', teamName: string | undefined, score: number, goals: number): string {
+  const team = `del equipo ${side === 'home' ? 'local' : 'visitante'}${teamName ? ` '${teamName}'` : ''}`
+  const facts = `el marcador indica ${score} ${score === 1 ? 'gol' : 'goles'} y hay ${goals} ${goals === 1 ? 'registrado' : 'registrados'}`
+  return goals < score
+    ? `Faltan goleadores ${team}: ${facts}. Registre qué jugador marcó cada gol.`
+    : `Sobran goleadores ${team}: ${facts}. Quite los goles de más o corrija el marcador.`
+}
+
+/**
+ * Validates the result form. The core rule (docs/ARCHITECTURE.md 3.4, competition):
+ * the goal events of each team must match that team's score (every goal needs its scorer).
+ */
+export function validateResult(
+  values: ResultFormValues,
+  phase: MatchPhase,
+  teamNames?: { home: string; away: string },
+): ResultValidation {
   const errors: Partial<Record<ResultScoreField, string>> = {}
   const eventErrors: Record<string, string> = {}
 
@@ -128,10 +144,10 @@ export function validateResult(values: ResultFormValues, phase: MatchPhase): Res
   const homeGoals = goalsFor(values.events, 'home')
   const awayGoals = goalsFor(values.events, 'away')
   if (homeScore !== null && homeGoals !== homeScore) {
-    errors.homeScore = `Los goles registrados para el equipo local (${homeGoals}) no coinciden con el marcador (${homeScore}).`
+    errors.homeScore = goalMismatchMessage('home', teamNames?.home, homeScore, homeGoals)
   }
   if (awayScore !== null && awayGoals !== awayScore) {
-    errors.awayScore = `Los goles registrados para el equipo visitante (${awayGoals}) no coinciden con el marcador (${awayScore}).`
+    errors.awayScore = goalMismatchMessage('away', teamNames?.away, awayScore, awayGoals)
   }
 
   const knockout = isKnockoutPhase(phase)

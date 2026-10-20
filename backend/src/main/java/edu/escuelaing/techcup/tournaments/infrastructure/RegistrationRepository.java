@@ -24,6 +24,20 @@ public interface RegistrationRepository extends JpaRepository<Registration, Long
     /** Most recent registration of a team for a tournament, whatever its status. */
     Optional<Registration> findFirstByTournamentIdAndTeamIdOrderByIdDesc(Long tournamentId, Long teamId);
 
+    /** Names of the tournaments where the team has a registration in one of {@code statuses}. */
+    @Query("""
+            SELECT DISTINCT r.tournament.name FROM Registration r
+            WHERE r.team.id = :teamId AND r.status IN :statuses
+            """)
+    List<String> findTournamentNamesOfTeamByStatus(@Param("teamId") Long teamId,
+                                                   @Param("statuses") Collection<RegistrationStatus> statuses);
+
+    List<Registration> findByTeamIdAndStatusIn(Long teamId, Collection<RegistrationStatus> statuses);
+
+    /** The payment receipts of every registration of a tournament, whatever their status. */
+    @Query("SELECT r.receiptFileId FROM Registration r WHERE r.tournament.id = :tournamentId")
+    List<String> findReceiptFileIdsByTournamentId(@Param("tournamentId") Long tournamentId);
+
     /** Ids of the teams taking part in the tournament, in registration order. */
     @Query("""
             SELECT r.team.id FROM Registration r

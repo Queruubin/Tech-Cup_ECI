@@ -62,7 +62,12 @@ export function MyTeamPage() {
   const { user, refreshMe } = useAuth()
   const teamQuery = useMyTeam()
   const team = teamQuery.data
-  const view = selectMyTeamView({ team, userId: user?.id ?? null, hasProfile: !!user?.hasProfile })
+  const view = selectMyTeamView({
+    team,
+    userId: user?.id ?? null,
+    hasProfile: !!user?.hasProfile,
+    isPlayer: !!user?.roles.includes('PLAYER'),
+  })
   // Captain-only data: members of someone else's team must not request it.
   const captainTeamId = view === 'captain' && team ? team.id : null
   const eligibilityQuery = useEligibility(captainTeamId)
@@ -187,6 +192,17 @@ export function MyTeamPage() {
   const pendingBusy = removeMember.loading || inactivateTeam.loading || resolveRequest.loading || cancelInvitation.loading
 
   const renderContent = () => {
+    if (view === 'not-player') {
+      return (
+        <>
+          <PageHeader title="Mi equipo" description="Todavía no pertenece a un equipo." />
+          <Alert kind="info" className="max-w-xl" title="Se requiere el rol de jugador">
+            Solo los usuarios con rol de jugador pueden crear un equipo o unirse a uno.
+          </Alert>
+        </>
+      )
+    }
+
     if (view === 'needs-profile') {
       return (
         <>

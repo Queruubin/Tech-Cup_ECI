@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,6 +21,7 @@ import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.exception.ForbiddenOperationException;
+import edu.escuelaing.techcup.shared.storage.FileDeletionScheduler;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.teams.api.dto.CreateTeamRequest;
 import edu.escuelaing.techcup.teams.api.dto.UpdateTeamRequest;
@@ -27,11 +29,13 @@ import edu.escuelaing.techcup.teams.application.MemberProfilePort.MemberProfile;
 import edu.escuelaing.techcup.teams.domain.Team;
 import edu.escuelaing.techcup.teams.domain.TeamStatus;
 import edu.escuelaing.techcup.teams.infrastructure.TeamRepository;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -56,6 +60,12 @@ class TeamServiceTest {
     private TeamLockPort teamLock;
     @Mock
     private TeamJoinRequestPort joinRequests;
+    @Mock
+    private TeamMatchPort teamMatches;
+    @Mock
+    private TeamRegistrationPort teamRegistrations;
+    @Mock
+    private FileDeletionScheduler fileDeletion;
     @Mock
     private TeamResponseAssembler assembler;
     @Mock
@@ -272,6 +282,72 @@ class TeamServiceTest {
         assertThatThrownBy(() -> service.removeMember(CAPTAIN, 5L, 20L))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("capitán");
+    }
+
+    // --- create: only real players -------------------------------------------------------------
+
+    @Test
+    void anAdminWithoutThePlayerRoleCannotCreateATeam() {
+        assertThatThrownBy(() -> service.create(ADMIN, new CreateTeamRequest("Tigers", "orange")))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessageContaining("rol de jugador");
+        verify(teams, never()).save(any());
+    }
+
+    // --- delete --------------------------------------------------------------------------------
+
+    @Test
+    void onlyAnAdminCanDeleteATeam() {
+        assertThatThrownBy(() -> service.delete(CAPTAIN, 5L))
+                .isInstanceOf(ForbiddenOperationException.class);
+        verify(teams, never()).delete(any());
+    }
+
+    @Test
+    void aTeamThatPlaysAMatchCannotBeDeleted() {
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(teamWithCaptain()));
+        when(teamMatches.tournamentsWithMatchesOf(5L)).thenReturn(List.of("TechCup 2026-1"));
+
+        assertThatThrownBy(() -> service.delete(ADMIN, 5L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("tiene partidos en el torneo «TechCup 2026-1»")
+                .hasMessageContaining("Elimine primero ese torneo");
+        verify(teams, never()).delete(any());
+        verify(teamRegistrations, never()).deleteClosedRegistrationsOf(any());
+    }
+
+    @Test
+    void aTeamWithALiveRegistrationCannotBeDeleted() {
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(teamWithCaptain()));
+        when(teamMatches.tournamentsWithMatchesOf(5L)).thenReturn(List.of());
+        when(teamRegistrations.tournamentsWithLiveRegistrationOf(5L)).thenReturn(List.of("A", "B"));
+
+        assertThatThrownBy(() -> service.delete(ADMIN, 5L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("inscripción en revisión o aprobada en los torneos «A», «B»");
+        verify(teams, never()).delete(any());
+    }
+
+    @Test
+    void deletingATeamRemovesItsClosedRegistrationsAndReceiptsAfterCommitAndRevokesCaptain() {
+        Team team = teamWithCaptain();
+        team.addMember(user(21L));
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
+        when(teamMatches.tournamentsWithMatchesOf(5L)).thenReturn(List.of());
+        when(teamRegistrations.tournamentsWithLiveRegistrationOf(5L)).thenReturn(List.of());
+        when(teamRegistrations.deleteClosedRegistrationsOf(5L)).thenReturn(List.of("receipt-1", "receipt-2"));
+
+        service.delete(ADMIN, 5L);
+
+        verify(fileDeletion).deleteAfterCommit("receipt-1");
+        verify(fileDeletion).deleteAfterCommit("receipt-2");
+        // The delete is flushed before the captain check, which queries the database.
+        InOrder order = inOrder(teams, roleService);
+        order.verify(teams).delete(team);
+        order.verify(teams).flush();
+        order.verify(roleService).revokeCaptainForDeletedTeam(1L, 20L, 5L);
+        verify(auditService).record(1L, AuditAction.TEAM_DELETED, "TEAM", 5L,
+                Map.of("name", "Tigers", "members", 2, "deletedRegistrations", 2));
     }
 
     private static Team teamWithCaptain() {

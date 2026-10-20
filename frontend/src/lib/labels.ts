@@ -30,6 +30,25 @@ export const ROLE_LABELS: Record<Role, string> = {
   ADMIN: 'Administrador',
 }
 
+/** Most to least significant: the role shown when there is room for only one. */
+const ROLE_PRIORITY: Role[] = ['ADMIN', 'ORGANIZER', 'REFEREE', 'CAPTAIN', 'PLAYER', 'GUEST']
+
+export interface RoleSummary {
+  /** Label of the most significant role, or null when the user has none. */
+  primary: string | null
+  /** How many other roles are hidden behind "+N". */
+  extra: number
+  /** Every role, for the tooltip and screen readers. */
+  full: string
+}
+
+/** Compacts the role list for the header: the main role plus a "+N" counter. */
+export function summarizeRoles(roles: Role[]): RoleSummary {
+  const sorted = [...roles].sort((a, b) => ROLE_PRIORITY.indexOf(a) - ROLE_PRIORITY.indexOf(b))
+  const labels = sorted.map((role) => ROLE_LABELS[role])
+  return { primary: labels[0] ?? null, extra: Math.max(labels.length - 1, 0), full: labels.join(' · ') }
+}
+
 export const INITIAL_ROLE_LABELS: Record<InitialRole, string> = {
   PLAYER: 'Jugador',
   GUEST: 'Invitado',
@@ -92,6 +111,7 @@ export const TOURNAMENT_STATUS_LABELS: Record<TournamentStatus, string> = {
   ACTIVE: 'Activo',
   IN_PROGRESS: 'En progreso',
   FINISHED: 'Finalizado',
+  SUSPENDED: 'Suspendido',
 }
 
 export const REGISTRATION_STATUS_LABELS: Record<RegistrationStatus, string> = {
@@ -159,12 +179,15 @@ export const AUDIT_ACTION_LABELS: Record<KnownAuditAction, string> = {
   TEAM_UPDATED: 'Actualización de equipo',
   TEAM_MEMBER_REMOVED: 'Retiro de integrante',
   TEAM_INACTIVATED: 'Inactivación de equipo',
+  TEAM_DELETED: 'Eliminación de equipo',
   TOURNAMENT_CREATED: 'Creación de torneo',
   TOURNAMENT_UPDATED: 'Actualización de torneo',
   TOURNAMENT_DELETED: 'Eliminación de torneo',
   TOURNAMENT_ACTIVATED: 'Activación de torneo',
   TOURNAMENT_STARTED: 'Inicio de torneo',
   TOURNAMENT_FINISHED: 'Finalización de torneo',
+  TOURNAMENT_SUSPENDED: 'Suspensión de torneo',
+  TOURNAMENT_RESUMED: 'Reanudación de torneo',
   RULEBOOK_UPLOADED: 'Reglamento cargado',
   VENUE_CREATED: 'Creación de cancha',
   VENUE_DELETED: 'Eliminación de cancha',
@@ -180,6 +203,12 @@ export const AUDIT_ACTION_LABELS: Record<KnownAuditAction, string> = {
   MATCH_REOPENED: 'Partido reabierto',
   PHASE_UNDONE: 'Fase deshecha',
   LINEUP_SAVED: 'Alineación guardada',
+  GROUP_CREATED: 'Grupo creado',
+  GROUP_DELETED: 'Grupo eliminado',
+  GROUP_TEAM_ASSIGNED: 'Equipo asignado a un grupo',
+  GROUP_TEAM_REMOVED: 'Equipo quitado de un grupo',
+  MATCH_CREATED: 'Partido creado',
+  KNOCKOUT_CREATED: 'Eliminatoria armada',
 }
 
 export function auditActionLabel(action: string): string {

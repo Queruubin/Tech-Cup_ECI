@@ -32,7 +32,7 @@ public interface UserFactsQuery extends Repository<AppUser, Long> {
                 JOIN tournaments t ON t.id = r.tournament_id
                 WHERE tm.user_id = :userId
                   AND r.status = 'APPROVED'
-                  AND t.status IN ('ACTIVE', 'IN_PROGRESS')
+                  AND t.status IN ('ACTIVE', 'IN_PROGRESS', 'SUSPENDED')
             )
             """, nativeQuery = true)
     boolean isLockedByTournament(@Param("userId") Long userId);

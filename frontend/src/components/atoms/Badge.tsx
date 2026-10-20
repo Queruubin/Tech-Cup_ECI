@@ -72,6 +72,7 @@ const TOURNAMENT_TONES: Record<TournamentStatus, BadgeTone> = {
   ACTIVE: 'success',
   IN_PROGRESS: 'accent',
   FINISHED: 'neutral',
+  SUSPENDED: 'warning',
 }
 const REGISTRATION_TONES: Record<RegistrationStatus, BadgeTone> = {
   UNDER_REVIEW: 'warning',

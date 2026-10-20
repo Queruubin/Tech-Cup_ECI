@@ -11,6 +11,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.core.convert.ConversionFailedException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -71,6 +72,7 @@ public class GlobalExceptionHandler {
     public static final String ACCESS_DENIED = "No tiene permiso para realizar esta acción.";
     static final String CONCURRENT_MODIFICATION =
             "La información fue modificada por otra persona mientras usted la editaba. Intente de nuevo.";
+    static final String LOCK_FAILURE = "La operación coincidió con otra al mismo tiempo. Intente de nuevo.";
     static final String UNSUPPORTED_MEDIA_TYPE = "El formato de la solicitud no es compatible con esta operación.";
     static final String NOT_ACCEPTABLE = "El formato de respuesta solicitado no está disponible para esta operación.";
     static final String INVALID_MULTIPART =
@@ -258,6 +260,20 @@ public class GlobalExceptionHandler {
                                                            HttpServletRequest request) {
         log.info("Concurrent modification on {} {}", request.getMethod(), request.getRequestURI());
         return respond(HttpStatus.CONFLICT, CONCURRENT_MODIFICATION, request, null);
+    }
+
+    /**
+     * A row lock that could not be taken: a deadlock (Postgres picked this transaction as the
+     * victim) or a lock timeout, e.g. deleting a team while a join request to it is being
+     * answered. Nothing was written (the transaction rolled back), so the client may just retry.
+     * Spring translates both ({@code CannotAcquireLockException}, {@code DeadlockLoserDataAccessException})
+     * into subclasses of {@link PessimisticLockingFailureException}.
+     */
+    @ExceptionHandler(PessimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> lockFailure(PessimisticLockingFailureException ex, HttpServletRequest request) {
+        log.warn("Lock failure on {} {}: {}", request.getMethod(), request.getRequestURI(),
+                ex.getClass().getSimpleName());
+        return respond(HttpStatus.CONFLICT, LOCK_FAILURE, request, null);
     }
 
     @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})

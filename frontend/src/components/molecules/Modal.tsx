@@ -67,11 +67,12 @@ export function Modal({ open, onClose, title, description, children, footer, siz
         aria-labelledby={titleId}
         tabIndex={-1}
         className={cn(
-          'relative m-0 w-full rounded-t-2xl bg-white shadow-xl sm:m-4 sm:rounded-2xl',
+          // Tall content (e.g. a long form on a phone) scrolls inside the dialog instead of overflowing the screen.
+          'relative m-0 flex max-h-[100dvh] w-full flex-col rounded-t-2xl bg-white shadow-xl sm:m-4 sm:max-h-[calc(100dvh-2rem)] sm:rounded-2xl',
           SIZE_CLASSES[size],
         )}
       >
-        <header className="flex items-start justify-between gap-4 px-5 pt-5">
+        <header className="flex shrink-0 items-start justify-between gap-4 px-5 pt-5">
           <div>
             <h2 id={titleId} className="text-lg font-semibold text-ink">
               {title}
@@ -89,8 +90,10 @@ export function Modal({ open, onClose, title, description, children, footer, siz
             </svg>
           </button>
         </header>
-        {children && <div className="px-5 py-4">{children}</div>}
-        {footer && <footer className="flex flex-col-reverse gap-2 px-5 pb-5 sm:flex-row sm:justify-end">{footer}</footer>}
+        {children && <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>}
+        {footer && (
+          <footer className="flex shrink-0 flex-col-reverse gap-2 px-5 pb-5 sm:flex-row sm:justify-end">{footer}</footer>
+        )}
       </div>
     </div>,
     document.body,

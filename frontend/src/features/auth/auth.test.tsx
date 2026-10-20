@@ -5,6 +5,7 @@ import { todayIso } from '@/lib/format'
 import { ChangePasswordForm } from './components/ChangePasswordForm'
 import {
   EMPTY_REGISTER_VALUES,
+  PASSWORD_MAX_BYTES_ERROR,
   PASSWORD_UPPERCASE_AND_DIGIT_ERROR,
   PLAYER_AGE_ERROR,
   ageInFullYears,
@@ -136,6 +137,18 @@ describe('validateNewPassword', () => {
 
   it('uses the same message as the backend', () => {
     expect(PASSWORD_UPPERCASE_AND_DIGIT_ERROR).toBe('La contraseña debe incluir al menos una letra mayúscula y un número.')
+    expect(PASSWORD_MAX_BYTES_ERROR).toBe(
+      'La contraseña no puede ocupar más de 72 bytes: algunos caracteres especiales o emojis cuentan doble.',
+    )
+  })
+
+  it('rejects up to 72 characters that take more than 72 UTF-8 bytes (BCrypt limit)', () => {
+    // 72 characters, 73 bytes: "Ñ" takes two.
+    expect(validateNewPassword(`Ñ1${'a'.repeat(70)}`)).toBe(PASSWORD_MAX_BYTES_ERROR)
+    // 72 UTF-16 units (35 emojis), 142 bytes.
+    expect(validateNewPassword(`C1${'😀'.repeat(35)}`)).toBe(PASSWORD_MAX_BYTES_ERROR)
+    // Exactly 72 bytes is fine.
+    expect(validateNewPassword(`Ñ1${'a'.repeat(69)}`)).toBeUndefined()
   })
 })
 

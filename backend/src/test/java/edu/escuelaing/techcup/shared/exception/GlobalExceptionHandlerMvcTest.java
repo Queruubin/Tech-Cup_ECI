@@ -11,6 +11,8 @@ import edu.escuelaing.techcup.shared.config.TraceIdFilter;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -61,6 +63,16 @@ class GlobalExceptionHandlerMvcTest {
         String gone() {
             throw new ResponseStatusException(HttpStatus.GONE, "internal detail");
         }
+
+        @GetMapping("/probe/deadlock")
+        String deadlock() {
+            throw new CannotAcquireLockException("could not execute statement [ERROR: deadlock detected]");
+        }
+
+        @GetMapping("/probe/lock-timeout")
+        String lockTimeout() {
+            throw new PessimisticLockingFailureException("lock timeout");
+        }
     }
 
     @BeforeEach
@@ -68,6 +80,19 @@ class GlobalExceptionHandlerMvcTest {
         mvc = MockMvcBuilders.standaloneSetup(new ProbeController())
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
+    }
+
+    /** Regression: {@code DELETE /api/teams/{id}} racing a join request answered 500 on a Postgres deadlock. */
+    @Test
+    void aDeadlockOrLockFailureIsARetryableConflictWithTheTraceId() throws Exception {
+        for (String path : new String[]{"/probe/deadlock", "/probe/lock-timeout"}) {
+            mvc.perform(get(path).requestAttr(TraceIdFilter.ATTRIBUTE, TRACE_ID))
+                    .andExpect(status().isConflict())
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                    .andExpect(jsonPath("$.message").value(
+                            "La operación coincidió con otra al mismo tiempo. Intente de nuevo."))
+                    .andExpect(jsonPath("$.traceId").value(TRACE_ID));
+        }
     }
 
     /** Regression: {@code POST /api/auth/register} sent as text/plain answered 500. */

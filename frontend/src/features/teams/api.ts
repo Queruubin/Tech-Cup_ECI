@@ -17,6 +17,8 @@ export const teamsApi = {
   update: (id: number, payload: UpdateTeamRequest) => api.patch<TeamResponse>(`/teams/${id}`, payload),
   removeMember: (id: number, userId: number) => api.delete<TeamResponse>(`/teams/${id}/members/${userId}`),
   inactivate: (id: number) => api.post<TeamResponse>(`/teams/${id}/inactivate`),
+  /** ADMIN only: deletes the team for good (409 while it plays a match or holds a live registration). */
+  remove: (id: number) => api.delete<void>(`/teams/${id}`),
   eligibility: (id: number, signal?: AbortSignal) =>
     api.get<EligibilityResponse>(`/teams/${id}/eligibility`, undefined, signal),
 

@@ -39,7 +39,10 @@ function TeamBlock({
 export function MatchScoreboard({ match, highlightTeamId }: MatchScoreboardProps) {
   const played = match.status === 'PLAYED' && match.homeScore !== null && match.awayScore !== null
   const hasPenalties = match.homePenalties !== null && match.awayPenalties !== null
-  const roundLabel = match.phase === 'GROUP' ? `${MATCH_PHASE_LABELS.GROUP} · Jornada ${match.roundNumber}` : MATCH_PHASE_LABELS[match.phase]
+  const roundLabel =
+    match.phase === 'GROUP'
+      ? `${match.group ? match.group.name : MATCH_PHASE_LABELS.GROUP} · Jornada ${match.roundNumber}`
+      : MATCH_PHASE_LABELS[match.phase]
   const walkoverWinner = walkoverWinnerOf(match)
 
   return (

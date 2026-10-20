@@ -259,6 +259,7 @@ class RegistrationServiceTest {
     @Test
     void anApprovedRegistrationCannotBeRejected() {
         when(registrations.findById(9L)).thenReturn(Optional.of(registration(RegistrationStatus.APPROVED)));
+        givenLockedTournament(TournamentStatus.ACTIVE);
         lenient().when(userService.getUser(ORGANIZER.id())).thenReturn(user(ORGANIZER.id()));
 
         assertThatThrownBy(() -> service.reject(ORGANIZER, 9L, "too late"))
@@ -285,6 +286,7 @@ class RegistrationServiceTest {
     void theCaptainCancelsARegistrationUnderReview() {
         Registration registration = registration(RegistrationStatus.UNDER_REVIEW);
         when(registrations.findById(9L)).thenReturn(Optional.of(registration));
+        givenLockedTournament(TournamentStatus.ACTIVE);
 
         var response = service.cancel(CAPTAIN, 9L);
 
@@ -294,6 +296,7 @@ class RegistrationServiceTest {
     @Test
     void anApprovedRegistrationCannotBeCancelled() {
         when(registrations.findById(9L)).thenReturn(Optional.of(registration(RegistrationStatus.APPROVED)));
+        givenLockedTournament(TournamentStatus.ACTIVE);
 
         assertThatThrownBy(() -> service.cancel(CAPTAIN, 9L))
                 .isInstanceOf(BusinessRuleException.class)
@@ -307,6 +310,39 @@ class RegistrationServiceTest {
         assertThatThrownBy(() -> service.cancel(OTHER_MEMBER, 9L))
                 .isInstanceOf(ForbiddenOperationException.class)
                 .hasMessageContaining("capitán");
+    }
+
+    // --- suspended tournament -----------------------------------------------------------------
+
+    @Test
+    void registrationIsRefusedWhileTheTournamentIsSuspended() {
+        givenTournament(TournamentStatus.SUSPENDED, TODAY.plusDays(5), 8);
+
+        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("está suspendido")
+                .hasMessageContaining("inscribir equipos");
+        verify(fileStorage, never()).store(any(), any(), any());
+    }
+
+    @Test
+    void approvingRejectingAndCancellingAreRefusedWhileTheTournamentIsSuspended() {
+        when(registrations.findById(9L)).thenReturn(Optional.of(registration(RegistrationStatus.UNDER_REVIEW)));
+        when(tournamentService.requireTournamentForUpdate(1L))
+                .thenReturn(tournament(TournamentStatus.SUSPENDED, TODAY.plusDays(5), 8));
+
+        assertThatThrownBy(() -> service.approve(ORGANIZER, 9L, null))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("aprobar inscripciones");
+        assertThatThrownBy(() -> service.reject(ORGANIZER, 9L, null))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("rechazar inscripciones");
+        assertThatThrownBy(() -> service.cancel(CAPTAIN, 9L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("cancelar inscripciones");
+        assertThatThrownBy(() -> service.remove(ORGANIZER, 9L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("retirar equipos");
     }
 
     // --- helpers ------------------------------------------------------------------------------

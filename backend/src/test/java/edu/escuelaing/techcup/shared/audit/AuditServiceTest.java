@@ -1,12 +1,15 @@
 package edu.escuelaing.techcup.shared.audit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import edu.escuelaing.techcup.shared.exception.InvalidRequestException;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 
 /** The administrator's audit query, in particular pages made only of anonymous events. */
 @ExtendWith(MockitoExtension.class)
@@ -54,6 +58,27 @@ class AuditServiceTest {
         List<AuditLogResponse> page = service.query(null, 10);
 
         assertThat(page).extracting(AuditLogResponse::actorName).containsExactly("Ana Organizadora", null);
+    }
+
+    @Test
+    void aLimitOutsideOneToFiveHundredIsRefused() {
+        for (int limit : new int[]{-1, 0, 501}) {
+            assertThatThrownBy(() -> service.query(null, limit))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessage("El límite debe estar entre 1 y 500.");
+        }
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void theBoundsOfTheLimitAreAccepted() {
+        when(repository.findAllByOrderByCreatedAtDesc(any())).thenReturn(List.of());
+
+        service.query(null, 1);
+        service.query(null, 500);
+
+        verify(repository).findAllByOrderByCreatedAtDesc(PageRequest.of(0, 1));
+        verify(repository).findAllByOrderByCreatedAtDesc(PageRequest.of(0, 500));
     }
 
     private static AuditLog log(Long id, Long actorId, AuditAction action) {

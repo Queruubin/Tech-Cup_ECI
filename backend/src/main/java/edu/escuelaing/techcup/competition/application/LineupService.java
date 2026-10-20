@@ -74,6 +74,11 @@ public class LineupService {
         // concurrent edit is removing from the match.
         Match match = matchService.requireMatchLockingTournament(matchId);
         Team team = requireCaptainOfAPlayingTeam(actor, match);
+        match.getTournament().requireNotSuspended("enviar alineaciones");
+        if (!match.isTournamentInProgress()) {
+            throw new BusinessRuleException("Solo se pueden enviar alineaciones mientras el torneo esté en progreso; "
+                    + "su estado actual es «" + match.getTournament().getStatus().label() + "».");
+        }
         requireBeforeKickOff(match);
 
         Set<Long> starterIds = new LinkedHashSet<>(request.starterIds());
@@ -110,7 +115,7 @@ public class LineupService {
 
     @Transactional(readOnly = true)
     public Optional<LineupResponse> find(AuthenticatedUser actor, Long matchId, Long teamId) {
-        Match match = matchService.requireMatch(matchId);
+        Match match = matchService.requireVisibleMatch(matchId, actor);
         requireCanSeeLineup(actor, match, teamId);
         return lineups.findByMatchIdAndTeamId(matchId, teamId).map(this::toResponse);
     }

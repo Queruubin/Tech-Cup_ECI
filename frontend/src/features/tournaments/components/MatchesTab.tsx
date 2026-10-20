@@ -36,7 +36,7 @@ export function MatchesTab({ tournamentId, highlightTeamId }: { tournamentId: nu
       </div>
       <QueryState loading={loading} error={error} onRetry={refetch}>
         {sorted.length === 0 ? (
-          <EmptyState title="Sin partidos" description="Los partidos aparecerán cuando el organizador genere el fixture." />
+          <EmptyState title="Sin partidos" description="Los partidos aparecerán cuando el organizador los programe." />
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {sorted.map((match) => (

@@ -7,6 +7,7 @@ import edu.escuelaing.techcup.competition.domain.Match;
 import edu.escuelaing.techcup.competition.domain.MatchEvent;
 import edu.escuelaing.techcup.competition.infrastructure.MatchEventRepository;
 import edu.escuelaing.techcup.competition.infrastructure.MatchRepository;
+import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.teams.domain.Team;
 import edu.escuelaing.techcup.tournaments.application.TournamentService;
 import java.time.Instant;
@@ -49,8 +50,8 @@ public class StatsService {
     }
 
     @Transactional(readOnly = true)
-    public List<TopScorerRow> topScorers(Long tournamentId) {
-        tournamentService.requireTournament(tournamentId);
+    public List<TopScorerRow> topScorers(Long tournamentId, AuthenticatedUser viewer) {
+        tournamentService.requireVisible(tournamentId, viewer);
         return events.findTopScorers(tournamentId).stream()
                 .map(row -> new TopScorerRow((Long) row[0], (String) row[1], (Long) row[2], (String) row[3],
                         ((Number) row[4]).longValue()))
@@ -59,11 +60,11 @@ public class StatsService {
 
     /**
      * Players of either team who may not play {@code matchId} because of what happened in their
-     * team's previous played match.
+     * team's previous played match. 404 when the tournament is suspended and the viewer is not staff.
      */
     @Transactional(readOnly = true)
-    public List<SanctionedPlayerRow> sanctionedPlayers(Long matchId) {
-        Match match = matchService.requireMatch(matchId);
+    public List<SanctionedPlayerRow> sanctionedPlayers(Long matchId, AuthenticatedUser viewer) {
+        Match match = matchService.requireVisibleMatch(matchId, viewer);
         Long tournamentId = match.getTournament().getId();
 
         List<SanctionedPlayerRow> rows = new ArrayList<>();

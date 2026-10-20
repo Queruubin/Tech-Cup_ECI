@@ -5,29 +5,18 @@ import { PageHeader } from '@/components/molecules/PageHeader'
 import { QueryState } from '@/components/molecules/QueryState'
 import { Tabs, type TabItem } from '@/components/molecules/Tabs'
 import { BracketView } from '@/components/organisms/BracketView'
-import { StandingsTable } from '@/components/organisms/StandingsTable'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { formatDate } from '@/lib/format'
 import { CaptainRegistration } from '../components/CaptainRegistration'
 import { InfoTab } from '../components/InfoTab'
 import { MatchesTab } from '../components/MatchesTab'
 import { OrganizerPanel } from '../components/OrganizerPanel'
+import { StandingsTab } from '../components/StandingsTab'
 import { StatsTab } from '../components/StatsTab'
-import { useBracket, useStandings, useTournament } from '../hooks/useTournaments'
-import { qualifierCount } from '../qualifiers'
+import { useBracket, useTournament } from '../hooks/useTournaments'
 
 type TabId = 'info' | 'standings' | 'bracket' | 'matches' | 'stats' | 'register' | 'manage'
 const TAB_IDS: TabId[] = ['info', 'standings', 'bracket', 'matches', 'stats', 'register', 'manage']
-
-function StandingsTab({ tournamentId, highlightTeamId }: { tournamentId: number; highlightTeamId: number | null }) {
-  const { data, loading, error, refetch } = useStandings(tournamentId)
-  return (
-    <QueryState loading={loading} error={error} onRetry={refetch}>
-      <StandingsTable rows={data ?? []} highlightTeamId={highlightTeamId} qualifiedCount={qualifierCount(data?.length ?? 0)} />
-      <p className="mt-2 text-xs text-stone-500">PJ: jugados · PG: ganados · PE: empatados · PP: perdidos · GF/GC: goles a favor/en contra · DG: diferencia · Pts: puntos.</p>
-    </QueryState>
-  )
-}
 
 function BracketTab({ tournamentId }: { tournamentId: number }) {
   const { data, loading, error, refetch } = useBracket(tournamentId)
@@ -41,13 +30,14 @@ function BracketTab({ tournamentId }: { tournamentId: number }) {
 export function TournamentDetailPage() {
   const params = useParams<{ id: string }>()
   const tournamentId = params.id && /^\d+$/.test(params.id) ? Number(params.id) : null
-  const { user, hasRole } = useAuth()
+  const { user, hasRole, hasExactRole } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const query = useTournament(tournamentId)
   const tournament = query.data
 
   const isOrganizer = hasRole('ORGANIZER')
-  const isCaptain = hasRole('CAPTAIN')
+  // Registering is personal: the captain's own team. ADMIN does not imply it (it has no team).
+  const isCaptain = hasExactRole('CAPTAIN')
 
   if (tournamentId === null) {
     return <EmptyState title="Torneo no encontrado" description="El identificador del torneo no es válido." />
@@ -99,6 +89,7 @@ export function TournamentDetailPage() {
           {active === 'manage' && isOrganizer && (
             <OrganizerPanel
               tournament={tournament}
+              canHardDelete={hasRole('ADMIN')}
               onUpdated={(update) =>
                 query.setData((previous) => (typeof update === 'function' ? (previous ? update(previous) : previous) : update))
               }

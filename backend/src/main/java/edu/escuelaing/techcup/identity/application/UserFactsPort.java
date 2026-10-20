@@ -12,7 +12,10 @@ public interface UserFactsPort {
 
     Optional<Long> activeTeamIdOf(Long userId);
 
-    /** True when the user belongs to a team with an APPROVED registration in an ACTIVE or IN_PROGRESS tournament. */
+    /**
+     * True when the user belongs to a team with an APPROVED registration in an ACTIVE, IN_PROGRESS or
+     * SUSPENDED tournament.
+     */
     boolean isLockedByTournament(Long userId);
 
     /** True when the user is the captain of a team whose status is ACTIVE. */

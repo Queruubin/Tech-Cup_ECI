@@ -4,6 +4,7 @@ import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.shared.security.CurrentUser;
 import edu.escuelaing.techcup.tournaments.api.dto.CreateTournamentRequest;
+import edu.escuelaing.techcup.tournaments.api.dto.HardDeleteTournamentRequest;
 import edu.escuelaing.techcup.tournaments.api.dto.RegistrationResponse;
 import edu.escuelaing.techcup.tournaments.api.dto.TournamentResponse;
 import edu.escuelaing.techcup.tournaments.api.dto.UpdateTournamentRequest;
@@ -52,9 +53,9 @@ public class TournamentController {
     // --- public reads --------------------------------------------------------------------
 
     @GetMapping
-    @Operation(summary = "All tournaments, most recent first")
-    public List<TournamentResponse> list() {
-        return tournamentService.list();
+    @Operation(summary = "All tournaments, most recent first (suspended ones only for ADMIN/ORGANIZER)")
+    public List<TournamentResponse> list(@CurrentUser(required = false) AuthenticatedUser viewer) {
+        return tournamentService.list(viewer);
     }
 
     @GetMapping("/current")
@@ -65,13 +66,15 @@ public class TournamentController {
     }
 
     @GetMapping("/{id}")
-    public TournamentResponse get(@PathVariable Long id) {
-        return tournamentService.get(id);
+    @Operation(summary = "One tournament (a suspended one is 404 except for ADMIN/ORGANIZER)")
+    public TournamentResponse get(@PathVariable Long id, @CurrentUser(required = false) AuthenticatedUser viewer) {
+        return tournamentService.get(id, viewer);
     }
 
     @GetMapping("/{id}/venues")
-    public List<VenueResponse> venues(@PathVariable Long id) {
-        return tournamentService.venuesOf(id);
+    public List<VenueResponse> venues(@PathVariable Long id,
+                                      @CurrentUser(required = false) AuthenticatedUser viewer) {
+        return tournamentService.venuesOf(id, viewer);
     }
 
     // --- organizer lifecycle ---------------------------------------------------------------
@@ -120,6 +123,29 @@ public class TournamentController {
     @Operation(summary = "IN_PROGRESS -> FINISHED (end date reached or final match played)")
     public TournamentResponse finish(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
         return tournamentService.finish(actor, id);
+    }
+
+    @PostMapping("/{id}/suspend")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ORGANIZER')")
+    @Operation(summary = "DRAFT|ACTIVE|IN_PROGRESS -> SUSPENDED (hidden and frozen until resumed)")
+    public TournamentResponse suspend(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
+        return tournamentService.suspend(actor, id);
+    }
+
+    @PostMapping("/{id}/resume")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ORGANIZER')")
+    @Operation(summary = "SUSPENDED -> the status it was suspended from")
+    public TournamentResponse resume(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
+        return tournamentService.resume(actor, id);
+    }
+
+    @PostMapping("/{id}/hard-delete")
+    @PreAuthorize("hasRole('ADMIN')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Delete a tournament in any status with everything it owns (ADMIN; confirmName must match)")
+    public void hardDelete(@CurrentUser AuthenticatedUser actor, @PathVariable Long id,
+                           @Valid @RequestBody HardDeleteTournamentRequest request) {
+        tournamentService.hardDelete(actor, id, request.confirmName());
     }
 
     @PostMapping(value = "/{id}/rulebook", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

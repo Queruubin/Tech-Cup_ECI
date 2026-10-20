@@ -60,14 +60,16 @@ Every domain module uses the same four layers:
 ```
 
 Every public mutating method of an `application/*Service` is `@Transactional`, so a use case that
-fails part-way (a result plus its events plus the knockout propagation, generate/advance/undo-phase,
+fails part-way (a result plus its events plus the knockout propagation and the automatic next round,
+group/knockout creation, advance/undo-phase,
 an invitation acceptance) rolls back entirely; audit rows join the same transaction. The one
 exception is `AuthService.login`: it is deliberately not transactional (each repository call and
 audit write gets its own short transaction), so a burst of failed logins cannot hold one pooled
 connection per attempt while the detached `LOGIN_FAILED` audit asks for a second one.
 Tournament-wide use cases serialise on the tournament row (`TournamentService.requireTournamentForUpdate`,
-`SELECT ... FOR UPDATE`): generate, advance, undo-phase, finish, registration approval, and every
-match mutation (update, cancel, result, reopen), which locks the tournament before reading the match.
+`SELECT ... FOR UPDATE`): group changes and group-match creation, knockout creation, advance,
+undo-phase, finish, registration approval, and every match mutation (update, cancel, result, reopen),
+which locks the tournament before reading the match.
 
 Rule of thumb: controllers never touch repositories; services never build HTTP responses;
 domain never imports `org.springframework.web`. Cross-module calls go through the other
@@ -83,7 +85,7 @@ models would double the code for a semester project with no benefit.
   `SecurityContext`. Inactive users are rejected with 401.
 - Method security with `@PreAuthorize("hasRole('ORGANIZER')")` etc. Roles: `GUEST, PLAYER, CAPTAIN, ORGANIZER, REFEREE, ADMIN`.
   A user can hold several roles (`user_roles` table). `ADMIN` implies everything (role hierarchy).
-- Passwords: BCrypt. Every request that sets a password (register, referee creation, self-service change, admin reset) requires 8–72 characters with at least one uppercase letter and one digit (`PasswordRules`); login does not re-validate, so older passwords keep working. `ADMIN_PASSWORD` is not validated against this rule.
+- Passwords: BCrypt. Every request that sets a password (register, referee creation, self-service change, admin reset) requires 8–72 characters that also fit in 72 UTF-8 bytes (BCrypt's limit; `@MaxUtf8Bytes`, 400 "La contraseña no puede ocupar más de 72 bytes…") with at least one uppercase letter and one digit (`PasswordRules`); login does not re-validate, so older passwords keep working. `ADMIN_PASSWORD` is not validated against this rule.
 - E-mail: any address may register; there is no domain rule for any school relation or role.
 - Player age: the PLAYER role is limited to ages `app.player.min-age`..`app.player.max-age`
   (env `APP_PLAYER_MIN_AGE` / `APP_PLAYER_MAX_AGE`, default 5..100, inclusive, full years computed
@@ -98,7 +100,7 @@ models would double the code for a semester project with no benefit.
 - Personal data (`email`, `birthDate`, `documentType`, `documentNumber`) is returned only to the user themself or an ADMIN (`UserService.toResponse(user, viewer)`); organizers get the e-mail in `GET /admin/users` and `GET /organizer/referees` only. `GET /players` and `GET /players/{id}/profile` require CAPTAIN or ORGANIZER.
 - Files: uploads are validated by magic bytes and stored with `kind` + owner metadata in GridFS; `GET /files/{id}` serves receipts only to ORGANIZER/ADMIN or the registering captain (`FileAccessPolicy` port implemented in `tournaments/infrastructure`), adds `X-Content-Type-Options: nosniff` and sends PDFs as attachments. Replaced/orphaned binaries are deleted after the DB transaction commits (`FileDeletionScheduler`), and a binary stored by a transaction that then rolls back (receipt, rulebook, venue image, photo) is deleted by `GridFsFileStorage` in an `afterCompletion(STATUS_ROLLED_BACK)` synchronization.
 
-### 3.3 Data model (PostgreSQL, Flyway `V1__schema.sql` + `V3__match_walkover.sql` + `V4__join_request_direction.sql` + `V5__pending_join_request_uniqueness.sql`)
+### 3.3 Data model (PostgreSQL, Flyway `V1__schema.sql` + `V3__match_walkover.sql` + `V4__join_request_direction.sql` + `V5__pending_join_request_uniqueness.sql` + `V6__tournament_suspension.sql` + `V7__tournament_groups.sql`)
 
 All ids are `BIGSERIAL`. Timestamps are `TIMESTAMPTZ`. Enums are `VARCHAR` with CHECK constraints
 (mapped as `@Enumerated(EnumType.STRING)`).
@@ -143,7 +145,8 @@ join_requests
 
 tournaments
   id, name, start_date DATE, end_date DATE, registration_deadline DATE, max_teams INT, fee NUMERIC(12,2),
-  status DRAFT|ACTIVE|IN_PROGRESS|FINISHED, rulebook_file_id NULL, created_by FK, created_at, updated_at
+  status DRAFT|ACTIVE|IN_PROGRESS|FINISHED|SUSPENDED, suspended_from_status DRAFT|ACTIVE|IN_PROGRESS NULL
+  (set exactly while SUSPENDED), rulebook_file_id NULL, created_by FK, created_at, updated_at
 
 venues
   id, tournament_id FK, name, description, image_file_id NULL
@@ -153,8 +156,23 @@ registrations
   review_note NULL, reviewed_by NULL FK, created_at, reviewed_at NULL
   UNIQUE(tournament_id, team_id)
 
+tournament_groups                                  (V7, competition module)
+  id, tournament_id FK ON DELETE CASCADE, name ("Grupo A".."Grupo Z"), position INT (0-based, A = 0), created_at
+  UNIQUE(tournament_id, name), UNIQUE(tournament_id, position), UNIQUE(id, tournament_id)
+
+tournament_group_teams                             (V7) a team in a group
+  id, group_id, tournament_id, team_id FK, registration_id, assigned_at
+  FK (group_id, tournament_id) -> tournament_groups(id, tournament_id) ON DELETE CASCADE
+  FK (registration_id, tournament_id, team_id) -> registrations(id, tournament_id, team_id) ON DELETE CASCADE
+  UNIQUE(tournament_id, team_id)          -- one group per team and tournament
+  -- Hangs off the APPROVED registration instead of being a column of registrations: registrations
+  -- belong to the tournaments module, which must not know competition (one-way dependencies), and
+  -- removing a team before the start (registration row deleted) drops its assignment by cascade.
+
 matches
   id, tournament_id FK, phase GROUP|QUARTERFINAL|SEMIFINAL|FINAL, round_number INT,
+  group_id NULL (V7; FK (group_id, tournament_id) -> tournament_groups ON DELETE CASCADE,
+                 CHECK group_id IS NULL OR phase = 'GROUP'; NULL for knockout and legacy group matches),
   home_team_id FK, away_team_id FK, venue_id NULL FK, referee_user_id NULL FK,
   scheduled_at TIMESTAMPTZ NULL, status SCHEDULED|PLAYED|CANCELLED,
   home_score INT NULL, away_score INT NULL, home_penalties INT NULL, away_penalties INT NULL,
@@ -189,36 +207,45 @@ lineup_players (lineup_id FK, player_user_id FK, starter BOOLEAN) PK(lineup_id, 
 - Free-agent search: `GET /api/players?position=&available=true` returns players with a profile and no active team.
 
 **teams**
-- Create (any PLAYER): name unique, colors; the creator must not be in another ACTIVE team. The creator becomes first member (needs a sport profile; if none, 409 with clear message) and, in the same transaction, captain (CAPTAIN role granted if absent). Audit `TEAM_CREATED` (+ `ROLE_ASSIGNED`).
+- Create (any user who literally holds PLAYER; the ADMIN role hierarchy does not count, 403 otherwise): name unique, colors; the creator must not be in another ACTIVE team. The creator becomes first member (needs a sport profile; if none, 409 with clear message) and, in the same transaction, captain (CAPTAIN role granted if absent). Audit `TEAM_CREATED` (+ `ROLE_ASSIGNED`).
 - Update name/colors: forbidden if team has an APPROVED registration in an ACTIVE or IN_PROGRESS tournament. Audit `TEAM_UPDATED`.
 - Add member (`TeamService.addMember`, reached by request/invitation acceptance): refused while the team is locked, so its roster is frozen for the whole tournament.
 - Remove member: same lock; captain cannot remove themself. Audit `TEAM_MEMBER_REMOVED`.
 - Inactivate team (captain/admin): same lock. Cancels pending requests/invitations of the team, then revokes CAPTAIN from its captain. Audit `TEAM_INACTIVATED` (+ `ROLE_REMOVED`).
+- Delete (`DELETE /teams/{id}`, ADMIN only): 409 while the team appears in any match or holds an UNDER_REVIEW/APPROVED registration (delete — or suspend, then delete — that tournament first; `TeamMatchPort` / `TeamRegistrationPort`). Otherwise deletes the team, its memberships and join requests/invitations (FK cascade) and its REJECTED/CANCELLED registrations (receipts deleted after commit); players stay as users. The former captain loses CAPTAIN unless they still captain an ACTIVE team. Audit `TEAM_DELETED` (+ `ROLE_REMOVED` reason `TEAM_DELETED`).
 - Eligibility check (used at registration): 7 ≤ members ≤ 12; no duplicate jersey numbers; strictly more than half of members with `academic_program != OTHER`; every member has a sport profile.
 
 **tournaments**
 - Create (ORGANIZER): status DRAFT. Update fields only in DRAFT. Delete only in DRAFT. Audit `TOURNAMENT_*`.
-- Activate: DRAFT → ACTIVE (requires rulebook uploaded and ≥ 1 venue). Start: ACTIVE → IN_PROGRESS from the start date until the end date (`start_date <= today <= end_date`); requires ≥ 2 APPROVED registrations. Finish: IN_PROGRESS → FINISHED when the end date has been reached (`today >= end_date`, as implemented in `TournamentService.finish`) **or** the FINAL has decided the champion: PLAYED, or CANCELLED with a walkover winner (`FinalMatchAdapter`). Refused while SCHEDULED matches remain. Finish locks the tournament row like advance/generate.
+- Activate: DRAFT → ACTIVE (requires rulebook uploaded and ≥ 1 venue). Start: ACTIVE → IN_PROGRESS from the start date until the end date (`start_date <= today <= end_date`); requires ≥ 2 APPROVED registrations. Finish: IN_PROGRESS → FINISHED when the end date has been reached (`today >= end_date`, as implemented in `TournamentService.finish`) **or** the FINAL has decided the champion: PLAYED, or CANCELLED with a walkover winner (`FinalMatchAdapter`). Refused while SCHEDULED matches remain. Finish locks the tournament row like advance and knockout creation.
+- Suspend / resume (ADMIN or ORGANIZER, row locked): DRAFT, ACTIVE or IN_PROGRESS → SUSPENDED, remembering `suspended_from_status`; resume returns exactly there. FINISHED cannot be suspended. A SUSPENDED tournament is hidden from `GET /tournaments` and `GET /tournaments/{id}` (404) for everybody but ADMIN/ORGANIZER, is never "current", and refuses every change to itself, its registrations, matches, results and lineups (409 "El torneo «X» está suspendido: no se puede … hasta que un organizador o un administrador lo reanude."). Its approved teams stay locked. Audit `TOURNAMENT_SUSPENDED|RESUMED`.
+- Hard delete (`POST /tournaments/{id}/hard-delete` `{confirmName}`, ADMIN only, any status, row locked): `confirmName` must equal the name (400). Venues, registrations and matches (with events and lineups) go through the V1 `ON DELETE CASCADE` foreign keys; rulebook, venue images and receipts are deleted after commit. Teams stay (and are no longer locked). Audit rows are kept; audit `TOURNAMENT_DELETED` with `hardDelete: true`.
 - Rulebook: `POST /api/tournaments/{id}/rulebook` multipart PDF (DRAFT/ACTIVE). Venues: CRUD with image, only while not FINISHED.
 - Registration (CAPTAIN of the team): tournament ACTIVE, `today <= registration_deadline`, approved count < max_teams, team passes eligibility, no existing non-cancelled/non-rejected registration. Receipt file required (image or PDF). Status UNDER_REVIEW. Audit `REGISTRATION_CREATED`.
 - Organizer approve/reject (only from UNDER_REVIEW; approve also re-checks capacity). Captain cancel only from UNDER_REVIEW. Audit.
 - Team members of an APPROVED registration in ACTIVE/IN_PROGRESS tournaments are "locked" (see teams/identity).
 
 **competition**
-- Format: **group stage round-robin** (every approved team plays every other once, fixtures shuffled randomly, split into rounds using the circle method) → **knockout** from standings: top 8 → QUARTERFINAL (1v8, 2v7, 3v6, 4v5), top 4 → SEMIFINAL, top 2 → FINAL. With N approved teams: N ≥ 8 → quarters; 4 ≤ N < 8 → semis; N < 4 → final only.
-- `POST /tournaments/{id}/matches/generate` (ORGANIZER, tournament IN_PROGRESS, no matches yet): generates the group stage. Venues and referees assigned round-robin (cycled) automatically; `scheduled_at` = start_date + round index days at 18:00 by default (organizer edits later).
-- `POST /tournaments/{id}/matches/advance` (ORGANIZER): all matches of current phase PLAYED or CANCELLED → generate next phase. Knockout winners: score, then penalties (both required for a draw in knockout; a draw without a decisive shoot-out is refused with **409** explaining which match blocks the bracket). Winners are taken in **bracket order** (the order the phase was drawn in, i.e. match id), never kick-off order, so rescheduling a match cannot change the pairings of the next phase (QF winners W1–W4 and W2–W3 meet in the semi-finals). The knockout draw out of the group stage is taken **once**, from the standings at `advance` time: correcting a group result afterwards is allowed but does not reseed existing knockout matches; if the qualifiers change, undo the knockout phase(s) and advance again (the frontend warns about it).
+- Format: **groups chosen by the organizer** (any sizes) whose matches are created **by hand** → **knockout built by the organizer** from an editable suggestion (2, 4 or 8 teams). The system no longer generates a whole-tournament fixture (`POST /matches/generate` was removed): with many teams a full round robin meant 100+ matches.
+- Groups (`GroupStageService`, ORGANIZER; ADMIN inherits): created while the tournament is ACTIVE or IN_PROGRESS and no knockout match exists, named by the first free letter ("Grupo A", "Grupo B", …, at most 26). Only APPROVED teams are assigned, at most one group per team. A team is moved (re-assigned) or removed only while it has no match in its group (409 "No se puede mover/quitar a 'X' del Grupo A: ya tiene partidos en ese grupo."). A group is deleted only with no team and no match. Audit `GROUP_CREATED|GROUP_DELETED|GROUP_TEAM_ASSIGNED|GROUP_TEAM_REMOVED`.
+- Group match `POST /tournaments/{id}/matches` (IN_PROGRESS, not suspended, knockout not started): group, home, away, `scheduledAt` (years 2000–2100, else 400), optional venue of the tournament and ACTIVE referee. Both teams must belong to the group, differ, and not already meet in another match of the group in either orientation, whatever its status (409 naming the existing match: modify or reopen it instead). `round_number` = next matchday of the busier team inside the group. Audit `MATCH_CREATED`.
+- "Todos contra todos" per group `POST /tournaments/{id}/groups/{groupId}/round-robin`: creates only the pairings the group is missing, drawn by `RoundRobinFixtureStrategy`, one matchday per day at 18:00 (from the start date or the day after the group's latest kick-off, never in the past), venues and referees cycled, skipping any venue or referee already busy at that same kick-off in a non-cancelled match of the tournament (left empty for the organizer when none is free, never double-booked). A generated kick-off after 2100 is refused with 409 "No hay fechas disponibles antes del año 2101 para programar los partidos." and nothing is created (same rule for the knockout and `advance`). 409 with fewer than 2 teams or when nothing is missing. Audit `MATCHES_GENERATED` with `groupId`.
+- Legacy tournaments: GROUP matches with `group_id` NULL (created by the old generator) keep working unchanged and count only for the general table (one implicit group). In a match with a group, replacing a team (`PATCH /matches/{id}`) follows the group rules above instead of the round-slot rule.
+- Knockout suggestion `GET /tournaments/{id}/knockout/suggestion?size=2|4|8` (ORGANIZER, read-only; `KnockoutSeeding`, pure domain): with groups, winners first, then runners-up, then thirds…; when a whole level does not fit, the best of that level by points, GD, GF, name. Seeds are paired top half against bottom half choosing, among all assignments, the one with the fewest same-group pairings, then (quarter-finals) the fewest same-group teams that could meet in the semi-final, then the closest to the fold 1vN: two groups give 1°A–2°B, 1°B–2°A. Without groups the general table is folded (1v4, 2v3). Not enough teams → 409. Size other than 2/4/8 → 400.
+- Knockout creation `POST /tournaments/{id}/knockout` `{pairings:[{homeTeamId,awayTeamId}]}` (ORGANIZER): 1, 2 or 4 pairings (FINAL / SEMIFINAL / QUARTERFINAL), distinct teams (400), all APPROVED (409), IN_PROGRESS and not suspended, no knockout match yet (409, undo it first), no SCHEDULED group match left (409). Matches are created in the given order (bracket order), first matchday after the latest kick-off. Audit `KNOCKOUT_CREATED`. Undoing that phase goes back to the group stage.
+- Later knockout rounds: when the last match of a knockout phase gets its outcome (result or walkover) and the next phase does not exist, the next phase is drawn **automatically** from the winners in **bracket order** (match id, never kick-off order) by the fold of `KnockoutFixtureStrategy` (W1–W4 and W2–W3 meet in the semi-finals; W1–W2 in the final). Audit `MATCHES_GENERATED` with `automatic: true`. When no day is left before 2101 the result is still recorded and the round is simply not drawn; `advance` then answers the 409 above until a kick-off is moved earlier. `POST /tournaments/{id}/matches/advance` (ORGANIZER) does the same by hand (e.g. after undoing a round) and never leaves the group stage (409 pointing to "Armar eliminatoria"). Knockout winners: score, then penalties (a draw without a decisive shoot-out is refused with **409**). The knockout is built **once**: correcting a group result afterwards does not change existing knockout matches; if the qualifiers change, undo the knockout phase(s) and build it again (the frontend warns about it).
 - **Correction power (product decision, overrides the PDF rule "only future matches, only date/time/venue/referee")**: while the tournament is IN_PROGRESS the ORGANIZER (ADMIN inherits) can fix any match, whatever its status, so every system or human error is recoverable. Outside IN_PROGRESS nothing is editable (FINISHED is read-only). Match state machine: SCHEDULED → PLAYED | CANCELLED, and PLAYED | CANCELLED → SCHEDULED (reopen).
 - Update match `PATCH /matches/{id}` (ORGANIZER, IN_PROGRESS, any status): `scheduledAt` (may be in the past, to record what actually happened), `venueId` (a venue of the tournament), `refereeId` (an ACTIVE referee), `homeTeamId`/`awayTeamId` (null = unchanged). Teams only while the match is not PLAYED (409 "Reabra el partido antes de cambiar los equipos: tiene un resultado registrado."); both teams APPROVED in the tournament, distinct, and a team entering the match must not already play another non-CANCELLED match of the same GROUP round or the same knockout phase (409 naming the team). In a knockout phase the walkover winner of a CANCELLED match also occupies its slot (it cannot be entered into another match of that phase). The walkover winner of a cancelled match cannot be replaced without reopening it. A team leaving a knockout match while it already stands in the NEXT knockout phase (it won this match before it was reopened, or went through by walkover there) is refused with 409 "Deshaga la fase {siguiente} antes de cambiar los equipos de este partido: {equipo} ya figura en ella." The lineup of a team that leaves the match is deleted. Audit `MATCH_UPDATED` (team changes record `previousHomeTeamId/homeTeamId/previousAwayTeamId/awayTeamId`).
 - Delete match: only with `cancel_reason` DISQUALIFIED|NO_SHOW → status CANCELLED (soft); a knockout match also needs `winnerTeamId` (walkover). Audit `MATCH_CANCELLED`.
-- Result `POST /matches/{id}/result` (ORGANIZER, IN_PROGRESS, match SCHEDULED or PLAYED, regardless of later phases): home/away score, optional penalties (a knockout draw needs a decisive shoot-out), events list (goals must reference a member of the scoring team; goals count per team must equal the score). SCHEDULED → PLAYED, audit `MATCH_RESULT_RECORDED`; PLAYED → score, penalties and events replaced, audit `MATCH_RESULT_CORRECTED`.
-- Knockout propagation (result, correction, or walkover of a knockout match): the match of the NEXT knockout phase holding one of the two teams is looked up. If it holds the loser instead of the winner and is not PLAYED, the loser is replaced by the winner on the same side and the loser's lineup for it is deleted (audit `MATCH_UPDATED` with `reason: RESULT_CORRECTION`, `sourceMatchId`, `previousTeamId`, `teamId`). If it is PLAYED (or CANCELLED sending the loser through by walkover) the whole request is refused with 409 "El partido de {fase} ya se jugó con {equipo}; reábralo antes de corregir este resultado." The check runs before anything is written, and the use case is one transaction.
-- Reopen `POST /matches/{id}/reopen` (ORGANIZER, IN_PROGRESS): PLAYED or CANCELLED → SCHEDULED, clearing score, penalties, events, cancel reason and walkover winner. Audit `MATCH_REOPENED`.
-- Undo phase `POST /tournaments/{id}/matches/undo-phase` (ORGANIZER, IN_PROGRESS): deletes every match of the tournament's latest phase when none of them is PLAYED (409 "No se puede deshacer la fase {fase}: ya tiene partidos jugados. Reábralos primero."); events and lineups go with them (`ON DELETE CASCADE`). Works for the group stage too, after which `generate` is allowed again. Audit `PHASE_UNDONE` on entity `TOURNAMENT`.
+- Result `POST /matches/{id}/result` (ORGANIZER, IN_PROGRESS, match SCHEDULED or PLAYED, regardless of later phases): home/away score, optional penalties (a knockout draw needs a decisive shoot-out), events list (goals must reference a member of the scoring team; goals count per team must equal the score). SCHEDULED → PLAYED, audit `MATCH_RESULT_RECORDED`; PLAYED → score, penalties and events replaced **without reopening** (the frontend's "Corregir resultado", prefilled), audit `MATCH_RESULT_CORRECTED`.
+- Knockout propagation (result, correction, or walkover of a knockout match): the match of the NEXT knockout phase holding one of the two teams is looked up. If it holds the loser instead of the winner and is not PLAYED, the loser is replaced by the winner on the same side and the loser's lineup for it is deleted (audit `MATCH_UPDATED` with `reason: RESULT_CORRECTION`, `sourceMatchId`, `previousTeamId`, `teamId`). If it is PLAYED (or CANCELLED sending the loser through by walkover) the whole request is refused with 409 "El partido de {fase} ya se jugó con {equipo}; reábralo antes de corregir este resultado." It is also refused when the loser already stands in any LATER phase (it won the next match before that one was reopened): 409 "El equipo {equipo} ya avanzó a la {fase}: deshaga o corrija primero esa fase." The check runs before anything is written, and the use case is one transaction.
+- Reopen `POST /matches/{id}/reopen` (ORGANIZER, IN_PROGRESS): PLAYED or CANCELLED → SCHEDULED, clearing score, penalties, events, cancel reason and walkover winner (the match is "as if never played": it leaves the tables, its teams can be replaced again, and a result can be recorded anew). It does not touch the next knockout round (a reopened knockout match whose winner already went further can only get the same winner back: any other outcome is refused by the propagation rule above). A GROUP match is not reopened once any knockout match exists (409 "La fase de grupos ya terminó: deshaga la eliminatoria antes de reabrir partidos de grupo."; correcting its result stays allowed). Audit `MATCH_REOPENED`.
+- Undo phase `POST /tournaments/{id}/matches/undo-phase` (ORGANIZER, IN_PROGRESS): deletes every match of the tournament's latest phase when none of them is PLAYED (409 "No se puede deshacer la fase {fase}: ya tiene partidos jugados. Reábralos primero."); events and lineups go with them (`ON DELETE CASCADE`). Undoing the first knockout round goes back to the group stage (groups editable again); undoing the group stage deletes its unplayed matches. Audit `PHASE_UNDONE` on entity `TOURNAMENT`.
 - `MatchResponse` flags: `resultEditable` = IN_PROGRESS && status ∈ {SCHEDULED, PLAYED}; `teamsEditable` = IN_PROGRESS && status ≠ PLAYED; `reopenable` = IN_PROGRESS && status ∈ {PLAYED, CANCELLED}.
-- Finish stays refused while SCHEDULED matches remain; `advance` rules are unchanged; standings are recomputed on every read, so corrections show up immediately in the table (but not in an already drawn knockout phase, see `advance`).
+- Finish stays refused while SCHEDULED matches remain; standings are recomputed on every read, so corrections show up immediately in the tables (but not in an already built knockout, see above).
 - Lineup (CAPTAIN of a team playing the match, before `scheduled_at`): formation (default F_2_3_1) + exactly 7 starters, all team members. Visible to members of that team, organizer, admin, referee of the match.
-- Standings per tournament (computed on read from PLAYED GROUP matches): P, W, D, L, GF, GA, GD, Pts (3/1/0). Order: Pts, GD, GF, name.
+- Standings per tournament (computed on read from PLAYED GROUP matches): P, W, D, L, GF, GA, GD, Pts (3/1/0). Order: Pts, GD, GF, name. The **general table** is unchanged (every approved team, every PLAYED group match with or without a group). **Group tables** (`GET /standings/groups`): one per group with its teams and only the PLAYED matches of that group, same order; teams may have played a different number of matches.
+- Visibility: every public competition read of a SUSPENDED tournament (matches, match detail, standings, group standings, bracket, stats, team results, groups, venues) answers 404 to anybody but ADMIN/ORGANIZER (`TournamentService.requireVisible`, `MatchService.requireVisibleMatch` for a single match, its lineups and its sanctioned players), like the tournament detail; `GET /referees/me/matches` leaves those matches out. `GET /tournaments/{id}/registrations/mine` stays available to the team's captain (own data).
 - Stats: top scorers (GOAL events grouped by player), match history (PLAYED matches ordered by date), results per team.
 - Referee: `GET /api/referees/me/matches`; `GET /api/matches/{id}/sanctioned-players` — a player is sanctioned for a match if in their team's previous PLAYED match they got a RED_CARD, or if the yellow cards of that previous match made their accumulated YELLOW_CARD count in the tournament cross an even threshold (`before / 2 < after / 2`: 1→2, 1→3 and 3→4 suspend, 2→3 does not).
 - Bracket view: matches grouped by phase with team names/scores.
@@ -233,6 +260,7 @@ carries it, including the 401/403 written by `SecurityErrorResponses` (same Span
 `GlobalExceptionHandler`). An unexpected exception is logged at ERROR with its stack trace and the
 `traceId`; the client only reads "Ocurrió un error inesperado. Si el problema continúa, comparta el
 código de referencia {traceId} con el administrador."
+A lost row lock (Postgres deadlock, lock timeout: any `PessimisticLockingFailureException`) is a retryable 409 "La operación coincidió con otra al mismo tiempo. Intente de nuevo.", logged at WARN.
 Framework client errors never become a 500: wrong `Content-Type` (e.g. JSON sent to a multipart
 endpoint, `text/plain` to a JSON one) → 415; unacceptable `Accept` → 406; unparsable multipart → 400;
 oversized upload → 413; missing header / parameter / part, type conversion failures → 400; unknown
@@ -253,7 +281,7 @@ DELETE /admin/users/{id}/roles/{role}     ADMIN → Role[]
 POST   /admin/users/{id}/inactivate       ADMIN → UserResponse
 POST   /organizer/referees                ORGANIZER,ADMIN {fullName,email,password,birthDate,documentType,documentNumber} → 201 UserResponse
 GET    /organizer/referees                ORGANIZER,ADMIN → UserResponse[]
-GET    /admin/audit?action=&limit=        ADMIN → AuditLogResponse[]
+GET    /admin/audit?action=&limit=        ADMIN → AuditLogResponse[] (limit 1..500, default 100; otherwise 400)
 
 USERS & PLAYERS
 GET    /users/{id}                        auth → UserResponse
@@ -262,7 +290,7 @@ GET    /players/me/profile                PLAYER → PlayerProfileResponse {user
 PUT    /players/me/profile                PLAYER {position,jerseyNumber} → PlayerProfileResponse (create or update)
 POST   /players/me/profile/photo          PLAYER multipart "file" → PlayerProfileResponse
 GET    /players/{userId}/profile          auth → PlayerProfileResponse
-GET    /players?position=&available=true  auth → PlayerProfileResponse[]
+GET    /players?position=&available=true  CAPTAIN,ORGANIZER → PlayerProfileResponse[] (ACTIVE users holding PLAYER only)
 POST   /teams/{teamId}/join-requests      PLAYER {message?} → 201 JoinRequestResponse {id,teamId,teamName,playerId,playerName,position,jerseyNumber,status,direction,message,createdAt}
 GET    /players/me/join-requests          PLAYER → JoinRequestResponse[] (direction REQUEST only)
 POST   /join-requests/{id}/cancel         PLAYER (owner) → JoinRequestResponse
@@ -284,16 +312,19 @@ GET    /teams/{id}                        auth → TeamResponse
 PATCH  /teams/{id}                        CAPTAIN {name?,colors?} → TeamResponse
 DELETE /teams/{id}/members/{userId}       CAPTAIN → TeamResponse
 POST   /teams/{id}/inactivate             CAPTAIN|ADMIN → TeamResponse
+DELETE /teams/{id}                        ADMIN → 204 (409 while it plays a match or holds a live registration)
 GET    /teams/{id}/eligibility            auth → {eligible, problems[]}
 
 TOURNAMENTS
-GET    /tournaments                       public → TournamentResponse[] {id,name,startDate,endDate,registrationDeadline,maxTeams,fee,status,rulebookFileId,venues[],approvedTeams}
+GET    /tournaments                       public → TournamentResponse[] {id,name,startDate,endDate,registrationDeadline,maxTeams,fee,status,rulebookFileId,venues[],approvedTeams,suspendedFromStatus} (SUSPENDED only for ADMIN/ORGANIZER)
 GET    /tournaments/current               public → TournamentResponse | 404 (latest ACTIVE or IN_PROGRESS)
 GET    /tournaments/{id}                  public → TournamentResponse
 POST   /tournaments                       ORGANIZER {name,startDate,endDate,registrationDeadline,maxTeams,fee} → 201
 PATCH  /tournaments/{id}                  ORGANIZER (DRAFT) → TournamentResponse
 DELETE /tournaments/{id}                  ORGANIZER (DRAFT) → 204
 POST   /tournaments/{id}/activate|start|finish   ORGANIZER → TournamentResponse
+POST   /tournaments/{id}/suspend|resume   ADMIN,ORGANIZER → TournamentResponse
+POST   /tournaments/{id}/hard-delete      ADMIN {confirmName} → 204 (any status; name mismatch → 400)
 POST   /tournaments/{id}/rulebook         ORGANIZER multipart "file" (pdf) → TournamentResponse
 POST   /tournaments/{id}/venues           ORGANIZER multipart {name,description,file?} → 201 VenueResponse {id,name,description,imageFileId}
 DELETE /tournaments/{id}/venues/{venueId} ORGANIZER → 204
@@ -305,10 +336,18 @@ POST   /registrations/{id}/reject         ORGANIZER {note?} → RegistrationResp
 POST   /registrations/{id}/cancel         CAPTAIN → RegistrationResponse
 
 COMPETITION
-POST   /tournaments/{id}/matches/generate ORGANIZER → MatchResponse[]
-POST   /tournaments/{id}/matches/advance  ORGANIZER → MatchResponse[]
+GET    /tournaments/{id}/groups           public → GroupResponse[] {id,name,position,teams[{id,name,colors,hasMatches}],matchCount}
+POST   /tournaments/{id}/groups           ORGANIZER (ACTIVE|IN_PROGRESS, no knockout) → 201 GroupResponse
+DELETE /tournaments/{id}/groups/{groupId} ORGANIZER → 204 (no team, no match)
+PUT    /tournaments/{id}/groups/{groupId}/teams/{teamId}     ORGANIZER → GroupResponse (assign or move an approved team)
+DELETE /tournaments/{id}/groups/{groupId}/teams/{teamId}     ORGANIZER → GroupResponse
+POST   /tournaments/{id}/groups/{groupId}/round-robin        ORGANIZER (IN_PROGRESS) → 201 MatchResponse[] (missing pairings only)
+POST   /tournaments/{id}/matches          ORGANIZER (IN_PROGRESS) {groupId,homeTeamId,awayTeamId,scheduledAt,venueId?,refereeId?} → 201 MatchResponse
+GET    /tournaments/{id}/knockout/suggestion?size=2|4|8      ORGANIZER → {phase,size,source:GROUPS|GENERAL,pairings[{home,away:{teamId,teamName,label,groupId}}]}
+POST   /tournaments/{id}/knockout         ORGANIZER {pairings[{homeTeamId,awayTeamId}]} (1, 2 or 4) → 201 MatchResponse[]
+POST   /tournaments/{id}/matches/advance  ORGANIZER → MatchResponse[] (next knockout round by hand; never from the group stage)
 POST   /tournaments/{id}/matches/undo-phase  ORGANIZER (IN_PROGRESS) → {phase, deletedMatches}
-GET    /tournaments/{id}/matches?phase=   public → MatchResponse[] {id,tournamentId,phase,roundNumber,homeTeam{id,name,colors},awayTeam{...},venue{id,name}?,referee{id,fullName}?,scheduledAt,status,homeScore,awayScore,homePenalties,awayPenalties,cancelReason,walkoverWinnerTeamId,resultEditable,teamsEditable,reopenable,events[{id,teamId,playerId,playerName,type,minute}]}
+GET    /tournaments/{id}/matches?phase=   public → MatchResponse[] {id,tournamentId,phase,roundNumber,group{id,name}?,homeTeam{id,name,colors},awayTeam{...},venue{id,name}?,referee{id,fullName}?,scheduledAt,status,homeScore,awayScore,homePenalties,awayPenalties,cancelReason,walkoverWinnerTeamId,resultEditable,teamsEditable,reopenable,events[{id,teamId,playerId,playerName,type,minute}]}
 GET    /matches/{id}                      public → MatchResponse
 PATCH  /matches/{id}                      ORGANIZER (IN_PROGRESS) {scheduledAt?,venueId?,refereeId?,homeTeamId?,awayTeamId?} → MatchResponse
 DELETE /matches/{id}?reason=NO_SHOW&winnerTeamId=   ORGANIZER → MatchResponse (CANCELLED; winnerTeamId required for knockout)
@@ -317,6 +356,7 @@ POST   /matches/{id}/reopen               ORGANIZER (IN_PROGRESS) → MatchRespo
 PUT    /matches/{id}/lineups              CAPTAIN {formation,starterIds[]} → LineupResponse {matchId,teamId,formation,starters[{userId,fullName,position,jerseyNumber}],substitutes[...]}
 GET    /matches/{id}/lineups/{teamId}     team members|ORGANIZER|ADMIN|match referee → LineupResponse | 404
 GET    /tournaments/{id}/standings        public → StandingRow[] {position,teamId,teamName,played,won,drawn,lost,goalsFor,goalsAgainst,goalDifference,points}
+GET    /tournaments/{id}/standings/groups public → [{groupId,name,rows:StandingRow[]}] (empty without groups)
 GET    /tournaments/{id}/bracket          public → {phases:[{phase,matches:MatchResponse[]}]}
 GET    /tournaments/{id}/stats/top-scorers   public → [{playerId,playerName,teamId,teamName,goals}]
 GET    /tournaments/{id}/stats/history       public → MatchResponse[] (PLAYED, by date desc)

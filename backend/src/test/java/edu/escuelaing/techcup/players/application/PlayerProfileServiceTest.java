@@ -12,6 +12,8 @@ import static org.mockito.Mockito.when;
 import edu.escuelaing.techcup.identity.application.PlayerAgePolicy;
 import edu.escuelaing.techcup.identity.application.UserService;
 import edu.escuelaing.techcup.identity.domain.AppUser;
+import edu.escuelaing.techcup.identity.domain.Role;
+import edu.escuelaing.techcup.identity.domain.UserStatus;
 import edu.escuelaing.techcup.players.api.dto.PlayerProfileRequest;
 import edu.escuelaing.techcup.players.application.TeamGateway.TeamRef;
 import edu.escuelaing.techcup.players.domain.PlayerProfile;
@@ -25,6 +27,7 @@ import edu.escuelaing.techcup.shared.storage.FileKind;
 import edu.escuelaing.techcup.shared.storage.FileOwner;
 import edu.escuelaing.techcup.shared.storage.FileStorage;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -136,6 +139,32 @@ class PlayerProfileServiceTest {
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("Tigers");
         verify(fileStorage, never()).store(any(), any(), any());
+    }
+
+    // --- players directory ---------------------------------------------------------------------
+
+    @Test
+    void thePlayersListLeavesOutUsersWithoutThePlayerRoleOrInactive() {
+        PlayerProfile player = listed(10L, "Ana", UserStatus.ACTIVE, Role.PLAYER);
+        PlayerProfile roleRemoved = listed(11L, "Beto", UserStatus.ACTIVE, Role.GUEST);
+        PlayerProfile inactive = listed(12L, "Carla", UserStatus.INACTIVE, Role.PLAYER);
+        when(profiles.findAllByPosition(null)).thenReturn(List.of(player, roleRemoved, inactive));
+
+        assertThat(service.search(null, false)).extracting("userId").containsExactly(10L);
+    }
+
+    @Test
+    void theFreeAgentSearchAlsoRequiresThePlayerRole() {
+        PlayerProfile player = listed(10L, "Ana", UserStatus.ACTIVE, Role.PLAYER, Role.CAPTAIN);
+        PlayerProfile roleRemoved = listed(11L, "Beto", UserStatus.ACTIVE, Role.REFEREE);
+        when(profiles.findFreeAgents("FORWARD")).thenReturn(List.of(player, roleRemoved));
+
+        assertThat(service.search(Position.FORWARD, true)).extracting("userId").containsExactly(10L);
+    }
+
+    private static PlayerProfile listed(Long id, String name, UserStatus status, Role... roles) {
+        AppUser user = AppUser.builder().id(id).fullName(name).status(status).roles(Set.of(roles)).build();
+        return PlayerProfile.builder().userId(id).user(user).position(Position.FORWARD).jerseyNumber(9).build();
     }
 
     private static PlayerProfile profile(String photoFileId) {

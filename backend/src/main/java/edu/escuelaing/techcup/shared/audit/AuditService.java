@@ -1,5 +1,6 @@
 package edu.escuelaing.techcup.shared.audit;
 
+import edu.escuelaing.techcup.shared.exception.InvalidRequestException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,9 +57,18 @@ public class AuditService {
         record(actorUserId, action, entityType, entityId, details);
     }
 
+    /**
+     * The newest audit rows, optionally of one action.
+     *
+     * @param limit how many rows, 1 to {@value #MAX_LIMIT} ({@value #DEFAULT_LIMIT} when null)
+     * @throws InvalidRequestException when {@code limit} is outside 1..{@value #MAX_LIMIT}
+     */
     @Transactional(readOnly = true)
     public List<AuditLogResponse> query(AuditAction action, Integer limit) {
-        int size = limit == null || limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
+        if (limit != null && (limit < 1 || limit > MAX_LIMIT)) {
+            throw new InvalidRequestException("El límite debe estar entre 1 y " + MAX_LIMIT + ".");
+        }
+        int size = limit == null ? DEFAULT_LIMIT : limit;
         PageRequest page = PageRequest.of(0, size);
         List<AuditLog> logs = action == null
                 ? repository.findAllByOrderByCreatedAtDesc(page)

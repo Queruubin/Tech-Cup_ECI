@@ -1,6 +1,13 @@
 import type { SelectOption } from '@/components/atoms/Select'
 import { fromDateTimeLocal, toDateTimeLocal } from '@/lib/format'
-import type { MatchPhase, MatchResponse, RegistrationResponse, UpdateMatchRequest, UserResponse } from '@/types/api'
+import type {
+  GroupResponse,
+  MatchPhase,
+  MatchResponse,
+  RegistrationResponse,
+  UpdateMatchRequest,
+  UserResponse,
+} from '@/types/api'
 
 /** Pure helpers behind the organizer's match edit form (kept out of the component for testing). */
 
@@ -9,8 +16,11 @@ export const PAST_DATE_HINT = 'La fecha queda en el pasado: úsela para registra
 export const SAME_TEAMS_ERROR = 'El equipo local y el visitante deben ser distintos.'
 export const INVALID_DATE_ERROR = 'Ingrese una fecha y hora válidas.'
 export const NO_CHANGES_MESSAGE = 'No hay cambios para guardar.'
+/** A group match cannot be reopened once the knockout exists (mirrors the server's 409). */
+export const GROUP_STAGE_CLOSED_HINT =
+  'La fase de grupos ya terminó: deshaga la eliminatoria antes de reabrir partidos de grupo.'
 export const KNOCKOUT_REDRAW_WARNING =
-  'Las eliminatorias ya se generaron a partir de la tabla. Si esta corrección cambia los clasificados o su orden, deshaga las fases eliminatorias (Gestión → Deshacer última fase) y vuelva a avanzar.'
+  'La eliminatoria ya fue armada. Si esta corrección cambia los clasificados o su orden, deshaga las fases eliminatorias (Gestión → Deshacer última fase) y vuelva a armarla.'
 
 export interface MatchEditValues {
   /** `<input type="datetime-local">` value. */
@@ -50,6 +60,25 @@ export function approvedTeamOptions(
   for (const registration of registrations) {
     if (registration.status === 'APPROVED') byId.set(registration.teamId, registration.teamName)
   }
+  for (const team of current) {
+    if (!byId.has(team.id)) byId.set(team.id, team.name)
+  }
+  return [...byId.entries()]
+    .map(([id, name]) => ({ value: String(id), label: name }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'es'))
+}
+
+/**
+ * Options for the home/away selects of a match of a group: only the teams of that group (the
+ * server refuses any other). The teams currently assigned are kept so the selects never go blank.
+ */
+export function groupTeamOptions(
+  groups: readonly GroupResponse[],
+  groupId: number,
+  current: ReadonlyArray<{ id: number; name: string }> = [],
+): SelectOption[] {
+  const byId = new Map<number, string>()
+  for (const team of groups.find((group) => group.id === groupId)?.teams ?? []) byId.set(team.id, team.name)
   for (const team of current) {
     if (!byId.has(team.id)) byId.set(team.id, team.name)
   }
@@ -121,7 +150,7 @@ export function hasMatchChanges(payload: UpdateMatchRequest): boolean {
 
 /**
  * True when `match` is a group match and the tournament already has knockout matches: those pairings
- * were drawn from the standings and are not re-drawn when a group result changes.
+ * were built once (Armar eliminatoria) and do not change when a group result changes.
  */
 export function knockoutDrawnFromGroups(
   match: Pick<MatchResponse, 'phase'>,

@@ -25,6 +25,10 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
                                   NativeWebRequest webRequest, WebDataBinderFactory binderFactory) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !(authentication.getPrincipal() instanceof AuthenticatedUser user)) {
+            CurrentUser annotation = parameter.getParameterAnnotation(CurrentUser.class);
+            if (annotation != null && !annotation.required()) {
+                return null;
+            }
             throw new AuthenticationCredentialsNotFoundException("Debe iniciar sesión para realizar esta acción.");
         }
         return user;

@@ -256,6 +256,29 @@ class RoleServiceTest {
         verifyNoInteractions(auditService);
     }
 
+    @Test
+    void deletingATeamRevokesCaptainFromAUserWhoCaptainsNoOtherTeam() {
+        AppUser captain = user(20L, Role.PLAYER, Role.CAPTAIN);
+        when(userService.captainsActiveTeam(20L)).thenReturn(false);
+        when(userService.getUser(20L)).thenReturn(captain);
+
+        roleService.revokeCaptainForDeletedTeam(1L, 20L, 5L);
+
+        assertThat(captain.getRoles()).containsExactly(Role.PLAYER);
+        verify(auditService).record(1L, AuditAction.ROLE_REMOVED, UserService.ENTITY_TYPE, 20L,
+                Map.of("role", "CAPTAIN", "reason", "TEAM_DELETED", "teamId", 5L));
+    }
+
+    @Test
+    void deletingATeamKeepsCaptainForAUserWhoStillCaptainsAnActiveTeam() {
+        when(userService.captainsActiveTeam(20L)).thenReturn(true);
+
+        roleService.revokeCaptainForDeletedTeam(1L, 20L, 5L);
+
+        verify(userService, never()).getUser(anyLong());
+        verifyNoInteractions(auditService);
+    }
+
     private static AppUser user(Long id, Role... roles) {
         return AppUser.builder().id(id).status(UserStatus.ACTIVE).roles(new HashSet<>(Set.of(roles))).build();
     }

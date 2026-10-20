@@ -9,7 +9,12 @@ import { PageHeader } from '@/components/molecules/PageHeader'
 import { QueryState } from '@/components/molecules/QueryState'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { useTeam } from '@/features/teams/hooks/useTeams'
-import { useRegistrations, useTournament, useTournamentMatches } from '@/features/tournaments/hooks/useTournaments'
+import {
+  useGroups,
+  useRegistrations,
+  useTournament,
+  useTournamentMatches,
+} from '@/features/tournaments/hooks/useTournaments'
 import { errorMessage } from '@/lib/api'
 import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
@@ -22,7 +27,14 @@ import { MatchScoreboard } from '../components/MatchScoreboard'
 import { ResultForm } from '../components/ResultForm'
 import { SanctionedPlayersPanel } from '../components/SanctionedPlayersPanel'
 import { useMatch, useReferees } from '../hooks/useCompetition'
-import { KNOCKOUT_REDRAW_WARNING, approvedTeamOptions, knockoutDrawnFromGroups, resultSavedMessage } from '../matchEdit'
+import {
+  GROUP_STAGE_CLOSED_HINT,
+  KNOCKOUT_REDRAW_WARNING,
+  approvedTeamOptions,
+  groupTeamOptions,
+  knockoutDrawnFromGroups,
+  resultSavedMessage,
+} from '../matchEdit'
 import { resultValuesFromMatch } from '../validation'
 
 export function MatchDetailPage() {
@@ -51,11 +63,18 @@ export function MatchDetailPage() {
   const [editing, setEditing] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [reopenOpen, setReopenOpen] = useState(false)
+  // A PLAYED match shows its result with a "Corregir resultado" button; the form opens prefilled on demand.
+  const [correcting, setCorrecting] = useState(false)
+  const showResultForm = isOrganizer && canRecordResult && (!isCorrection || correcting)
 
   const referees = useReferees(isOrganizer && !!match)
-  const registrations = useRegistrations(match ? match.tournamentId : null, editable && editing)
-  const homeRoster = useTeam(isOrganizer && canRecordResult && match ? match.homeTeam.id : null)
-  const awayRoster = useTeam(isOrganizer && canRecordResult && match ? match.awayTeam.id : null)
+  // A match of a group only takes teams of that group; any other match, the approved teams.
+  const matchGroupId = match?.group?.id ?? null
+  const registrations = useRegistrations(match ? match.tournamentId : null, editable && editing && matchGroupId === null)
+  const groups = useGroups(match ? match.tournamentId : null, editable && editing && matchGroupId !== null)
+  const teamQuery = matchGroupId === null ? registrations : groups
+  const homeRoster = useTeam(showResultForm && match ? match.homeTeam.id : null)
+  const awayRoster = useTeam(showResultForm && match ? match.awayTeam.id : null)
   // Group results may still be corrected/reopened after the knockout was drawn from the standings, but
   // the server does not re-draw those pairings: the organizer must be warned.
   const tournamentMatches = useTournamentMatches(
@@ -64,6 +83,8 @@ export function MatchDetailPage() {
     isOrganizer && !!match && match.phase === 'GROUP' && (canRecordResult || reopenable),
   )
   const knockoutDrawn = !!match && knockoutDrawnFromGroups(match, tournamentMatches.data)
+  // The server refuses to reopen a group match once the knockout exists (it would block finishing).
+  const reopenBlocked = knockoutDrawn
 
   const update = useMutation((payload: UpdateMatchRequest) => competitionApi.updateMatch(matchId as number, payload))
   const cancel = useMutation((input: CancelMatchInput) =>
@@ -76,6 +97,12 @@ export function MatchDetailPage() {
     await query.refetch()
     return reopened
   })
+
+  // Opening or closing the correction starts from a clean form: no error of an earlier attempt.
+  const openCorrection = (open: boolean) => {
+    result.reset()
+    setCorrecting(open)
+  }
 
   const confirmReopen = () =>
     reopen
@@ -147,7 +174,13 @@ export function MatchDetailPage() {
                         </Button>
                       )}
                       {reopenable && (
-                        <Button size="sm" variant="outline" onClick={() => setReopenOpen(true)}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={reopenBlocked}
+                          title={reopenBlocked ? GROUP_STAGE_CLOSED_HINT : undefined}
+                          onClick={() => setReopenOpen(true)}
+                        >
                           Reabrir partido
                         </Button>
                       )}
@@ -163,11 +196,11 @@ export function MatchDetailPage() {
                 <QueryState loading={tournament.loading} error={tournament.error} onRetry={tournament.refetch} inline>
                   {editable && editing ? (
                     <QueryState
-                      loading={referees.loading || registrations.loading}
-                      error={referees.error ?? registrations.error}
+                      loading={referees.loading || teamQuery.loading}
+                      error={referees.error ?? teamQuery.error}
                       onRetry={() => {
                         referees.refetch()
-                        registrations.refetch()
+                        teamQuery.refetch()
                       }}
                       inline
                     >
@@ -177,7 +210,11 @@ export function MatchDetailPage() {
                         match={match}
                         venues={tournament.data?.venues ?? []}
                         referees={referees.data ?? []}
-                        teams={approvedTeamOptions(registrations.data ?? [], [match.homeTeam, match.awayTeam])}
+                        teams={
+                          matchGroupId === null
+                            ? approvedTeamOptions(registrations.data ?? [], [match.homeTeam, match.awayTeam])
+                            : groupTeamOptions(groups.data ?? [], matchGroupId, [match.homeTeam, match.awayTeam])
+                        }
                         loading={update.loading}
                         error={update.error}
                         fieldErrors={update.fieldErrors}
@@ -201,7 +238,9 @@ export function MatchDetailPage() {
                           ? 'Seleccione “Editar” para modificar la fecha, la cancha, el árbitro o los equipos.'
                           : 'Seleccione “Editar” para modificar la fecha, la cancha o el árbitro. Reabra el partido para cambiar los equipos.'
                         : reopenable
-                          ? 'Puede reabrir el partido para dejarlo nuevamente programado.'
+                          ? reopenBlocked
+                            ? GROUP_STAGE_CLOSED_HINT
+                            : 'Puede reabrir el partido para dejarlo nuevamente programado.'
                           : 'El torneo no está en curso: la programación de este partido ya no se puede modificar.'}
                     </p>
                   )}
@@ -209,13 +248,38 @@ export function MatchDetailPage() {
               </Card>
             )}
 
-            {isOrganizer && canRecordResult && (
+            {isOrganizer && canRecordResult && isCorrection && !correcting && (
+              <Card
+                title="Resultado"
+                description="Si el marcador, los penales o los eventos tienen un error, corríjalos directamente sin reabrir el partido."
+                actions={
+                  <Button size="sm" variant="outline" onClick={() => openCorrection(true)}>
+                    Corregir resultado
+                  </Button>
+                }
+              >
+                <p className="text-sm text-stone-500">
+                  {match.phase === 'GROUP'
+                    ? 'La tabla de posiciones se recalcula con la corrección.'
+                    : 'Si la corrección cambia el ganador, se actualiza en la siguiente ronda mientras ese partido no se haya jugado.'}
+                </p>
+              </Card>
+            )}
+
+            {showResultForm && (
               <Card
                 title={isCorrection ? 'Corregir resultado' : 'Registrar resultado'}
                 description={
                   isCorrection
                     ? 'La corrección reemplaza el marcador, los penales y todos los eventos registrados.'
                     : 'Al registrar el resultado el partido queda en estado Jugado. Registre un evento por cada gol y por cada tarjeta.'
+                }
+                actions={
+                  isCorrection && (
+                    <Button size="sm" variant="ghost" onClick={() => openCorrection(false)}>
+                      Cerrar
+                    </Button>
+                  )
                 }
               >
                 {knockoutDrawn && (
@@ -252,6 +316,7 @@ export function MatchDetailPage() {
                         .mutate(payload)
                         .then((updated) => {
                           query.setData(updated)
+                          setCorrecting(false)
                           const message = resultSavedMessage(match.phase, isCorrection, knockoutDrawn)
                           if (knockoutDrawn) toast.warning(message)
                           else toast.success(message)
@@ -289,9 +354,7 @@ export function MatchDetailPage() {
             loading={reopen.loading}
             onConfirm={confirmReopen}
             onCancel={() => setReopenOpen(false)}
-          >
-            {knockoutDrawn && <Alert kind="warning">{KNOCKOUT_REDRAW_WARNING}</Alert>}
-          </ConfirmDialog>
+          />
 
           <CancelMatchDialog
             key={`${match.id}-${cancelOpen}`}

@@ -19,6 +19,17 @@ export function useStandings(id: number | null, enabled = true) {
   return useQuery((signal) => tournamentsApi.standings(id as number, signal), [id], { enabled: id !== null && enabled })
 }
 
+/** One table per group (empty when the tournament has no groups). */
+export function useGroupStandings(id: number | null, enabled = true) {
+  return useQuery((signal) => tournamentsApi.groupStandings(id as number, signal), [id], {
+    enabled: id !== null && enabled,
+  })
+}
+
+export function useGroups(id: number | null, enabled = true) {
+  return useQuery((signal) => tournamentsApi.groups(id as number, signal), [id], { enabled: id !== null && enabled })
+}
+
 export function useBracket(id: number | null, enabled = true) {
   return useQuery((signal) => tournamentsApi.bracket(id as number, signal), [id], { enabled: id !== null && enabled })
 }

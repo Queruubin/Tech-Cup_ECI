@@ -12,7 +12,11 @@ import java.util.stream.Collectors;
  *
  * <pre>
  *   DRAFT --activate--&gt; ACTIVE --start--&gt; IN_PROGRESS --finish--&gt; FINISHED
+ *   DRAFT | ACTIVE | IN_PROGRESS --suspend--&gt; SUSPENDED --resume--&gt; the status it was suspended from
  * </pre>
+ *
+ * FINISHED cannot be suspended: it is history and read-only already; an ADMIN who wants it gone
+ * deletes it instead.
  *
  * The service layer keeps the <em>guards</em> that need collaborators (a rulebook is uploaded, at
  * least one venue exists, the start date is today, there are enough approved registrations); this
@@ -25,7 +29,7 @@ public enum TournamentStatus {
     DRAFT("borrador") {
         @Override
         public Set<TournamentStatus> allowedTargets() {
-            return EnumSet.of(ACTIVE);
+            return EnumSet.of(ACTIVE, SUSPENDED);
         }
     },
 
@@ -33,7 +37,7 @@ public enum TournamentStatus {
     ACTIVE("activo") {
         @Override
         public Set<TournamentStatus> allowedTargets() {
-            return EnumSet.of(IN_PROGRESS);
+            return EnumSet.of(IN_PROGRESS, SUSPENDED);
         }
     },
 
@@ -41,7 +45,7 @@ public enum TournamentStatus {
     IN_PROGRESS("en progreso") {
         @Override
         public Set<TournamentStatus> allowedTargets() {
-            return EnumSet.of(FINISHED);
+            return EnumSet.of(FINISHED, SUSPENDED);
         }
     },
 
@@ -50,6 +54,18 @@ public enum TournamentStatus {
         @Override
         public Set<TournamentStatus> allowedTargets() {
             return EnumSet.noneOf(TournamentStatus.class);
+        }
+    },
+
+    /**
+     * Put on hold by an ADMIN or ORGANIZER: hidden from the public lists and frozen (nothing about
+     * the tournament, its registrations, matches, results or lineups may change). It only goes back
+     * to the status it was suspended from, which {@code Tournament} remembers.
+     */
+    SUSPENDED("suspendido") {
+        @Override
+        public Set<TournamentStatus> allowedTargets() {
+            return EnumSet.of(DRAFT, ACTIVE, IN_PROGRESS);
         }
     };
 
@@ -101,12 +117,19 @@ public enum TournamentStatus {
         return this == DRAFT;
     }
 
-    /** ACTIVE or IN_PROGRESS: the tournament is live and locks the teams taking part in it. */
+    /**
+     * ACTIVE or IN_PROGRESS: the tournament is live. (A SUSPENDED tournament is not live, but its
+     * approved teams stay locked as well; see the team-lock queries.)
+     */
     public boolean isLive() {
         return this == ACTIVE || this == IN_PROGRESS;
     }
 
     public boolean isFinished() {
         return this == FINISHED;
+    }
+
+    public boolean isSuspended() {
+        return this == SUSPENDED;
     }
 }

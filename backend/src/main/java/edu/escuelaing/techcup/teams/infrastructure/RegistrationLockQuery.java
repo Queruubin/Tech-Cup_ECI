@@ -7,7 +7,8 @@ import org.springframework.data.repository.query.Param;
 
 /**
  * Native read over the tournaments module's tables ({@code registrations}, {@code tournaments}).
- * Both tables exist since Flyway V1; the tournaments module (phase 2) populates them.
+ * Both tables exist since Flyway V1; the tournaments module (phase 2) populates them. A SUSPENDED
+ * tournament keeps its teams locked (conservative: it may be resumed into ACTIVE or IN_PROGRESS).
  */
 public interface RegistrationLockQuery extends Repository<Team, Long> {
 
@@ -17,7 +18,7 @@ public interface RegistrationLockQuery extends Repository<Team, Long> {
                 JOIN tournaments t ON t.id = r.tournament_id
                 WHERE r.team_id = :teamId
                   AND r.status = 'APPROVED'
-                  AND t.status IN ('ACTIVE', 'IN_PROGRESS')
+                  AND t.status IN ('ACTIVE', 'IN_PROGRESS', 'SUSPENDED')
             )
             """, nativeQuery = true)
     boolean hasApprovedRegistrationInLiveTournament(@Param("teamId") Long teamId);

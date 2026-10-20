@@ -26,8 +26,8 @@ export function registrationHref(tournamentId: number | null | undefined): strin
 
 export function MyTeamCard({ team, registration, isCaptain, isPlayer, tournamentOpen, tournamentId = null }: MyTeamCardProps) {
   if (!team) {
-    // Any player (or captain) without a team may create one and becomes its captain.
-    const canCreate = isCaptain || isPlayer
+    // Any player without a team may create one and becomes its captain (the backend requires PLAYER).
+    const canCreate = isPlayer
     return (
       <Card title="Mi equipo">
         <p className="text-sm text-stone-600">

@@ -3,6 +3,7 @@ package edu.escuelaing.techcup.players.application;
 import edu.escuelaing.techcup.identity.application.PlayerAgePolicy;
 import edu.escuelaing.techcup.identity.application.UserService;
 import edu.escuelaing.techcup.identity.domain.AppUser;
+import edu.escuelaing.techcup.identity.domain.Role;
 import edu.escuelaing.techcup.players.api.dto.PlayerProfileRequest;
 import edu.escuelaing.techcup.players.api.dto.PlayerProfileResponse;
 import edu.escuelaing.techcup.players.domain.PlayerProfile;
@@ -33,7 +34,8 @@ import org.springframework.web.multipart.MultipartFile;
  *       check it, this guards accounts created before the rule existed.</li>
  *   <li>Position, jersey number and photo may be changed only while the player is not a member
  *       of an ACTIVE team. A replaced photo is deleted once the change is committed.</li>
- *   <li>Free-agent search returns active users with a profile and no active team.</li>
+ *   <li>The players directory lists only ACTIVE users who currently hold the PLAYER role (a profile
+ *       outlives the role); the free-agent search additionally requires no active team.</li>
  * </ul>
  * Audited as PROFILE_CREATED / PROFILE_UPDATED. Photos go to the {@link FileStorage} port.
  */
@@ -116,7 +118,14 @@ public class PlayerProfileService {
         List<PlayerProfile> result = availableOnly
                 ? profiles.findFreeAgents(position == null ? null : position.name())
                 : profiles.findAllByPosition(position);
-        return result.stream().map(this::toResponse).toList();
+        // The queries already filter; this guard keeps the rule in one readable, testable place.
+        return result.stream().filter(PlayerProfileService::isListedPlayer).map(this::toResponse).toList();
+    }
+
+    /** Only ACTIVE users who still hold the PLAYER role appear in the players directory. */
+    private static boolean isListedPlayer(PlayerProfile profile) {
+        AppUser user = profile.getUser();
+        return user != null && user.isActive() && user.hasRole(Role.PLAYER);
     }
 
     @Transactional(readOnly = true)

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -124,6 +125,18 @@ class LineupServiceTest {
     }
 
     @Test
+    void aLineupCannotBeSubmittedWhileTheTournamentIsSuspended() {
+        givenMatch(MatchStatus.SCHEDULED, NOW.plusSeconds(3600));
+        matchService.requireMatchLockingTournament(3L).getTournament().suspend();
+
+        assertThatThrownBy(() -> service.save(CAPTAIN, 3L, new LineupRequest(null, SEVEN_STARTERS)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("está suspendido")
+                .hasMessageContaining("enviar alineaciones");
+        verify(lineups, never()).save(any());
+    }
+
+    @Test
     void thelineupCannotBeSubmittedAfterKickOff() {
         givenMatch(MatchStatus.SCHEDULED, NOW.minusSeconds(60));
 
@@ -199,6 +212,17 @@ class LineupServiceTest {
                 .hasMessageContaining("no juega este partido");
     }
 
+    /** Reading a lineup goes through the match visibility check (404 for a suspended tournament). */
+    @Test
+    void aLineupOfASuspendedTournamentIsNotFoundForNonStaff() {
+        when(matchService.requireVisibleMatch(3L, CAPTAIN))
+                .thenThrow(edu.escuelaing.techcup.shared.exception.NotFoundException.of("el partido", 3L));
+
+        assertThatThrownBy(() -> service.find(CAPTAIN, 3L, 10L))
+                .isInstanceOf(edu.escuelaing.techcup.shared.exception.NotFoundException.class);
+        verify(lineups, never()).findByMatchIdAndTeamId(anyLong(), anyLong());
+    }
+
     // --- helpers ---------------------------------------------------------------------------------
 
     private void givenMatch(MatchStatus status, Instant scheduledAt) {
@@ -206,6 +230,7 @@ class LineupServiceTest {
         Match match = match(status, scheduledAt);
         lenient().when(matchService.requireMatchLockingTournament(3L)).thenReturn(match);
         lenient().when(matchService.requireMatch(3L)).thenReturn(match);
+        lenient().when(matchService.requireVisibleMatch(eq(3L), any())).thenReturn(match);
         lenient().when(teamService.requireTeam(10L)).thenReturn(homeTeam());
     }
 

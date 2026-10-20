@@ -42,7 +42,7 @@ export type JoinRequestStatus = (typeof JOIN_REQUEST_STATUSES)[number]
 export const JOIN_REQUEST_DIRECTIONS = ['REQUEST', 'INVITATION'] as const
 export type JoinRequestDirection = (typeof JOIN_REQUEST_DIRECTIONS)[number]
 
-export const TOURNAMENT_STATUSES = ['DRAFT', 'ACTIVE', 'IN_PROGRESS', 'FINISHED'] as const
+export const TOURNAMENT_STATUSES = ['DRAFT', 'ACTIVE', 'IN_PROGRESS', 'FINISHED', 'SUSPENDED'] as const
 export type TournamentStatus = (typeof TOURNAMENT_STATUSES)[number]
 
 export const REGISTRATION_STATUSES = ['UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CANCELLED'] as const
@@ -93,12 +93,15 @@ export const AUDIT_ACTIONS = [
   'TEAM_UPDATED',
   'TEAM_MEMBER_REMOVED',
   'TEAM_INACTIVATED',
+  'TEAM_DELETED',
   'TOURNAMENT_CREATED',
   'TOURNAMENT_UPDATED',
   'TOURNAMENT_DELETED',
   'TOURNAMENT_ACTIVATED',
   'TOURNAMENT_STARTED',
   'TOURNAMENT_FINISHED',
+  'TOURNAMENT_SUSPENDED',
+  'TOURNAMENT_RESUMED',
   'RULEBOOK_UPLOADED',
   'VENUE_CREATED',
   'VENUE_DELETED',
@@ -114,6 +117,12 @@ export const AUDIT_ACTIONS = [
   'MATCH_REOPENED',
   'PHASE_UNDONE',
   'LINEUP_SAVED',
+  'GROUP_CREATED',
+  'GROUP_DELETED',
+  'GROUP_TEAM_ASSIGNED',
+  'GROUP_TEAM_REMOVED',
+  'MATCH_CREATED',
+  'KNOCKOUT_CREATED',
 ] as const
 export type KnownAuditAction = (typeof AUDIT_ACTIONS)[number]
 /** Known audit actions. The backend may emit others; treat as an open string. */
@@ -342,6 +351,8 @@ export interface TournamentResponse {
   rulebookFileId: string | null
   venues: VenueResponse[]
   approvedTeams: number
+  /** The status a SUSPENDED tournament returns to when resumed; null otherwise. */
+  suspendedFromStatus: TournamentStatus | null
 }
 
 export interface CreateTournamentRequest {
@@ -401,6 +412,8 @@ export interface MatchResponse {
   tournamentId: number
   phase: MatchPhase
   roundNumber: number
+  /** Group of a group-stage match; `null` for knockout matches and group matches created before groups existed. */
+  group: MatchGroup | null
   homeTeam: MatchTeam
   awayTeam: MatchTeam
   venue: MatchVenue | null
@@ -430,6 +443,61 @@ export interface UpdateMatchRequest {
   refereeId?: number
   homeTeamId?: number
   awayTeamId?: number
+}
+
+export interface MatchGroup {
+  id: number
+  name: string
+}
+
+/** `GET /tournaments/{id}/groups`. `hasMatches`: the team plays a match of the group (it can no longer leave it). */
+export interface GroupResponse {
+  id: number
+  name: string
+  position: number
+  teams: { id: number; name: string; colors: string; hasMatches: boolean }[]
+  matchCount: number
+}
+
+/** `POST /tournaments/{id}/matches`: a group match created by hand. */
+export interface CreateMatchRequest {
+  groupId: number
+  homeTeamId: number
+  awayTeamId: number
+  scheduledAt: string
+  venueId?: number
+  refereeId?: number
+}
+
+/** `GET /tournaments/{id}/standings/groups`. */
+export interface GroupStandings {
+  groupId: number
+  name: string
+  rows: StandingRow[]
+}
+
+export const KNOCKOUT_SIZES = [2, 4, 8] as const
+export type KnockoutSize = (typeof KNOCKOUT_SIZES)[number]
+
+export interface KnockoutSeed {
+  teamId: number
+  teamName: string
+  /** "1° Grupo A", "3° general". */
+  label: string
+  groupId: number | null
+}
+
+/** `GET /tournaments/{id}/knockout/suggestion?size=`. Pairings in bracket order. */
+export interface KnockoutSuggestion {
+  phase: MatchPhase
+  size: KnockoutSize
+  source: 'GROUPS' | 'GENERAL'
+  pairings: { home: KnockoutSeed; away: KnockoutSeed }[]
+}
+
+/** `POST /tournaments/{id}/knockout`: 1, 2 or 4 pairings in bracket order. */
+export interface CreateKnockoutRequest {
+  pairings: { homeTeamId: number; awayTeamId: number }[]
 }
 
 /** Result of `POST /tournaments/{id}/matches/undo-phase`. */

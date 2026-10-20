@@ -8,6 +8,7 @@ import { Card } from '@/components/molecules/Card'
 import { ConfirmDialog } from '@/components/molecules/Modal'
 import { errorMessage } from '@/lib/api'
 import { formatDate, todayIso } from '@/lib/format'
+import { TOURNAMENT_STATUS_LABELS } from '@/lib/labels'
 import { MAX_UPLOAD_BYTES, PDF_ACCEPT, PDF_HINT } from '@/lib/uploads'
 import { reloadOnError } from '@/lib/reloadOnError'
 import { useMutation } from '@/lib/useQuery'
@@ -21,15 +22,21 @@ import type {
 } from '@/types/api'
 import { tournamentsApi } from '../api'
 import { useTournamentMatches } from '../hooks/useTournaments'
+import { latestPhase } from '../groupStage'
 import { undoPhaseConfirmDescription, undoPhaseState, undoPhaseSuccessMessage } from '../undoPhase'
+import { GroupStageSection } from './GroupStageSection'
+import { HardDeleteTournamentDialog } from './HardDeleteTournamentDialog'
 import { RegistrationsReview } from './RegistrationsReview'
 import { RulebookLink } from './RulebookLink'
 import { TournamentForm } from './TournamentForm'
 import { VenueForm } from './VenueForm'
 import { VenueGallery } from './VenueGallery'
 
-type Lifecycle = 'activate' | 'start' | 'finish' | 'delete' | 'generate' | 'advance' | 'undo'
+type Lifecycle = 'activate' | 'start' | 'finish' | 'delete' | 'advance' | 'undo' | 'suspend' | 'resume'
 type Pending = { kind: Lifecycle } | { kind: 'deleteVenue'; venue: VenueResponse }
+
+/** Statuses an ADMIN or ORGANIZER may suspend (FINISHED is history and stays read-only). */
+const SUSPENDABLE = new Set<TournamentResponse['status']>(['DRAFT', 'ACTIVE', 'IN_PROGRESS'])
 
 export type TournamentUpdate = TournamentResponse | ((previous: TournamentResponse) => TournamentResponse)
 
@@ -37,6 +44,8 @@ export interface OrganizerPanelProps {
   tournament: TournamentResponse
   /** Accepts the new entity or a functional updater (used for venue add/remove to avoid stale closures). */
   onUpdated: (update: TournamentUpdate) => void
+  /** ADMIN only: offers the irreversible "Eliminar torneo" (any status, the name must be typed). */
+  canHardDelete?: boolean
 }
 
 const LIFECYCLE_COPY: Record<Lifecycle, { title: string; description: string; confirm: string; danger?: boolean }> = {
@@ -63,15 +72,10 @@ const LIFECYCLE_COPY: Record<Lifecycle, { title: string; description: string; co
     confirm: 'Eliminar',
     danger: true,
   },
-  generate: {
-    title: 'Generar fixture',
-    description:
-      'Se crearán los partidos de la fase de grupos (todos contra todos) con canchas y árbitros asignados automáticamente. Solo se puede hacer una vez.',
-    confirm: 'Generar',
-  },
   advance: {
     title: 'Avanzar de fase',
-    description: 'Todos los partidos de la fase actual deben estar jugados o cancelados. Se generará la siguiente fase eliminatoria.',
+    description:
+      'La siguiente ronda eliminatoria se crea sola cuando se juega el último partido de la ronda actual. Use esta opción si la deshizo: todos los partidos de la ronda actual deben estar jugados o cancelados.',
     confirm: 'Avanzar',
   },
   undo: {
@@ -81,21 +85,50 @@ const LIFECYCLE_COPY: Record<Lifecycle, { title: string; description: string; co
     confirm: 'Deshacer fase',
     danger: true,
   },
+  suspend: {
+    title: 'Suspender torneo',
+    description:
+      'El torneo dejará de verse para el público y los jugadores, y no se podrá modificar nada (inscripciones, partidos, resultados ni alineaciones) hasta reanudarlo. Los equipos inscritos siguen bloqueados.',
+    confirm: 'Suspender',
+    danger: true,
+  },
+  resume: {
+    title: 'Reanudar torneo',
+    // Replaced at render time with the status it returns to.
+    description: 'El torneo volverá al estado en que estaba antes de la suspensión.',
+    confirm: 'Reanudar',
+  },
 }
 
-export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
+export function OrganizerPanel({ tournament, onUpdated, canHardDelete = false }: OrganizerPanelProps) {
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const [pending, setPending] = useState<Pending | null>(null)
+  const [hardDeleteOpen, setHardDeleteOpen] = useState(false)
   const [rulebook, setRulebook] = useState<File | null>(null)
   // Remounts (clears) the venue form only after a successful create, never on delete.
   const [venueFormKey, setVenueFormKey] = useState(0)
   const matches = useTournamentMatches(tournament.id, '', tournament.status === 'IN_PROGRESS' || tournament.status === 'FINISHED')
+  // One refresh for everything the competition set-up shows: the matches here, the groups and the
+  // registrations in GroupStageSection (bumping the key reloads them). Used after any change that
+  // can move a team or a match: a registration decided, a phase advanced or undone, matches created.
+  const [competitionKey, setCompetitionKey] = useState(0)
+  const refreshCompetition = () => {
+    void matches.refetch()
+    setCompetitionKey((value) => value + 1)
+  }
+  const competition = { refetch: refreshCompetition }
   const matchCount = matches.data?.length ?? 0
   const undo = undoPhaseState(matches.data ?? [])
+  const currentPhase = latestPhase(matches.data)
+  // The next knockout round is drawn automatically; by hand only after undoing it.
+  const canAdvance = currentPhase !== null && currentPhase !== 'GROUP' && currentPhase !== 'FINAL'
 
   const isDraft = tournament.status === 'DRAFT'
   const isActive = tournament.status === 'ACTIVE'
+  const isSuspended = tournament.status === 'SUSPENDED'
+  // Venues are frozen once the tournament is finished, and while it is suspended.
+  const venuesLocked = tournament.status === 'FINISHED' || isSuspended
   // DRAFT: every field is editable. ACTIVE: only the three dates (the server rejects the rest).
   const canEdit = isDraft || isActive
   const today = todayIso()
@@ -131,21 +164,23 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
       case 'finish':
         onUpdated(await tournamentsApi.finish(tournament.id))
         return
+      case 'suspend':
+        onUpdated(await tournamentsApi.suspend(tournament.id))
+        return
+      case 'resume':
+        onUpdated(await tournamentsApi.resume(tournament.id))
+        return
       case 'delete':
         await tournamentsApi.remove(tournament.id)
         return
-      case 'generate':
-        // A failure may mean the phases changed meanwhile (another tab/organizer): reload the matches.
-        await reloadOnError(() => tournamentsApi.generateMatches(tournament.id), matches)
-        matches.refetch()
-        return
       case 'advance':
-        await reloadOnError(() => tournamentsApi.advanceMatches(tournament.id), matches)
-        matches.refetch()
+        // A failure may mean the phases changed meanwhile (another tab/organizer): reload anyway.
+        await reloadOnError(() => tournamentsApi.advanceMatches(tournament.id), competition)
+        refreshCompetition()
         return
       case 'undo': {
-        const undone = await reloadOnError(() => tournamentsApi.undoPhase(tournament.id), matches)
-        matches.refetch()
+        const undone = await reloadOnError(() => tournamentsApi.undoPhase(tournament.id), competition)
+        refreshCompetition()
         return undone
       }
     }
@@ -160,6 +195,16 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
     onUpdated((previous) => ({ ...previous, venues: [...previous.venues, venue] }))
     return venue
   })
+  const hardDelete = useMutation((confirmName: string) => tournamentsApi.hardDelete(tournament.id, confirmName))
+  const confirmHardDelete = (confirmName: string) =>
+    hardDelete
+      .mutate(confirmName)
+      .then(() => {
+        toast.success('Torneo eliminado definitivamente.')
+        setHardDeleteOpen(false)
+        navigate('/tournaments', { replace: true })
+      })
+      .catch(() => undefined)
   const deleteVenue = useMutation(async (venue: VenueResponse) => {
     await tournamentsApi.deleteVenue(tournament.id, venue.id)
     onUpdated((previous) => ({ ...previous, venues: previous.venues.filter((item) => item.id !== venue.id) }))
@@ -184,9 +229,10 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
           start: 'Torneo iniciado.',
           finish: 'Torneo finalizado.',
           delete: 'Torneo eliminado.',
-          generate: 'Fixture generado.',
           advance: 'Se generó la siguiente fase.',
           undo: 'Fase deshecha.',
+          suspend: 'Torneo suspendido.',
+          resume: 'Torneo reanudado.',
         }
         toast.success(
           kind === 'undo' && outcome ? undoPhaseSuccessMessage(outcome.phase, outcome.deletedMatches) : messages[kind],
@@ -198,8 +244,13 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
   }
 
   const pendingCopy = pending && pending.kind !== 'deleteVenue' ? LIFECYCLE_COPY[pending.kind] : null
+  const resumeTarget = tournament.suspendedFromStatus ? TOURNAMENT_STATUS_LABELS[tournament.suspendedFromStatus] : null
   const pendingDescription =
-    pending?.kind === 'undo' && undo.phase ? undoPhaseConfirmDescription(undo.phase, undo.count) : pendingCopy?.description
+    pending?.kind === 'undo' && undo.phase
+      ? undoPhaseConfirmDescription(undo.phase, undo.count)
+      : pending?.kind === 'resume' && resumeTarget
+        ? `El torneo volverá al estado «${resumeTarget}» y quedará visible de nuevo para todos.`
+        : pendingCopy?.description
 
   return (
     <div className="flex flex-col gap-6">
@@ -218,9 +269,12 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
               <Button size="sm" onClick={() => setPending({ kind: 'activate' })} disabled={!canActivate || activateBlockers.length > 0}>
                 Activar
               </Button>
-              <Button size="sm" variant="danger" onClick={() => setPending({ kind: 'delete' })}>
-                Eliminar
-              </Button>
+              {/* An ADMIN gets the "Eliminar torneo" below, which covers drafts too. */}
+              {!canHardDelete && (
+                <Button size="sm" variant="danger" onClick={() => setPending({ kind: 'delete' })}>
+                  Eliminar
+                </Button>
+              )}
             </>
           )}
           {isActive && (
@@ -230,32 +284,49 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
           )}
           {tournament.status === 'IN_PROGRESS' && (
             <>
-              {matchCount === 0 ? (
-                <Button size="sm" onClick={() => setPending({ kind: 'generate' })} loading={matches.loading}>
-                  Generar fixture
+              {canAdvance && (
+                <Button size="sm" variant="outline" onClick={() => setPending({ kind: 'advance' })}>
+                  Avanzar fase
                 </Button>
-              ) : (
-                <>
-                  <Button size="sm" onClick={() => setPending({ kind: 'advance' })}>
-                    Avanzar fase
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setPending({ kind: 'undo' })}
-                    disabled={!undo.enabled || matches.refetching}
-                    title={undo.reason ?? undefined}
-                  >
-                    Deshacer última fase
-                  </Button>
-                </>
+              )}
+              {matchCount > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPending({ kind: 'undo' })}
+                  disabled={!undo.enabled || matches.refetching}
+                  title={undo.reason ?? undefined}
+                >
+                  Deshacer última fase
+                </Button>
               )}
               <Button size="sm" variant="outline" onClick={() => setPending({ kind: 'finish' })}>
                 Finalizar torneo
               </Button>
             </>
           )}
+          {isSuspended && (
+            <Button size="sm" onClick={() => setPending({ kind: 'resume' })}>
+              Reanudar torneo
+            </Button>
+          )}
+          {SUSPENDABLE.has(tournament.status) && (
+            <Button size="sm" variant="outline" onClick={() => setPending({ kind: 'suspend' })}>
+              Suspender
+            </Button>
+          )}
+          {canHardDelete && (
+            <Button size="sm" variant="danger" onClick={() => setHardDeleteOpen(true)}>
+              Eliminar torneo
+            </Button>
+          )}
         </div>
+        {isSuspended && (
+          <Alert kind="warning" className="mt-3" title="Torneo suspendido">
+            No es visible para el público ni para los jugadores y no admite cambios.
+            {resumeTarget && ` Al reanudarlo volverá al estado «${resumeTarget}».`}
+          </Alert>
+        )}
         {isDraft && activateBlockers.length > 0 && (
           <Alert kind="info" className="mt-3" title="Para activar el torneo">
             <ul className="list-disc pl-5">
@@ -278,8 +349,8 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
         {tournament.status === 'IN_PROGRESS' && (
           <p className="mt-3 text-xs text-stone-500">
             {matchCount === 0
-              ? 'Aún no se ha generado el fixture.'
-              : `${matchCount} partidos registrados. Avance de fase cuando todos los partidos de la fase actual estén jugados o cancelados.`}
+              ? 'Aún no hay partidos. Cree grupos, asigne los equipos y programe los partidos más abajo.'
+              : `${matchCount} ${matchCount === 1 ? 'partido registrado' : 'partidos registrados'}. Las rondas eliminatorias siguientes se crean solas al jugarse el último partido de cada ronda.`}
             {matchCount > 0 && undo.reason && ` ${undo.reason}`}
           </p>
         )}
@@ -320,6 +391,15 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
         )}
       </Card>
 
+      {tournament.status !== 'DRAFT' && (
+        <GroupStageSection
+          tournament={tournament}
+          matches={matches.data ?? []}
+          onMatchesChanged={refreshCompetition}
+          refreshKey={competitionKey}
+        />
+      )}
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card title="Reglamento" description="PDF oficial. Se puede reemplazar mientras el torneo esté en borrador o activo.">
           <div className="flex flex-col gap-3">
@@ -354,8 +434,12 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
         </Card>
 
         <Card title="Agregar cancha" description="Disponible mientras el torneo no haya finalizado.">
-          {tournament.status === 'FINISHED' ? (
-            <p className="text-sm text-stone-500">El torneo finalizó; no se pueden agregar canchas.</p>
+          {venuesLocked ? (
+            <p className="text-sm text-stone-500">
+              {isSuspended
+                ? 'El torneo está suspendido; no se pueden agregar canchas.'
+                : 'El torneo finalizó; no se pueden agregar canchas.'}
+            </p>
           ) : (
             <VenueForm
               key={venueFormKey}
@@ -380,7 +464,7 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
         <VenueGallery
           venues={tournament.venues}
           renderActions={(venue) =>
-            tournament.status !== 'FINISHED' ? (
+            !venuesLocked ? (
               <Button size="sm" variant="danger" onClick={() => setPending({ kind: 'deleteVenue', venue })}>
                 Eliminar
               </Button>
@@ -389,7 +473,15 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
         />
       </Card>
 
-      <RegistrationsReview tournamentId={tournament.id} tournamentStatus={tournament.status} onDecided={() => tournamentsApi.get(tournament.id).then(onUpdated).catch(() => undefined)} />
+      <RegistrationsReview
+        tournamentId={tournament.id}
+        tournamentStatus={tournament.status}
+        onDecided={() => {
+          // An approval adds a team to assign; a rejection or removal drops it (and its group slot).
+          refreshCompetition()
+          void tournamentsApi.get(tournament.id).then(onUpdated).catch(() => undefined)
+        }}
+      />
 
       <ConfirmDialog
         open={pending !== null}
@@ -404,6 +496,20 @@ export function OrganizerPanel({ tournament, onUpdated }: OrganizerPanelProps) {
         onConfirm={confirmPending}
         onCancel={() => setPending(null)}
       />
+
+      {canHardDelete && (
+        <HardDeleteTournamentDialog
+          open={hardDeleteOpen}
+          tournamentName={tournament.name}
+          loading={hardDelete.loading}
+          error={hardDelete.error}
+          onConfirm={confirmHardDelete}
+          onCancel={() => {
+            hardDelete.reset()
+            setHardDeleteOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }

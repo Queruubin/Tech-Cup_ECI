@@ -88,8 +88,37 @@ class PasswordRulesValidationTest {
     @ValueSource(ints = {73, 100})
     void registerAndCreateRefereeRejectPasswordsOverTheBcryptLimit(int length) {
         String password = "C1" + "a".repeat(length - 2);
-        assertThat(messages(register(password), "password")).containsExactly(SIZE_MESSAGE);
-        assertThat(messages(referee(password), "password")).containsExactly(SIZE_MESSAGE);
+        assertThat(messages(register(password), "password")).contains(SIZE_MESSAGE);
+        assertThat(messages(referee(password), "password")).contains(SIZE_MESSAGE);
+    }
+
+    /** Regression: BCrypt refused these with "password cannot be more than 72 bytes" and the API answered 500. */
+    @ParameterizedTest
+    @ValueSource(strings = {"Ñ1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "C1😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"})
+    void everyRequestRejectsAPasswordOfAtMost72CharactersButMoreThan72Bytes(String password) {
+        assertThat(password.length()).isLessThanOrEqualTo(72);
+        assertThat(password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length).isGreaterThan(72);
+
+        assertThat(messages(register(password), "password")).containsExactly(PasswordRules.MAX_BYTES_MESSAGE);
+        assertThat(messages(referee(password), "password")).containsExactly(PasswordRules.MAX_BYTES_MESSAGE);
+        assertThat(messages(new ChangePasswordRequest("anything", password), "newPassword"))
+                .containsExactly(PasswordRules.MAX_BYTES_MESSAGE);
+        assertThat(messages(new ResetPasswordRequest(password), "newPassword"))
+                .containsExactly(PasswordRules.MAX_BYTES_MESSAGE);
+    }
+
+    @Test
+    void aMultiByteCharacterIsAcceptedWhileTheWholePasswordFitsIn72Bytes() {
+        String password = "Ñ1" + "a".repeat(69);
+        assertThat(password.getBytes(java.nio.charset.StandardCharsets.UTF_8)).hasSize(72);
+
+        assertValidEverywhere(password);
+    }
+
+    @Test
+    void loginDoesNotCountBytes() {
+        assertThat(messages(new LoginRequest("ana@example.com", "C1" + "😀".repeat(40)), "password")).isEmpty();
     }
 
     @ParameterizedTest

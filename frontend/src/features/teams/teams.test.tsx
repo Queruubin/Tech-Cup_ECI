@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { JoinRequestResponse, TeamMember, TeamResponse } from '@/types/api'
 import { JoinRequestsPanel } from './components/JoinRequestsPanel'
 import { SentInvitationsPanel } from './components/SentInvitationsPanel'
-import { selectMyTeamView } from './myTeamView'
+import { canCreateTeam, selectMyTeamView } from './myTeamView'
 import {
   isRosterFrozen,
   joinRequestAvailability,
@@ -22,6 +22,22 @@ const team: TeamResponse = {
   memberCount: 7,
   locked: false,
 }
+
+describe('canCreateTeam', () => {
+  it('requires the PLAYER role literally and no team: an ADMIN alone cannot create one', () => {
+    expect(canCreateTeam({ roles: ['PLAYER'], teamId: null })).toBe(true)
+    expect(canCreateTeam({ roles: ['ADMIN', 'PLAYER'], teamId: null })).toBe(true)
+    expect(canCreateTeam({ roles: ['ADMIN'], teamId: null })).toBe(false)
+    expect(canCreateTeam({ roles: ['ORGANIZER', 'CAPTAIN'], teamId: null })).toBe(false)
+    expect(canCreateTeam({ roles: ['PLAYER', 'CAPTAIN'], teamId: 4 })).toBe(false)
+    expect(canCreateTeam(null)).toBe(false)
+  })
+
+  it('"Mi equipo" explains that a user without the PLAYER role cannot create a team', () => {
+    expect(selectMyTeamView({ team: null, userId: 1, hasProfile: false, isPlayer: false })).toBe('not-player')
+    expect(selectMyTeamView({ team: null, userId: 1, hasProfile: true, isPlayer: true })).toBe('create')
+  })
+})
 
 describe('selectMyTeamView', () => {
   it('asks for a sport profile first when the player has no team and no profile', () => {

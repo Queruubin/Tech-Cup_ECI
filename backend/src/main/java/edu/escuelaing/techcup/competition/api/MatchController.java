@@ -46,8 +46,8 @@ public class MatchController {
     }
 
     @GetMapping("/{id}")
-    public MatchResponse get(@PathVariable Long id) {
-        return matchService.get(id);
+    public MatchResponse get(@PathVariable Long id, @CurrentUser(required = false) AuthenticatedUser viewer) {
+        return matchService.get(id, viewer);
     }
 
     @PatchMapping("/{id}")
@@ -103,7 +103,7 @@ public class MatchController {
     @GetMapping("/{id}/sanctioned-players")
     @PreAuthorize("hasAnyRole('REFEREE', 'ORGANIZER', 'ADMIN')")
     @Operation(summary = "Players suspended for this match by a red card or accumulated bookings")
-    public List<SanctionedPlayerRow> sanctionedPlayers(@PathVariable Long id) {
-        return statsService.sanctionedPlayers(id);
+    public List<SanctionedPlayerRow> sanctionedPlayers(@CurrentUser AuthenticatedUser viewer, @PathVariable Long id) {
+        return statsService.sanctionedPlayers(id, viewer);
     }
 }

@@ -8,7 +8,7 @@
 # directly -- so it also works as an end-to-end smoke test of the whole flow:
 # registration, roles, sport profiles, teams (whose creators become captains),
 # join requests, invitations, tournament lifecycle, payment review, fixtures,
-# results and standings.
+# results and standings (groups and manual fixtures).
 #
 # Usage:
 #   docker compose up -d
@@ -188,11 +188,17 @@ LAST_REG="$(json "$ORG_TOKEN" GET "/tournaments/$TOURNAMENT_ID/registrations" \
 json "$ORG_TOKEN" POST "/registrations/$LAST_REG/approve" '{"note":"Comprobante verificado"}' > /dev/null
 echo "registration #$LAST_REG -> APPROVED (4 teams ready)"
 
-step "Starting the tournament and generating the fixture list"
+step "Starting the tournament, building its group and creating the group matches"
 json "$ORG_TOKEN" POST "/tournaments/$TOURNAMENT_ID/start" '' > /dev/null
-json "$ORG_TOKEN" POST "/tournaments/$TOURNAMENT_ID/matches/generate" '' > /dev/null
+# The fixture is no longer generated for the whole tournament: the organizer creates groups,
+# assigns the approved teams and creates the matches (here: all against all inside the group).
+GROUP_ID="$(json "$ORG_TOKEN" POST "/tournaments/$TOURNAMENT_ID/groups" '' | pick "['id']")"
+for t in 0 1 2 3; do
+  json "$ORG_TOKEN" PUT "/tournaments/$TOURNAMENT_ID/groups/$GROUP_ID/teams/${TEAM_IDS[$t]}" '' > /dev/null
+done
+json "$ORG_TOKEN" POST "/tournaments/$TOURNAMENT_ID/groups/$GROUP_ID/round-robin" '' > /dev/null
 MATCH_COUNT="$(json '' GET "/tournaments/$TOURNAMENT_ID/matches" | python -c "import sys,json;print(len(json.load(sys.stdin)))")"
-echo "tournament IN_PROGRESS with $MATCH_COUNT group matches"
+echo "tournament IN_PROGRESS with $MATCH_COUNT group matches in Grupo A"
 
 step "Recording results for the first rounds"
 json '' GET "/tournaments/$TOURNAMENT_ID/matches?phase=GROUP" > "$TMP/matches.json"

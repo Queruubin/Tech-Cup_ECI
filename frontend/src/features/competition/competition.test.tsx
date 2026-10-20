@@ -29,6 +29,7 @@ function makeMatch(phase: MatchPhase = 'GROUP', overrides: Partial<MatchResponse
     tournamentId: 1,
     phase,
     roundNumber: 1,
+    group: null,
     homeTeam: HOME_TEAM,
     awayTeam: AWAY_TEAM,
     venue: { id: 1, name: 'Cancha norte' },
@@ -114,9 +115,21 @@ describe('validateResult', () => {
   it('rejects a score with more goals than registered events', () => {
     const result = validateResult(values({ homeScore: '2', awayScore: '0', events: [goal('a', 'home', '1')] }), 'GROUP')
     expect(result.valid).toBe(false)
-    expect(result.errors.homeScore).toContain('(1)')
-    expect(result.errors.homeScore).toContain('(2)')
+    expect(result.errors.homeScore).toBe(
+      'Faltan goleadores del equipo local: el marcador indica 2 goles y hay 1 registrado. Registre qué jugador marcó cada gol.',
+    )
     expect(result.errors.awayScore).toBeUndefined()
+  })
+
+  it('names the team and says when scorers are left over', () => {
+    const result = validateResult(
+      values({ homeScore: '0', awayScore: '1', events: [goal('a', 'away', '11'), goal('b', 'away', '12')] }),
+      'GROUP',
+      { home: 'Leones FC', away: 'Aguilas FC' },
+    )
+    expect(result.errors.awayScore).toBe(
+      "Sobran goleadores del equipo visitante 'Aguilas FC': el marcador indica 1 gol y hay 2 registrados. Quite los goles de más o corrija el marcador.",
+    )
   })
 
   it('rejects goal events registered for the wrong team', () => {
@@ -289,7 +302,9 @@ describe('ResultForm', () => {
     await user.click(screen.getByRole('button', { name: 'Registrar resultado' }))
 
     expect(onSubmit).not.toHaveBeenCalled()
-    expect(screen.getAllByText(/no coinciden con el marcador/)).toHaveLength(2)
+    expect(screen.getByText(/Faltan goleadores del equipo local 'Leones FC'/)).toBeInTheDocument()
+    expect(screen.getByText(/Sobran goleadores del equipo visitante 'Aguilas FC'/)).toBeInTheDocument()
+    expect(screen.getByText(/Cada gol del marcador necesita su goleador/)).toBeInTheDocument()
   })
 
   it('submits the payload once every goal is assigned to the right team', async () => {

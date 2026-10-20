@@ -15,7 +15,6 @@ describe('AUDIT_ACTION_LABELS', () => {
     for (const key of Object.keys(AUDIT_ACTION_LABELS)) {
       expect(known.has(key), `unexpected label ${key}`).toBe(true)
     }
-    expect(known.has('MATCH_CREATED')).toBe(false)
     expect(known.has('MATCH_DELETED')).toBe(false)
   })
 

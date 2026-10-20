@@ -22,6 +22,21 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
 
     boolean existsByTournamentIdAndStatus(Long tournamentId, MatchStatus status);
 
+    /** Whether any match of another phase than {@code phase} exists (with GROUP: the knockout started). */
+    boolean existsByTournamentIdAndPhaseNot(Long tournamentId, MatchPhase phase);
+
+    boolean existsByGroupId(Long groupId);
+
+    /** Matches of one group, in creation order. */
+    List<Match> findByGroupIdOrderByIdAsc(Long groupId);
+
+    /** Whether the team plays (or played, or had cancelled) a match of the group. */
+    @Query("""
+            SELECT COUNT(m) > 0 FROM Match m
+            WHERE m.group.id = :groupId AND (m.homeTeam.id = :teamId OR m.awayTeam.id = :teamId)
+            """)
+    boolean existsInGroupForTeam(@Param("groupId") Long groupId, @Param("teamId") Long teamId);
+
     List<Match> findByTournamentIdOrderByScheduledAtAscIdAsc(Long tournamentId);
 
     /** The tournament of a match, without loading either entity (used to lock the tournament first). */
@@ -56,6 +71,13 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
             ORDER BY m.scheduledAt ASC, m.id ASC
             """)
     List<Match> findOfTeam(@Param("tournamentId") Long tournamentId, @Param("teamId") Long teamId);
+
+    /** Names of the tournaments in which the team plays at least one match (any status). */
+    @Query("""
+            SELECT DISTINCT m.tournament.name FROM Match m
+            WHERE m.homeTeam.id = :teamId OR m.awayTeam.id = :teamId
+            """)
+    List<String> findTournamentNamesWithMatchesOfTeam(@Param("teamId") Long teamId);
 
     /** Next scheduled matches of a tournament, used by the home page. */
     List<Match> findByTournamentIdAndStatusOrderByScheduledAtAscIdAsc(Long tournamentId, MatchStatus status,

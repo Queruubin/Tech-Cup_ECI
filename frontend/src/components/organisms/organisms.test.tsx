@@ -9,6 +9,7 @@ function makeMatch(overrides: Partial<MatchResponse> & { id: number; phase: Matc
   return {
     tournamentId: 1,
     roundNumber: 1,
+    group: null,
     homeTeam: { id: 10, name: 'Leones FC', colors: 'Rojo y negro' },
     awayTeam: { id: 20, name: 'Águilas FC', colors: 'Azul' },
     venue: { id: 1, name: 'Cancha norte' },

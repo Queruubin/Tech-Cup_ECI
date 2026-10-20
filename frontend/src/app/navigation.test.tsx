@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import { Navbar, isNavItemVisible } from '@/components/organisms/Navbar'
+import { summarizeRoles } from '@/lib/labels'
 import { userHasExactRole, userHasRole } from '@/store/auth.store'
 import type { Role, UserResponse } from '@/types/api'
 import { NAV_ITEMS } from './navigation'
@@ -78,5 +79,38 @@ describe('NAV_ITEMS visibility', () => {
     )
     expect(screen.queryByRole('link', { name: 'Mi equipo' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Auditoría' })).toBeInTheDocument()
+  })
+})
+
+describe('Navbar identity', () => {
+  it('summarizes the roles as the main one plus a counter', () => {
+    expect(summarizeRoles(['PLAYER', 'CAPTAIN', 'ADMIN'])).toEqual({
+      primary: 'Administrador',
+      extra: 2,
+      full: 'Administrador · Capitán · Jugador',
+    })
+    expect(summarizeRoles(['PLAYER'])).toEqual({ primary: 'Jugador', extra: 0, full: 'Jugador' })
+    expect(summarizeRoles([])).toEqual({ primary: null, extra: 0, full: '' })
+  })
+
+  it('truncates a long name and keeps the full name and roles in the tooltip', () => {
+    const longName = 'María Fernanda de los Ángeles Rodríguez Castelblanco'
+    const me = { ...user(['PLAYER', 'CAPTAIN', 'ORGANIZER', 'REFEREE']), fullName: longName }
+    render(
+      <MemoryRouter>
+        <Navbar user={me} hasRole={() => true} items={[]} onLogout={() => undefined} />
+      </MemoryRouter>,
+    )
+    const name = screen.getByTestId('navbar-user-name')
+    expect(name).toHaveTextContent(longName)
+    expect(name.className).toContain('truncate')
+    expect(name.className).toMatch(/max-w-/)
+    expect(name.parentElement?.parentElement).toHaveAttribute(
+      'title',
+      `${longName}\nOrganizador · Árbitro · Capitán · Jugador`,
+    )
+    expect(screen.getByText('Organizador')).toBeInTheDocument()
+    expect(screen.getByText('+3')).toBeInTheDocument()
+    expect(screen.queryByText(/Árbitro/)).not.toBeInTheDocument()
   })
 })

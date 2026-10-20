@@ -54,7 +54,7 @@ class HomeServiceTest {
                 new TeamResponse.Captain(20L, "Captain"), List.of(), 7, false);
         TournamentResponse tournament = new TournamentResponse(1L, "TechCup", LocalDate.of(2026, 3, 10),
                 LocalDate.of(2026, 4, 10), LocalDate.of(2026, 3, 5), 8, BigDecimal.TEN, TournamentStatus.ACTIVE,
-                "rulebook", List.of(), 3);
+                "rulebook", List.of(), 3, null);
         RegistrationResponse registration = new RegistrationResponse(9L, 1L, 5L, "Tigers", "receipt-file",
                 RegistrationStatus.UNDER_REVIEW, null, Instant.now(), null);
         when(teamService.findMine(org.mockito.ArgumentMatchers.anyLong())).thenReturn(Optional.of(team));

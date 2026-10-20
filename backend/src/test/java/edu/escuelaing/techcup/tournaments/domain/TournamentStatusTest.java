@@ -44,6 +44,26 @@ class TournamentStatusTest {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource({"DRAFT", "ACTIVE", "IN_PROGRESS"})
+    void everyNonFinishedStatusMayBeSuspendedAndResumedInto(TournamentStatus status) {
+        assertThat(status.canTransitionTo(TournamentStatus.SUSPENDED)).isTrue();
+        assertThat(TournamentStatus.SUSPENDED.canTransitionTo(status)).isTrue();
+    }
+
+    @Test
+    void aFinishedTournamentCannotBeSuspended() {
+        assertThat(TournamentStatus.FINISHED.canTransitionTo(TournamentStatus.SUSPENDED)).isFalse();
+        assertThat(TournamentStatus.SUSPENDED.canTransitionTo(TournamentStatus.FINISHED)).isFalse();
+    }
+
+    @Test
+    void suspendedIsNeitherLiveNorEditable() {
+        assertThat(TournamentStatus.SUSPENDED.isSuspended()).isTrue();
+        assertThat(TournamentStatus.SUSPENDED.isLive()).isFalse();
+        assertThat(TournamentStatus.SUSPENDED.isEditable()).isFalse();
+    }
+
     @Test
     void finishedIsTerminal() {
         assertThat(TournamentStatus.FINISHED.allowedTargets()).isEmpty();
