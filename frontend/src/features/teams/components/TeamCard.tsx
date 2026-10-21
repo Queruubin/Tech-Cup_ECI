@@ -1,6 +1,7 @@
 import { Link } from 'react-router'
 import { Badge, StatusBadge } from '@/components/atoms/Badge'
 import type { TeamResponse } from '@/types/api'
+import { rosterCount } from '../teamSize'
 
 export interface TeamCardProps {
   team: TeamResponse
@@ -30,7 +31,7 @@ export function TeamCard({ team, isMine }: TeamCardProps) {
         </div>
         <div className="text-right">
           <dt className="text-xs text-stone-500">Integrantes</dt>
-          <dd className="font-medium text-stone-800">{team.memberCount} / 12</dd>
+          <dd className="font-medium text-stone-800">{rosterCount(team.memberCount, false)}</dd>
         </div>
       </dl>
       {team.locked && <p className="text-xs text-amber-700">Inscrito en un torneo en curso.</p>}

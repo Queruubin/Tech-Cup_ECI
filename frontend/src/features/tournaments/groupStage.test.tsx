@@ -225,12 +225,23 @@ describe('CreateMatchForm', () => {
     const away = screen.getByRole('combobox', { name: /Equipo visitante/ })
     expect(within(away).queryByRole('option', { name: 'Pumas' })).toBeNull()
     await user.selectOptions(away, '4')
-    await user.type(screen.getByLabelText(/Fecha y hora/), '2026-10-20T18:00')
+    // The time starts at the default kick-off; the date is typed in its own field.
+    expect(screen.getByLabelText(/^Hora/)).toHaveValue('18:00')
+    await user.type(screen.getByLabelText(/^Fecha/), '2026-10-20')
+    await user.clear(screen.getByLabelText(/^Hora/))
+    await user.type(screen.getByLabelText(/^Hora/), '20:30')
     await user.selectOptions(screen.getByRole('combobox', { name: /Cancha/ }), '3')
     await user.click(screen.getByRole('button', { name: 'Crear partido' }))
 
     expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({ groupId: 6, homeTeamId: 3, awayTeamId: 4, venueId: 3, scheduledAt: expect.any(String) }),
+      expect.objectContaining({
+        groupId: 6,
+        homeTeamId: 3,
+        awayTeamId: 4,
+        venueId: 3,
+        // Same local-time conversion as the former single "datetime-local" field.
+        scheduledAt: new Date('2026-10-20T20:30').toISOString(),
+      }),
     )
   })
 
@@ -242,7 +253,22 @@ describe('CreateMatchForm', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Crear partido' }))
     expect(screen.getByText('Elija el equipo local.')).toBeInTheDocument()
-    expect(screen.getByText('Indique la fecha y hora.')).toBeInTheDocument()
+    expect(screen.getByText('Indique la fecha.')).toBeInTheDocument()
+    expect(screen.queryByText('Indique la hora.')).not.toBeInTheDocument()
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('requires the time too when the organizer clears it', async () => {
+    const onSubmit = vi.fn(async () => undefined)
+    const user = userEvent.setup()
+    render(
+      <CreateMatchForm groups={[GROUP_A]} venues={[]} referees={[]} loading={false} error={null} fieldErrors={{}} onSubmit={onSubmit} />,
+    )
+    await user.type(screen.getByLabelText(/^Fecha/), '2026-10-20')
+    await user.clear(screen.getByLabelText(/^Hora/))
+    await user.click(screen.getByRole('button', { name: 'Crear partido' }))
+    expect(screen.getByText('Indique la hora.')).toBeInTheDocument()
+    expect(screen.queryByText('Indique la fecha.')).not.toBeInTheDocument()
     expect(onSubmit).not.toHaveBeenCalled()
   })
 })

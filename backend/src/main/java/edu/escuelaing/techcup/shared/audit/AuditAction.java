@@ -29,6 +29,7 @@ public enum AuditAction {
     TEAM_CREATED,
     TEAM_UPDATED,
     TEAM_MEMBER_REMOVED,
+    TEAM_MEMBER_LEFT,
     TEAM_INACTIVATED,
     TEAM_DELETED,
     // tournaments (phase 2)

@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { NavLink } from 'react-router'
 import { Avatar } from '@/components/atoms/Avatar'
+import { Badge, StatusBadge } from '@/components/atoms/Badge'
 import { Button } from '@/components/atoms/Button'
 import { cn } from '@/lib/cn'
-import { summarizeRoles } from '@/lib/labels'
+import { firstName } from '@/lib/format'
+import { headerRoles } from '@/lib/labels'
 import type { Role, UserResponse } from '@/types/api'
 
 export interface NavItem {
@@ -37,49 +39,117 @@ export function isNavItemVisible(
 }
 
 /**
- * Name and roles of the signed-in user. Long names are cut with an ellipsis and many roles collapse
- * into "main role +N"; the full text stays available in the tooltip.
+ * How much of the desktop header fits (from `lg` up), richest first: everything; the links without the
+ * role badges; then also the logo without its text and tighter links; finally only the menu button.
+ * Links win over badges; the first name and the logout button always stay.
  */
-function UserIdentity({ user, avatarSize, className }: { user: UserResponse; avatarSize: 'sm' | 'md'; className?: string }) {
-  const roles = summarizeRoles(user.roles)
+type DesktopFit = 'full' | 'no-badges' | 'compact' | 'menu'
+const NEXT_FIT: Record<DesktopFit, DesktopFit> = { full: 'no-badges', 'no-badges': 'compact', compact: 'menu', menu: 'menu' }
+
+/**
+ * Picks the richest `DesktopFit` whose links do not overflow their slot. Every time the header width,
+ * the links or the roles change it starts again from `full` and steps down while the links overflow;
+ * the steps run in layout effects, so only the final layout is painted. Without `ResizeObserver`
+ * (tests) or below `lg` (the slot is not displayed, so nothing overflows) it stays `full`.
+ */
+function useDesktopFit(rowRef: RefObject<HTMLElement>, slotRef: RefObject<HTMLElement>, signature: string): DesktopFit {
+  const [fit, setFit] = useState<DesktopFit>('full')
+  const [generation, setGeneration] = useState(0)
+  // New links or a new user: measure again from `full` (state reset during render, not in an effect).
+  const [measuredFor, setMeasuredFor] = useState(signature)
+  if (measuredFor !== signature) {
+    setMeasuredFor(signature)
+    setFit('full')
+  }
+
+  useLayoutEffect(() => {
+    const row = rowRef.current
+    if (!row || typeof ResizeObserver === 'undefined') return
+    let width = row.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (row.clientWidth === width) return
+      width = row.clientWidth
+      setFit('full')
+      setGeneration((value) => value + 1)
+    })
+    observer.observe(row)
+    return () => observer.disconnect()
+  }, [rowRef])
+
+  useLayoutEffect(() => {
+    const slot = slotRef.current
+    if (!slot || fit === 'menu') return
+    if (slot.scrollWidth > slot.clientWidth + 1) setFit(NEXT_FIT[fit])
+  }, [fit, generation, signature, slotRef])
+
+  return fit
+}
+
+/** Avatar, first name and (when there is room) up to three role badges of the signed-in user. */
+function UserIdentity({
+  user,
+  avatarSize,
+  showRoles,
+  wrapRoles = false,
+  className,
+}: {
+  user: UserResponse
+  avatarSize: 'sm' | 'md'
+  showRoles: boolean
+  wrapRoles?: boolean
+  className?: string
+}) {
+  const roles = headerRoles(user.roles)
   return (
-    <div className={cn('flex min-w-0 items-center', avatarSize === 'md' ? 'gap-3' : 'gap-2', className)} title={`${user.fullName}\n${roles.full}`}>
+    <div
+      className={cn('flex min-w-0 items-center', avatarSize === 'md' ? 'gap-3' : 'gap-2', className)}
+      title={roles.full ? `${user.fullName}\n${roles.full}` : user.fullName}
+      data-testid="navbar-identity"
+    >
       <Avatar name={user.fullName} size={avatarSize} />
-      <div className="min-w-0 leading-tight">
-        <p className="max-w-[9rem] truncate text-sm font-medium text-white xl:max-w-[12rem]" data-testid="navbar-user-name">
-          {user.fullName}
-        </p>
-        {roles.primary && (
-          <p className="flex items-center gap-1 text-xs text-stone-400" aria-label={`Roles: ${roles.full}`}>
-            <span className="max-w-[7rem] truncate">{roles.primary}</span>
-            {roles.extra > 0 && (
-              <span className="shrink-0 rounded-full bg-white/10 px-1.5 text-[0.65rem] font-medium text-stone-200">
-                +{roles.extra}
-              </span>
-            )}
-          </p>
-        )}
-      </div>
+      <p className="min-w-0 max-w-[8rem] truncate text-sm font-medium text-white" data-testid="navbar-user-name">
+        <span aria-hidden="true">{firstName(user.fullName)}</span>
+        <span className="sr-only">{user.fullName}</span>
+      </p>
+      {showRoles && roles.visible.length > 0 && (
+        <ul
+          className={cn('flex min-w-0 items-center gap-1', wrapRoles ? 'flex-wrap' : 'shrink-0')}
+          aria-label={`Roles: ${roles.full}`}
+          data-testid="navbar-roles"
+        >
+          {roles.visible.map((role) => (
+            <li key={role}>
+              <StatusBadge kind="role" value={role} />
+            </li>
+          ))}
+          {roles.overflow && (
+            <li title={roles.full} aria-label={`Todos los roles: ${roles.full}`}>
+              <Badge tone="neutral">…</Badge>
+            </li>
+          )}
+        </ul>
+      )}
     </div>
   )
 }
 
-function Brand() {
+function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <NavLink to="/" className="flex items-center gap-2.5 text-white">
+    <NavLink to="/" className="flex shrink-0 items-center gap-2.5 text-white">
       {/* The logo is drawn with black outlines, so it sits on a white tile to stay legible on the dark header. */}
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white p-1">
         <img src="/logo.svg" alt="" className="h-full w-auto" />
       </span>
-      <span className="whitespace-nowrap text-base font-semibold tracking-tight">TechCup Fútbol</span>
+      {/* Compact header: the text stays for screen readers, the logo alone is shown. */}
+      <span className={cn('whitespace-nowrap text-base font-semibold tracking-tight', compact && 'sr-only')}>TechCup Fútbol</span>
     </NavLink>
   )
 }
 
-function linkClasses(isActive: boolean, mobile = false): string {
+function linkClasses(isActive: boolean, mobile = false, tight = false): string {
   return cn(
-    'rounded-lg text-sm font-medium transition-colors',
-    mobile ? 'block px-3 py-2' : 'px-3 py-1.5',
+    'whitespace-nowrap rounded-lg text-sm font-medium transition-colors',
+    mobile ? 'block px-3 py-2' : tight ? 'px-2 py-1.5' : 'px-3 py-1.5',
     isActive ? 'bg-brand-600 text-white' : 'text-stone-300 hover:bg-white/10 hover:text-white',
   )
 }
@@ -88,23 +158,40 @@ function linkClasses(isActive: boolean, mobile = false): string {
 export function Navbar({ user, hasRole, hasExactRole, items, onLogout, loggingOut }: NavbarProps) {
   const [open, setOpen] = useState(false)
   const visible = items.filter((item) => isNavItemVisible(item, hasRole, hasExactRole))
+  const rowRef = useRef<HTMLDivElement>(null)
+  const slotRef = useRef<HTMLDivElement>(null)
+  const fit = useDesktopFit(rowRef, slotRef, `${visible.map((item) => item.to).join('|')}#${user?.fullName ?? ''}#${user?.roles.join(',') ?? ''}`)
+  // From lg up the links live in the header unless they do not fit; then the menu button takes over.
+  const desktopMenu = fit === 'menu'
+  const compact = fit === 'compact'
 
   return (
     <header className="sticky top-0 z-40 border-b border-stone-800 bg-ink text-white">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
-        <Brand />
+      <div ref={rowRef} className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-4 sm:px-6">
+        <Brand compact={compact} />
 
-        {/* Full navigation from lg up: below that the links, the identity and the logout button do not fit. */}
-        <nav className="hidden min-w-0 items-center gap-1 lg:flex" aria-label="Principal">
-          {visible.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => linkClasses(isActive)}>
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
+        {/* The slot takes the free width; the links never shrink, so an overflow means they do not fit. */}
+        <div ref={slotRef} className="hidden min-w-0 flex-1 overflow-hidden lg:block" data-testid="navbar-links-slot">
+          {!desktopMenu && (
+            <nav className="flex w-max items-center gap-1" aria-label="Principal">
+              {visible.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) => linkClasses(isActive, false, fit === 'compact')}
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </nav>
+          )}
+        </div>
+        {/* Below lg the slot is hidden: this spacer keeps the menu button on the right. */}
+        <div className="flex-1 lg:hidden" aria-hidden="true" />
 
-        <div className="hidden min-w-0 shrink-0 items-center gap-3 lg:flex">
-          {user && <UserIdentity user={user} avatarSize="sm" />}
+        <div className="hidden shrink-0 items-center gap-3 lg:flex">
+          {user && <UserIdentity user={user} avatarSize="sm" showRoles={fit === 'full'} />}
           <Button variant="secondary" size="sm" onClick={onLogout} loading={loggingOut}>
             Cerrar sesión
           </Button>
@@ -112,7 +199,10 @@ export function Navbar({ user, hasRole, hasExactRole, items, onLogout, loggingOu
 
         <button
           type="button"
-          className="rounded-lg p-2 text-stone-300 hover:bg-white/10 hover:text-white lg:hidden"
+          className={cn(
+            'shrink-0 rounded-lg p-2 text-stone-300 hover:bg-white/10 hover:text-white',
+            !desktopMenu && 'lg:hidden',
+          )}
           aria-label={open ? 'Cerrar menú' : 'Abrir menú'}
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
@@ -124,25 +214,29 @@ export function Navbar({ user, hasRole, hasExactRole, items, onLogout, loggingOu
       </div>
 
       {open && (
-        <div className="border-t border-stone-800 bg-ink px-4 py-3 lg:hidden">
-          {user && <UserIdentity user={user} avatarSize="md" className="mb-3 px-1" />}
-          <nav className="flex flex-col gap-1" aria-label="Principal (móvil)">
-            {visible.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                onClick={() => setOpen(false)}
-                className={({ isActive }) => linkClasses(isActive, true)}
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
-          <div className="mt-3 border-t border-stone-800 pt-3">
-            <Button variant="secondary" size="sm" fullWidth onClick={onLogout} loading={loggingOut}>
-              Cerrar sesión
-            </Button>
+        <div className={cn('border-t border-stone-800 bg-ink px-4 py-3', !desktopMenu && 'lg:hidden')}>
+          <div className="mx-auto max-w-6xl">
+            {user && (
+              <UserIdentity user={user} avatarSize="md" showRoles wrapRoles className="mb-3 flex-wrap px-1 lg:hidden" />
+            )}
+            <nav className="flex flex-col gap-1" aria-label="Principal (móvil)">
+              {visible.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  onClick={() => setOpen(false)}
+                  className={({ isActive }) => linkClasses(isActive, true)}
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </nav>
+            <div className="mt-3 border-t border-stone-800 pt-3 lg:hidden">
+              <Button variant="secondary" size="sm" fullWidth onClick={onLogout} loading={loggingOut}>
+                Cerrar sesión
+              </Button>
+            </div>
           </div>
         </div>
       )}

@@ -2,6 +2,7 @@ import { Alert } from '@/components/molecules/Alert'
 import { Card } from '@/components/molecules/Card'
 import { QueryState } from '@/components/molecules/QueryState'
 import type { EligibilityResponse } from '@/types/api'
+import { TEAM_SIZE_RULE } from '../teamSize'
 
 export interface EligibilityPanelProps {
   eligibility: EligibilityResponse | null
@@ -31,7 +32,7 @@ export function EligibilityPanel({ eligibility, loading, error, onRetry }: Eligi
               </Alert>
             )}
             <ul className="mt-3 space-y-1 text-xs text-stone-500">
-              <li>Entre 7 y 12 integrantes.</li>
+              <li>{TEAM_SIZE_RULE}</li>
               <li>Sin dorsales repetidos.</li>
               <li>Todos los integrantes con perfil deportivo.</li>
               <li>Más de la mitad de integrantes de Sistemas, IA, Ciberseguridad o Estadística.</li>

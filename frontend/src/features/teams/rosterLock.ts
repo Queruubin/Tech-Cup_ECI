@@ -1,4 +1,5 @@
 import type { TeamResponse } from '@/types/api'
+import { MAX_TEAM_MEMBERS } from './teamSize'
 
 /**
  * A team registered (APPROVED) in an ACTIVE or IN_PROGRESS tournament is `locked`: its roster is
@@ -8,8 +9,14 @@ import type { TeamResponse } from '@/types/api'
 export const ROSTER_FROZEN_NOTICE = 'Su equipo está inscrito en un torneo en curso; no puede sumar jugadores hasta que termine.'
 export const TEAM_NOT_RECRUITING_HINT = 'Este equipo está inscrito en un torneo en curso y no recibe nuevos jugadores.'
 
-/** Maximum roster size, mirrored from the backend team rules. */
-export const MAX_TEAM_MEMBERS = 12
+/** Shown next to a disabled "Salir del equipo": the roster is frozen for members leaving too. */
+export const LEAVE_FROZEN_HINT =
+  'El equipo está inscrito en un torneo activo o en curso: no puede salir de él hasta que el torneo finalice.'
+
+/** Confirmation asked before a member leaves the team. */
+export function leaveTeamQuestion(teamName: string): string {
+  return `¿Seguro que quiere salir de «${teamName}»? Tendrá que volver a pedir unirse o recibir una invitación para regresar.`
+}
 
 /** True when the team is ACTIVE but locked by a tournament, i.e. cannot take new players. */
 export function isRosterFrozen(team: TeamResponse | null | undefined): boolean {

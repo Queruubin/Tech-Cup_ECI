@@ -76,6 +76,13 @@ public class TeamController {
         return teamService.removeMember(actor, id, userId);
     }
 
+    @PostMapping("/{id}/leave")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Leave the team (any member but the captain, not while locked by a tournament)")
+    public void leave(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
+        teamService.leave(actor, id);
+    }
+
     @PostMapping("/{id}/inactivate")
     @PreAuthorize("hasAnyRole('CAPTAIN', 'ADMIN')")
     public TeamResponse inactivate(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {

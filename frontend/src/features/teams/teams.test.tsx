@@ -11,6 +11,7 @@ import {
   ROSTER_FROZEN_NOTICE,
   TEAM_NOT_RECRUITING_HINT,
 } from './rosterLock'
+import { MAX_TEAM_MEMBERS } from './teamSize'
 
 const team: TeamResponse = {
   id: 4,
@@ -82,7 +83,9 @@ describe('roster freeze of a team playing a tournament', () => {
     expect(joinRequestAvailability(locked, { ...freePlayer, isPlayer: false })).toBe('hidden')
     expect(joinRequestAvailability(locked, { ...freePlayer, teamId: 8 })).toBe('hidden')
     expect(joinRequestAvailability({ ...locked, status: 'INACTIVE' }, freePlayer)).toBe('hidden')
-    expect(joinRequestAvailability({ ...locked, memberCount: 12 }, freePlayer)).toBe('hidden')
+    expect(joinRequestAvailability({ ...locked, memberCount: MAX_TEAM_MEMBERS }, freePlayer)).toBe('hidden')
+    // 12 members still leave room for a 13th.
+    expect(joinRequestAvailability({ ...team, memberCount: MAX_TEAM_MEMBERS - 1 }, freePlayer)).toBe('open')
     const member: TeamMember = { userId: 9, fullName: 'Pedro', position: 'DEFENDER', jerseyNumber: 4, academicProgram: 'OTHER', photoFileId: null }
     expect(joinRequestAvailability({ ...team, members: [member] }, freePlayer)).toBe('hidden')
     expect(joinRequestAvailability(null, freePlayer)).toBe('hidden')

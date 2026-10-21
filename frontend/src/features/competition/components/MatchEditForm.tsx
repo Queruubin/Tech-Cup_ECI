@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/atoms/Button'
-import { Input } from '@/components/atoms/Input'
 import { Select, type SelectOption } from '@/components/atoms/Select'
 import { Alert } from '@/components/molecules/Alert'
+import { DateTimeFields } from '@/components/molecules/DateTimeFields'
 import { FormField } from '@/components/molecules/FormField'
 import type { MatchResponse, UpdateMatchRequest, UserResponse, VenueResponse } from '@/types/api'
 import {
@@ -10,6 +10,7 @@ import {
   PAST_DATE_HINT,
   hasMatchChanges,
   isPastDateTime,
+  kickoffOf,
   matchEditValuesFromMatch,
   refereeOptions,
   teamsSelectState,
@@ -46,11 +47,16 @@ export function MatchEditForm({ match, venues, referees, teams, loading, error, 
   const venueOptions = venues.map((venue) => ({ value: String(venue.id), label: venue.name }))
   const refereeSelectOptions = refereeOptions(referees, match.referee)
   const teamsState = teamsSelectState(match)
-  const past = isPastDateTime(values.scheduledAt)
+  const past = isPastDateTime(kickoffOf(values))
 
   const set = (field: keyof MatchEditValues) => (value: string) => {
     setNoChanges(false)
     setValues((previous) => ({ ...previous, [field]: value }))
+  }
+
+  const setKickoff = ({ date, time }: { date: string; time: string }) => {
+    setNoChanges(false)
+    setValues((previous) => ({ ...previous, scheduledDate: date, scheduledTime: time }))
   }
 
   const handleSubmit = (event: FormEvent) => {
@@ -96,10 +102,14 @@ export function MatchEditForm({ match, venues, referees, teams, loading, error, 
           />
         </FormField>
       </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <FormField label="Fecha y hora" error={localErrors.scheduledAt ?? fieldErrors.scheduledAt}>
-          <Input type="datetime-local" value={values.scheduledAt} onChange={(event) => set('scheduledAt')(event.target.value)} />
-        </FormField>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <DateTimeFields
+          className="sm:col-span-2"
+          value={kickoffOf(values)}
+          onChange={setKickoff}
+          dateError={localErrors.scheduledDate ?? fieldErrors.scheduledAt}
+          timeError={localErrors.scheduledTime}
+        />
         {/* An empty select means "keep the current value": the API cannot unassign a venue or referee. */}
         <FormField
           label="Cancha"

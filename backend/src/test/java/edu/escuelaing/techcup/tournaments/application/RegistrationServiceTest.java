@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -41,6 +42,7 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
@@ -178,7 +180,7 @@ class RegistrationServiceTest {
         assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("no cumple los requisitos")
-                .hasMessageContaining("al menos 7");
+                .hasMessageContaining("al menos 8");
         verify(fileStorage, never()).store(any(), any(), any());
     }
 
@@ -200,6 +202,11 @@ class RegistrationServiceTest {
         assertThat(registration.getReviewedBy()).isNotNull();
         verify(tournamentService).requireTournamentForUpdate(1L);
         verify(teamService).closeRecruitment(ORGANIZER.id(), registration.getTeam().getId());
+        // The roster is re-checked under the team row lock, so nobody can leave in between.
+        InOrder order = inOrder(tournamentService, teamService);
+        order.verify(tournamentService).requireTournamentForUpdate(1L);
+        order.verify(teamService).requireTeamForUpdate(5L);
+        order.verify(teamService).eligibility(5L);
     }
 
     @Test
@@ -236,7 +243,7 @@ class RegistrationServiceTest {
         assertThatThrownBy(() -> service.approve(ORGANIZER, 9L, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("ya no cumple los requisitos")
-                .hasMessageContaining("al menos 7");
+                .hasMessageContaining("al menos 8");
         assertThat(registration.getStatus()).isEqualTo(RegistrationStatus.UNDER_REVIEW);
         verify(auditService, never()).record(any(), any(), any(), any(), any());
     }
@@ -375,7 +382,7 @@ class RegistrationServiceTest {
 
     private void givenEligible(boolean eligible) {
         when(teamService.eligibility(5L)).thenReturn(new TeamEligibility.Result(eligible,
-                eligible ? List.of() : List.of("El equipo tiene 4 integrantes; se requieren al menos 7.")));
+                eligible ? List.of() : List.of("El equipo tiene 4 integrantes; se requieren al menos 8.")));
     }
 
     private static Tournament tournament(TournamentStatus status, LocalDate deadline, int maxTeams) {

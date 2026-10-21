@@ -21,12 +21,14 @@ import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.exception.ForbiddenOperationException;
+import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.storage.FileDeletionScheduler;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.teams.api.dto.CreateTeamRequest;
 import edu.escuelaing.techcup.teams.api.dto.UpdateTeamRequest;
 import edu.escuelaing.techcup.teams.application.MemberProfilePort.MemberProfile;
 import edu.escuelaing.techcup.teams.domain.Team;
+import edu.escuelaing.techcup.teams.domain.TeamEligibility;
 import edu.escuelaing.techcup.teams.domain.TeamStatus;
 import edu.escuelaing.techcup.teams.infrastructure.TeamRepository;
 import java.util.List;
@@ -78,7 +80,7 @@ class TeamServiceTest {
     @Test
     void rejectsDuplicateJerseyNumber() {
         Team team = teamWithCaptain();
-        when(teams.findById(5L)).thenReturn(Optional.of(team));
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
         when(memberProfiles.findProfile(10L)).thenReturn(Optional.of(profile(10L, 9)));
         when(teams.findActiveTeamByMember(10L)).thenReturn(Optional.empty());
         when(memberProfiles.findProfiles(anyCollection())).thenReturn(Map.of(20L, profile(20L, 9)));
@@ -93,7 +95,7 @@ class TeamServiceTest {
     void rejectsPlayerAlreadyInAnotherTeam() {
         Team team = teamWithCaptain();
         Team other = Team.builder().id(6L).name("Lions").captain(user(40L)).status(TeamStatus.ACTIVE).build();
-        when(teams.findById(5L)).thenReturn(Optional.of(team));
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
         when(memberProfiles.findProfile(10L)).thenReturn(Optional.of(profile(10L, 7)));
         when(teams.findActiveTeamByMember(10L)).thenReturn(Optional.of(other));
 
@@ -104,7 +106,7 @@ class TeamServiceTest {
 
     @Test
     void rejectsPlayerWithoutProfile() {
-        when(teams.findById(5L)).thenReturn(Optional.of(teamWithCaptain()));
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(teamWithCaptain()));
         when(memberProfiles.findProfile(10L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.addMember(5L, 10L))
@@ -115,20 +117,39 @@ class TeamServiceTest {
     @Test
     void rejectsWhenTeamIsFull() {
         Team team = teamWithCaptain();
-        for (long id = 100; id < 111; id++) {
-            team.addMember(user(id));
+        while (team.memberCount() < TeamEligibility.MAX_MEMBERS) {
+            team.addMember(user(100L + team.memberCount()));
         }
-        when(teams.findById(5L)).thenReturn(Optional.of(team));
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
 
         assertThatThrownBy(() -> service.addMember(5L, 10L))
                 .isInstanceOf(BusinessRuleException.class)
-                .hasMessageContaining("ya está completo");
+                .hasMessage("El equipo 'Tigers' ya está completo (13 integrantes).");
+        assertThat(team.memberCount()).isEqualTo(13);
+        verify(userService, never()).getUser(10L);
+    }
+
+    @Test
+    void theThirteenthMemberIsStillAccepted() {
+        Team team = teamWithCaptain();
+        while (team.memberCount() < TeamEligibility.MAX_MEMBERS - 1) {
+            team.addMember(user(100L + team.memberCount()));
+        }
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
+        when(memberProfiles.findProfile(10L)).thenReturn(Optional.of(profile(10L, 77)));
+        when(teams.findActiveTeamByMember(10L)).thenReturn(Optional.empty());
+        when(memberProfiles.findProfiles(anyCollection())).thenReturn(Map.of(20L, profile(20L, 9)));
+        when(userService.getUser(10L)).thenReturn(user(10L));
+
+        service.addMember(5L, 10L);
+
+        assertThat(team.memberCount()).isEqualTo(13);
     }
 
     @Test
     void addsAValidMember() {
         Team team = teamWithCaptain();
-        when(teams.findById(5L)).thenReturn(Optional.of(team));
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
         when(memberProfiles.findProfile(10L)).thenReturn(Optional.of(profile(10L, 7)));
         when(teams.findActiveTeamByMember(10L)).thenReturn(Optional.empty());
         when(memberProfiles.findProfiles(anyCollection())).thenReturn(Map.of(20L, profile(20L, 9)));
@@ -143,7 +164,7 @@ class TeamServiceTest {
     @Test
     void aLockedTeamTakesNoNewMembers() {
         Team team = teamWithCaptain();
-        when(teams.findById(5L)).thenReturn(Optional.of(team));
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
         when(teamLock.isLocked(5L)).thenReturn(true);
 
         assertThatThrownBy(() -> service.addMember(5L, 10L))
@@ -276,7 +297,7 @@ class TeamServiceTest {
 
     @Test
     void captainCannotBeRemoved() {
-        when(teams.findById(5L)).thenReturn(Optional.of(teamWithCaptain()));
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(teamWithCaptain()));
         when(teamLock.isLocked(5L)).thenReturn(false);
 
         assertThatThrownBy(() -> service.removeMember(CAPTAIN, 5L, 20L))
@@ -348,6 +369,99 @@ class TeamServiceTest {
         order.verify(roleService).revokeCaptainForDeletedTeam(1L, 20L, 5L);
         verify(auditService).record(1L, AuditAction.TEAM_DELETED, "TEAM", 5L,
                 Map.of("name", "Tigers", "members", 2, "deletedRegistrations", 2));
+    }
+
+    // --- eligibility (8 to 13 members) ----------------------------------------------------------
+
+    @Test
+    void aTeamOfSevenCannotRegisterButATeamOfEightCan() {
+        Team team = teamWithCaptain();
+        while (team.memberCount() < 7) {
+            team.addMember(user(100L + team.memberCount()));
+        }
+        when(teams.findById(5L)).thenReturn(Optional.of(team));
+        when(memberProfiles.findProfiles(anyCollection())).thenAnswer(inv -> profilesOf(team));
+
+        TeamEligibility.Result seven = service.eligibility(5L);
+        assertThat(seven.eligible()).isFalse();
+        assertThat(seven.problems()).containsExactly("El equipo tiene 7 integrantes; se requieren al menos 8.");
+
+        team.addMember(user(200L));
+        assertThat(service.eligibility(5L).eligible()).isTrue();
+    }
+
+    private static Map<Long, MemberProfile> profilesOf(Team team) {
+        Map<Long, MemberProfile> profiles = new java.util.HashMap<>();
+        List<Long> ids = team.memberIds();
+        for (int i = 0; i < ids.size(); i++) {
+            profiles.put(ids.get(i), profile(ids.get(i), i + 1));
+        }
+        return profiles;
+    }
+
+    // --- leave ------------------------------------------------------------------------------
+
+    private static final AuthenticatedUser MEMBER = new AuthenticatedUser(21L, "m@escuelaing.edu.co", Set.of("PLAYER"));
+
+    @Test
+    void aMemberLeavesTheTeamUnderTheTeamLockAndItIsAudited() {
+        Team team = teamWithCaptain();
+        team.addMember(user(21L));
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
+        when(teamLock.isLocked(5L)).thenReturn(false);
+
+        service.leave(MEMBER, 5L);
+
+        assertThat(team.hasMember(21L)).isFalse();
+        assertThat(team.hasMember(20L)).isTrue();
+        verify(teams, never()).findById(any());
+        verify(auditService).record(21L, AuditAction.TEAM_MEMBER_LEFT, "TEAM", 5L,
+                Map.of("userId", 21L, "remainingMembers", 1));
+    }
+
+    @Test
+    void theCaptainCannotLeaveTheTeam() {
+        Team team = teamWithCaptain();
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
+
+        assertThatThrownBy(() -> service.leave(CAPTAIN, 5L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("El capitán no puede salir del equipo. Si necesita retirarse, "
+                        + "un administrador puede eliminar el equipo.");
+        assertThat(team.hasMember(20L)).isTrue();
+        verify(auditService, never()).record(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void aMemberCannotLeaveATeamLockedByATournament() {
+        Team team = teamWithCaptain();
+        team.addMember(user(21L));
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
+        when(teamLock.isLocked(5L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.leave(MEMBER, 5L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("El equipo 'Tigers' está inscrito en un torneo activo o en curso; "
+                        + "no puede salir de él hasta que el torneo finalice.");
+        assertThat(team.hasMember(21L)).isTrue();
+        verify(auditService, never()).record(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void aNonMemberCannotLeaveTheTeam() {
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(teamWithCaptain()));
+
+        assertThatThrownBy(() -> service.leave(MEMBER, 5L))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessage("Usted no es integrante del equipo 'Tigers'.");
+        verify(auditService, never()).record(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void leavingAnUnknownTeamIsNotFound() {
+        when(teams.findByIdForUpdate(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.leave(MEMBER, 99L)).isInstanceOf(NotFoundException.class);
     }
 
     private static Team teamWithCaptain() {

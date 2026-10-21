@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/atoms/Button'
-import { Input } from '@/components/atoms/Input'
 import { Select } from '@/components/atoms/Select'
 import { Alert } from '@/components/molecules/Alert'
+import { DateTimeFields } from '@/components/molecules/DateTimeFields'
 import { FormField } from '@/components/molecules/FormField'
 import { refereeOptions } from '@/features/competition/matchEdit'
-import { fromDateTimeLocal } from '@/lib/format'
+import { DEFAULT_KICKOFF_TIME, joinDateTime } from '@/lib/format'
 import type { CreateMatchRequest, GroupResponse, UserResponse, VenueResponse } from '@/types/api'
 import { groupTeamOptions } from '../groupStage'
 
@@ -25,14 +25,25 @@ interface Values {
   groupId: string
   homeTeamId: string
   awayTeamId: string
-  scheduledAt: string
+  /** `<input type="date">` value. */
+  date: string
+  /** `<input type="time">` value; starts at the default kick-off time. */
+  time: string
   venueId: string
   refereeId: string
 }
 
 type Errors = Partial<Record<keyof Values, string>>
 
-const EMPTY: Values = { groupId: '', homeTeamId: '', awayTeamId: '', scheduledAt: '', venueId: '', refereeId: '' }
+const EMPTY: Values = {
+  groupId: '',
+  homeTeamId: '',
+  awayTeamId: '',
+  date: '',
+  time: DEFAULT_KICKOFF_TIME,
+  venueId: '',
+  refereeId: '',
+}
 
 function validate(values: Values): Errors {
   const errors: Errors = {}
@@ -40,8 +51,9 @@ function validate(values: Values): Errors {
   if (!values.homeTeamId) errors.homeTeamId = 'Elija el equipo local.'
   if (!values.awayTeamId) errors.awayTeamId = 'Elija el equipo visitante.'
   else if (values.awayTeamId === values.homeTeamId) errors.awayTeamId = 'El equipo local y el visitante deben ser distintos.'
-  if (!values.scheduledAt) errors.scheduledAt = 'Indique la fecha y hora.'
-  else if (!fromDateTimeLocal(values.scheduledAt)) errors.scheduledAt = 'Ingrese una fecha y hora válidas.'
+  if (!values.date) errors.date = 'Indique la fecha.'
+  if (!values.time) errors.time = 'Indique la hora.'
+  if (values.date && values.time && !joinDateTime(values)) errors.date = 'Ingrese una fecha y hora válidas.'
   return errors
 }
 
@@ -59,6 +71,8 @@ export function CreateMatchForm({ groups, venues, referees, loading, error, fiel
   const venueOptions = venues.map((venue) => ({ value: String(venue.id), label: venue.name }))
   const refereeSelectOptions = refereeOptions(referees)
 
+  const setKickoff = (kickoff: { date: string; time: string }) => setValues((previous) => ({ ...previous, ...kickoff }))
+
   const set = (field: keyof Values) => (value: string) =>
     setValues((previous) =>
       field === 'groupId' ? { ...previous, groupId: value, homeTeamId: '', awayTeamId: '' } : { ...previous, [field]: value },
@@ -73,7 +87,7 @@ export function CreateMatchForm({ groups, venues, referees, loading, error, fiel
       groupId: Number(values.groupId),
       homeTeamId: Number(values.homeTeamId),
       awayTeamId: Number(values.awayTeamId),
-      scheduledAt: fromDateTimeLocal(values.scheduledAt) as string,
+      scheduledAt: joinDateTime(values) as string,
     }
     if (values.venueId) payload.venueId = Number(values.venueId)
     if (values.refereeId) payload.refereeId = Number(values.refereeId)
@@ -113,10 +127,15 @@ export function CreateMatchForm({ groups, venues, referees, loading, error, fiel
           />
         </FormField>
       </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <FormField label="Fecha y hora" required error={errors.scheduledAt ?? fieldErrors.scheduledAt}>
-          <Input type="datetime-local" value={values.scheduledAt} onChange={(event) => set('scheduledAt')(event.target.value)} />
-        </FormField>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <DateTimeFields
+          className="sm:col-span-2"
+          required
+          value={{ date: values.date, time: values.time }}
+          onChange={setKickoff}
+          dateError={errors.date ?? fieldErrors.scheduledAt}
+          timeError={errors.time}
+        />
         <FormField
           label="Cancha"
           error={fieldErrors.venueId}

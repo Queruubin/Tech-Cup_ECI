@@ -1,5 +1,5 @@
 import type { SelectOption } from '@/components/atoms/Select'
-import { fromDateTimeLocal, toDateTimeLocal } from '@/lib/format'
+import { DEFAULT_KICKOFF_TIME, joinDateTime, splitDateTime, type DateTimeParts } from '@/lib/format'
 import type {
   GroupResponse,
   MatchPhase,
@@ -15,6 +15,7 @@ export const TEAMS_LOCKED_HINT = 'Reabra el partido para cambiar los equipos.'
 export const PAST_DATE_HINT = 'La fecha queda en el pasado: úsela para registrar cuándo se jugó realmente.'
 export const SAME_TEAMS_ERROR = 'El equipo local y el visitante deben ser distintos.'
 export const INVALID_DATE_ERROR = 'Ingrese una fecha y hora válidas.'
+export const MISSING_TIME_ERROR = 'Indique la hora.'
 export const NO_CHANGES_MESSAGE = 'No hay cambios para guardar.'
 /** A group match cannot be reopened once the knockout exists (mirrors the server's 409). */
 export const GROUP_STAGE_CLOSED_HINT =
@@ -23,8 +24,10 @@ export const KNOCKOUT_REDRAW_WARNING =
   'La eliminatoria ya fue armada. Si esta corrección cambia los clasificados o su orden, deshaga las fases eliminatorias (Gestión → Deshacer última fase) y vuelva a armarla.'
 
 export interface MatchEditValues {
-  /** `<input type="datetime-local">` value. */
-  scheduledAt: string
+  /** `<input type="date">` value (local date of the kick-off). */
+  scheduledDate: string
+  /** `<input type="time">` value (local time of the kick-off). */
+  scheduledTime: string
   venueId: string
   refereeId: string
   homeTeamId: string
@@ -33,9 +36,17 @@ export interface MatchEditValues {
 
 export type MatchEditErrors = Partial<Record<keyof MatchEditValues, string>>
 
+/** The kick-off part of the values, as `DateTimeFields` and `joinDateTime` expect it. */
+export function kickoffOf(values: Pick<MatchEditValues, 'scheduledDate' | 'scheduledTime'>): DateTimeParts {
+  return { date: values.scheduledDate, time: values.scheduledTime }
+}
+
 export function matchEditValuesFromMatch(match: MatchResponse): MatchEditValues {
+  const kickoff = splitDateTime(match.scheduledAt)
   return {
-    scheduledAt: toDateTimeLocal(match.scheduledAt),
+    scheduledDate: kickoff.date,
+    // An unscheduled match offers the default kick-off time once a date is picked.
+    scheduledTime: kickoff.time || DEFAULT_KICKOFF_TIME,
     venueId: match.venue ? String(match.venue.id) : '',
     refereeId: match.referee ? String(match.referee.id) : '',
     homeTeamId: String(match.homeTeam.id),
@@ -87,16 +98,20 @@ export function groupTeamOptions(
     .sort((a, b) => a.label.localeCompare(b.label, 'es'))
 }
 
-/** True when a `datetime-local` value is a valid instant before `now`. */
-export function isPastDateTime(localValue: string, now: number = Date.now()): boolean {
-  const iso = fromDateTimeLocal(localValue)
+/** True when the date and time make a valid instant before `now`. */
+export function isPastDateTime(kickoff: DateTimeParts, now: number = Date.now()): boolean {
+  const iso = joinDateTime(kickoff)
   return !!iso && new Date(iso).getTime() < now
 }
 
 /** Client-side checks. Past dates are allowed: they record when the match was actually played. */
 export function validateMatchEdit(values: MatchEditValues): MatchEditErrors {
   const errors: MatchEditErrors = {}
-  if (values.scheduledAt && !fromDateTimeLocal(values.scheduledAt)) errors.scheduledAt = INVALID_DATE_ERROR
+  // An empty date keeps the current kick-off (the API cannot unschedule a match).
+  if (values.scheduledDate) {
+    if (!values.scheduledTime) errors.scheduledTime = MISSING_TIME_ERROR
+    else if (!joinDateTime(kickoffOf(values))) errors.scheduledDate = INVALID_DATE_ERROR
+  }
   if (values.homeTeamId && values.homeTeamId === values.awayTeamId) errors.awayTeamId = SAME_TEAMS_ERROR
   return errors
 }
@@ -131,8 +146,8 @@ export function refereeOptions(
 export function toUpdateMatchRequest(match: MatchResponse, values: MatchEditValues): UpdateMatchRequest {
   const original = matchEditValuesFromMatch(match)
   const payload: UpdateMatchRequest = {}
-  if (values.scheduledAt !== original.scheduledAt) {
-    const iso = fromDateTimeLocal(values.scheduledAt)
+  if (values.scheduledDate !== original.scheduledDate || values.scheduledTime !== original.scheduledTime) {
+    const iso = joinDateTime(kickoffOf(values))
     if (iso) payload.scheduledAt = iso
   }
   if (values.venueId && values.venueId !== original.venueId) payload.venueId = Number(values.venueId)

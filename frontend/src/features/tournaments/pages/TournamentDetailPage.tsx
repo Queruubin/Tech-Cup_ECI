@@ -51,7 +51,7 @@ export function TournamentDetailPage() {
     { id: 'stats', label: 'Estadísticas' },
   ]
   if (isCaptain) tabs.push({ id: 'register', label: 'Inscripción' })
-  if (isOrganizer) tabs.push({ id: 'manage', label: 'Gestión' })
+  if (isOrganizer) tabs.push({ id: 'manage', label: 'Gestión', highlight: true })
 
   const requested = searchParams.get('tab')
   const active: TabId = TAB_IDS.includes(requested as TabId) && tabs.some((tab) => tab.id === requested) ? (requested as TabId) : 'info'

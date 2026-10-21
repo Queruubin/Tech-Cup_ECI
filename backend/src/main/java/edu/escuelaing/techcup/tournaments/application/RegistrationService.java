@@ -38,8 +38,9 @@ import org.springframework.web.multipart.MultipartFile;
  *   <li>Only the captain of an ACTIVE team may register it, and only in a tournament whose status
  *       is ACTIVE, on or before the registration deadline.</li>
  *   <li>The tournament must still have room: approved registrations &lt; {@code maxTeams}.</li>
- *   <li>The team must pass the eligibility rule of the teams module (7 to 12 members, unique
- *       jerseys, program majority, every member with a sport profile).</li>
+ *   <li>The team must pass the eligibility rule of the teams module ({@value TeamEligibility#MIN_MEMBERS}
+ *       to {@value TeamEligibility#MAX_MEMBERS} members, unique jerseys, program majority, every
+ *       member with a sport profile).</li>
  *   <li>A team may hold only one live (UNDER_REVIEW or APPROVED) registration per tournament; a
  *       rejected or cancelled attempt may be replaced by a new one.</li>
  *   <li>A payment receipt (image or PDF) is mandatory and stored through the {@link FileStorage} port.</li>
@@ -195,6 +196,9 @@ public class RegistrationService {
                     + "su estado actual es «" + tournament.getStatus().label() + "».");
         }
         requireCapacity(tournament);
+        // Roster changes (leave, remove, accept) lock the team row too: the size re-checked here
+        // cannot change before this approval commits and freezes the roster.
+        teamService.requireTeamForUpdate(registration.getTeam().getId());
         requireStillEligible(registration.getTeam());
         registration.moveTo(RegistrationStatus.APPROVED, userService.getUser(actor.id()), note);
         // The approval freezes the roster: pending requests and invitations can no longer succeed.

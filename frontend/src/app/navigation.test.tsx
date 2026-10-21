@@ -1,8 +1,8 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Navbar, isNavItemVisible } from '@/components/organisms/Navbar'
-import { summarizeRoles } from '@/lib/labels'
+import { headerRoles } from '@/lib/labels'
 import { userHasExactRole, userHasRole } from '@/store/auth.store'
 import type { Role, UserResponse } from '@/types/api'
 import { NAV_ITEMS } from './navigation'
@@ -83,34 +83,111 @@ describe('NAV_ITEMS visibility', () => {
 })
 
 describe('Navbar identity', () => {
-  it('summarizes the roles as the main one plus a counter', () => {
-    expect(summarizeRoles(['PLAYER', 'CAPTAIN', 'ADMIN'])).toEqual({
-      primary: 'Administrador',
-      extra: 2,
+  it('orders the roles by importance and keeps at most three for the header', () => {
+    expect(headerRoles(['PLAYER', 'CAPTAIN', 'ADMIN'])).toEqual({
+      visible: ['ADMIN', 'CAPTAIN', 'PLAYER'],
+      overflow: false,
       full: 'Administrador · Capitán · Jugador',
     })
-    expect(summarizeRoles(['PLAYER'])).toEqual({ primary: 'Jugador', extra: 0, full: 'Jugador' })
-    expect(summarizeRoles([])).toEqual({ primary: null, extra: 0, full: '' })
+    expect(headerRoles(['PLAYER', 'GUEST', 'REFEREE', 'ORGANIZER'])).toEqual({
+      visible: ['ORGANIZER', 'REFEREE', 'PLAYER'],
+      overflow: true,
+      full: 'Organizador · Árbitro · Jugador · Invitado',
+    })
+    expect(headerRoles([])).toEqual({ visible: [], overflow: false, full: '' })
   })
 
-  it('truncates a long name and keeps the full name and roles in the tooltip', () => {
-    const longName = 'María Fernanda de los Ángeles Rodríguez Castelblanco'
-    const me = { ...user(['PLAYER', 'CAPTAIN', 'ORGANIZER', 'REFEREE']), fullName: longName }
+  it('shows only the first name, capitalised, with the full name in the tooltip and for screen readers', () => {
+    const longName = 'carlos felipe rodriguez tellez'
+    const me = { ...user(['PLAYER']), fullName: longName }
     render(
       <MemoryRouter>
         <Navbar user={me} hasRole={() => true} items={[]} onLogout={() => undefined} />
       </MemoryRouter>,
     )
     const name = screen.getByTestId('navbar-user-name')
-    expect(name).toHaveTextContent(longName)
+    expect(name.querySelector('[aria-hidden="true"]')).toHaveTextContent(/^Carlos$/)
+    expect(name.querySelector('.sr-only')).toHaveTextContent(longName)
     expect(name.className).toContain('truncate')
-    expect(name.className).toMatch(/max-w-/)
-    expect(name.parentElement?.parentElement).toHaveAttribute(
-      'title',
-      `${longName}\nOrganizador · Árbitro · Capitán · Jugador`,
+    expect(screen.getByTestId('navbar-identity')).toHaveAttribute('title', `${longName}\nJugador`)
+    expect(screen.getByRole('img', { name: longName })).toBeInTheDocument()
+  })
+
+  it('shows up to three role badges and an "…" badge listing every role', () => {
+    const me = user(['PLAYER', 'CAPTAIN', 'ORGANIZER', 'REFEREE', 'ADMIN'])
+    render(
+      <MemoryRouter>
+        <Navbar user={me} hasRole={() => true} items={[]} onLogout={() => undefined} />
+      </MemoryRouter>,
     )
-    expect(screen.getByText('Organizador')).toBeInTheDocument()
-    expect(screen.getByText('+3')).toBeInTheDocument()
-    expect(screen.queryByText(/Árbitro/)).not.toBeInTheDocument()
+    const roles = screen.getByTestId('navbar-roles')
+    const all = 'Administrador · Organizador · Árbitro · Capitán · Jugador'
+    expect(within(roles).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      'Administrador',
+      'Organizador',
+      'Árbitro',
+      '…',
+    ])
+    expect(roles).toHaveAttribute('aria-label', `Roles: ${all}`)
+    expect(within(roles).getByText('…').closest('li')).toHaveAttribute('title', all)
+  })
+
+  it('shows every badge without "…" when the user has three roles or fewer', () => {
+    const me = user(['PLAYER', 'CAPTAIN'])
+    render(
+      <MemoryRouter>
+        <Navbar user={me} hasRole={() => true} items={[]} onLogout={() => undefined} />
+      </MemoryRouter>,
+    )
+    const roles = screen.getByTestId('navbar-roles')
+    expect(within(roles).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['Capitán', 'Jugador'])
+    expect(within(roles).queryByText('…')).not.toBeInTheDocument()
+  })
+})
+
+describe('Navbar desktop fit', () => {
+  /** Fakes the links slot: `needed` px of links in `available` px of room (jsdom has no layout). */
+  function fakeSlot(needed: number, available: number) {
+    const isSlot = (element: HTMLElement) => element.dataset.testid === 'navbar-links-slot'
+    const hasLinks = (element: HTMLElement) => !!element.querySelector('nav a')
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return isSlot(this) && hasLinks(this) ? needed : 0
+    })
+    const client = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return isSlot(this) ? available : 0
+    })
+    return () => {
+      scroll.mockRestore()
+      client.mockRestore()
+    }
+  }
+
+  function renderNavbar() {
+    const me = user(['PLAYER', 'CAPTAIN', 'ORGANIZER', 'REFEREE', 'ADMIN'])
+    render(
+      <MemoryRouter>
+        <Navbar user={me} hasRole={() => true} items={NAV_ITEMS} onLogout={() => undefined} />
+      </MemoryRouter>,
+    )
+  }
+
+  it('keeps the links and the role badges when they fit', () => {
+    const restore = fakeSlot(500, 600)
+    renderNavbar()
+    expect(screen.getByTestId('navbar-roles')).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'Principal' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Abrir menú' }).className).toContain('lg:hidden')
+    restore()
+  })
+
+  it('drops the badges first and falls back to the menu button when the links still do not fit', () => {
+    const restore = fakeSlot(900, 600)
+    renderNavbar()
+    // The first name always stays; badges and links give way, the menu button shows on desktop too.
+    expect(screen.getByTestId('navbar-user-name')).toBeInTheDocument()
+    expect(screen.queryByTestId('navbar-roles')).not.toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Principal' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Abrir menú' }).className).not.toContain('lg:hidden')
+    restore()
   })
 })

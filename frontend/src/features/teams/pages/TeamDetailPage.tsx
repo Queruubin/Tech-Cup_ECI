@@ -18,8 +18,10 @@ import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
 import { teamsApi } from '../api'
 import { EligibilityPanel } from '../components/EligibilityPanel'
+import { LeaveTeamCard } from '../components/LeaveTeamCard'
 import { useEligibility, useTeam } from '../hooks/useTeams'
 import { joinRequestAvailability, TEAM_NOT_RECRUITING_HINT } from '../rosterLock'
+import { MAX_TEAM_MEMBERS } from '../teamSize'
 
 export function TeamDetailPage() {
   const params = useParams<{ id: string }>()
@@ -137,7 +139,7 @@ export function TeamDetailPage() {
               <div className="lg:col-span-2">
                 <Card
                   title="Plantilla"
-                  description={`${team.memberCount} de 12 integrantes`}
+                  description={`${team.memberCount} de ${MAX_TEAM_MEMBERS} integrantes`}
                   padded={false}
                 >
                   <div className="p-4">
@@ -145,13 +147,22 @@ export function TeamDetailPage() {
                   </div>
                 </Card>
               </div>
-              <div>
+              <div className="flex flex-col gap-6">
                 <EligibilityPanel
                   eligibility={eligibilityQuery.data}
                   loading={eligibilityQuery.loading}
                   error={eligibilityQuery.error}
                   onRetry={eligibilityQuery.refetch}
                 />
+                {isMember && !isCaptainOfTeam && team.status === 'ACTIVE' && (
+                  <LeaveTeamCard
+                    team={team}
+                    onLeft={() => {
+                      teamQuery.refetch()
+                      eligibilityQuery.refetch()
+                    }}
+                  />
+                )}
               </div>
             </div>
           </>

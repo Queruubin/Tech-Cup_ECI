@@ -98,16 +98,17 @@ describe('MatchDetailPage "Corregir resultado"', () => {
       </MemoryRouter>,
     )
 
-    const open = await screen.findByRole('button', { name: 'Corregir resultado' })
+    // The page loads the match, the tournament matches and the lineups: allow for a slow, busy runner.
+    const open = await screen.findByRole('button', { name: 'Corregir resultado' }, { timeout: 5000 })
     expect(screen.queryByLabelText(/Goles local/i)).toBeNull()
     await user.click(open)
 
-    const form = (await screen.findByRole('heading', { name: 'Corregir resultado' })).closest('section') as HTMLElement
+    const form = (await screen.findByRole('heading', { name: 'Corregir resultado' }, { timeout: 5000 })).closest('section') as HTMLElement
     const inputs = within(form).getAllByRole('spinbutton')
     expect(inputs[0]).toHaveValue(2)
     expect(inputs[1]).toHaveValue(1)
     expect(within(form).getByRole('button', { name: 'Corregir resultado' })).toBeInTheDocument()
     // Reopening is still available as the other way to fix a match.
     expect(screen.getByRole('button', { name: 'Reabrir partido' })).toBeInTheDocument()
-  })
+  }, 15000)
 })

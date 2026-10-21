@@ -39,6 +39,17 @@ export function formatMoney(value: number | null | undefined): string {
   return moneyFormatter.format(value)
 }
 
+/**
+ * First given name, capitalised: "carlos felipe rodriguez" → "Carlos", "ANA-MARÍA López" → "Ana-María".
+ */
+export function firstName(fullName: string): string {
+  const first = fullName.trim().split(/\s+/)[0] ?? ''
+  return first
+    .split('-')
+    .map((part) => part.charAt(0).toLocaleUpperCase('es') + part.slice(1).toLocaleLowerCase('es'))
+    .join('-')
+}
+
 /** Returns "Nombre Apellido" initials, e.g. "NA". */
 export function initials(fullName: string): string {
   return fullName
@@ -69,6 +80,35 @@ export function fromDateTimeLocal(value: string): string | undefined {
   if (!value) return undefined
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
+}
+
+/** Kick-off time offered when a match has no time yet (the backend's round-robin default too). */
+export const DEFAULT_KICKOFF_TIME = '18:00'
+
+/** A kick-off split into the values of `<input type="date">` (`YYYY-MM-DD`) and `<input type="time">` (`HH:mm`). */
+export interface DateTimeParts {
+  date: string
+  time: string
+}
+
+/**
+ * ISO timestamp → separate date and time values, in the same local time as `toDateTimeLocal`.
+ * Empty or invalid input → both empty.
+ */
+export function splitDateTime(iso: string | null | undefined): DateTimeParts {
+  const local = toDateTimeLocal(iso)
+  if (!local) return { date: '', time: '' }
+  const [date = '', time = ''] = local.split('T')
+  return { date, time }
+}
+
+/**
+ * Date + time values → ISO timestamp (UTC) through `fromDateTimeLocal`, so the conversion is exactly
+ * the one the single "datetime-local" field used. Missing or malformed parts → undefined.
+ */
+export function joinDateTime({ date, time }: DateTimeParts): string | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}(:\d{2})?$/.test(time)) return undefined
+  return fromDateTimeLocal(`${date}T${time}`)
 }
 
 /** True when the timestamp is in the future (or null, which the backend treats as unscheduled). */

@@ -18,7 +18,7 @@ public interface TeamRepository extends JpaRepository<Team, Long> {
 
     List<Team> findAllByOrderByNameAsc();
 
-    /** Loads the team with a database write lock (team deletion). */
+    /** Loads the team with a database write lock (roster changes, registration approval, deletion). */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT t FROM Team t WHERE t.id = :id")
     Optional<Team> findByIdForUpdate(@Param("id") Long id);

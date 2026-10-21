@@ -9,6 +9,7 @@ import { StandingsTable } from '@/components/organisms/StandingsTable'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { useMyInvitations } from '@/features/players/hooks/usePlayers'
 import { countPendingInvitations } from '@/features/players/invitations'
+import { firstName } from '@/lib/format'
 import { MyTeamCard } from '../components/MyTeamCard'
 import { PendingInvitationsAlert } from '../components/PendingInvitationsAlert'
 import { TournamentSummary } from '../components/TournamentSummary'
@@ -18,7 +19,7 @@ export function HomePage() {
   const { user, hasRole, hasExactRole } = useAuth()
   const { data, loading, error, refetch } = useHome()
 
-  const firstName = user?.fullName.split(' ')[0] ?? ''
+  const greetingName = user ? firstName(user.fullName) : ''
   // Personal scope ("Mi equipo" card): ADMIN does not imply being a captain or a player.
   const isCaptain = hasExactRole('CAPTAIN')
   const isPlayer = hasExactRole('PLAYER')
@@ -29,7 +30,7 @@ export function HomePage() {
   return (
     <>
       <PageHeader
-        title={firstName ? `Hola, ${firstName}` : 'Inicio'}
+        title={greetingName ? `Hola, ${greetingName}` : 'Inicio'}
         description="Resumen del torneo vigente y de su participación."
       />
       {pendingInvitations > 0 && (

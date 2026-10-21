@@ -30,23 +30,29 @@ export const ROLE_LABELS: Record<Role, string> = {
   ADMIN: 'Administrador',
 }
 
-/** Most to least significant: the role shown when there is room for only one. */
+/** Most to least significant: the order roles are listed in, e.g. in the header. */
 const ROLE_PRIORITY: Role[] = ['ADMIN', 'ORGANIZER', 'REFEREE', 'CAPTAIN', 'PLAYER', 'GUEST']
 
-export interface RoleSummary {
-  /** Label of the most significant role, or null when the user has none. */
-  primary: string | null
-  /** How many other roles are hidden behind "+N". */
-  extra: number
-  /** Every role, for the tooltip and screen readers. */
+/** How many role badges the header shows before collapsing the rest into "…". */
+export const HEADER_ROLE_LIMIT = 3
+
+export interface HeaderRoles {
+  /** The most significant roles, at most `limit`. */
+  visible: Role[]
+  /** True when some roles are left out (shown as an "…" badge). */
+  overflow: boolean
+  /** Every role, most significant first, for the tooltip and screen readers. */
   full: string
 }
 
-/** Compacts the role list for the header: the main role plus a "+N" counter. */
-export function summarizeRoles(roles: Role[]): RoleSummary {
+/** Role badges for the header: the `limit` most significant roles, plus whether more exist. */
+export function headerRoles(roles: Role[], limit: number = HEADER_ROLE_LIMIT): HeaderRoles {
   const sorted = [...roles].sort((a, b) => ROLE_PRIORITY.indexOf(a) - ROLE_PRIORITY.indexOf(b))
-  const labels = sorted.map((role) => ROLE_LABELS[role])
-  return { primary: labels[0] ?? null, extra: Math.max(labels.length - 1, 0), full: labels.join(' · ') }
+  return {
+    visible: sorted.slice(0, limit),
+    overflow: sorted.length > limit,
+    full: sorted.map((role) => ROLE_LABELS[role]).join(' · '),
+  }
 }
 
 export const INITIAL_ROLE_LABELS: Record<InitialRole, string> = {
@@ -178,6 +184,7 @@ export const AUDIT_ACTION_LABELS: Record<KnownAuditAction, string> = {
   TEAM_CREATED: 'Creación de equipo',
   TEAM_UPDATED: 'Actualización de equipo',
   TEAM_MEMBER_REMOVED: 'Retiro de integrante',
+  TEAM_MEMBER_LEFT: 'Salida voluntaria de integrante',
   TEAM_INACTIVATED: 'Inactivación de equipo',
   TEAM_DELETED: 'Eliminación de equipo',
   TOURNAMENT_CREATED: 'Creación de torneo',

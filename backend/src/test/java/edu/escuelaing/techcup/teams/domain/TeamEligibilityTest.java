@@ -11,37 +11,37 @@ import org.junit.jupiter.api.Test;
 class TeamEligibilityTest {
 
     @Test
-    void sevenValidMembersAreEligible() {
-        var result = TeamEligibility.check(members(7, AcademicProgram.SYSTEMS_ENGINEERING));
+    void eightValidMembersAreEligible() {
+        var result = TeamEligibility.check(members(8, AcademicProgram.SYSTEMS_ENGINEERING));
 
         assertThat(result.eligible()).isTrue();
         assertThat(result.problems()).isEmpty();
     }
 
     @Test
-    void twelveValidMembersAreEligible() {
-        assertThat(TeamEligibility.check(members(12, AcademicProgram.AI_ENGINEERING)).eligible()).isTrue();
+    void thirteenValidMembersAreEligible() {
+        assertThat(TeamEligibility.check(members(13, AcademicProgram.AI_ENGINEERING)).eligible()).isTrue();
     }
 
     @Test
-    void fewerThanSevenMembersIsAProblem() {
-        var result = TeamEligibility.check(members(6, AcademicProgram.SYSTEMS_ENGINEERING));
+    void sevenMembersAreTooFew() {
+        var result = TeamEligibility.check(members(7, AcademicProgram.SYSTEMS_ENGINEERING));
 
         assertThat(result.eligible()).isFalse();
-        assertThat(result.problems()).anySatisfy(p -> assertThat(p).contains("al menos 7"));
+        assertThat(result.problems()).containsExactly("El equipo tiene 7 integrantes; se requieren al menos 8.");
     }
 
     @Test
-    void moreThanTwelveMembersIsAProblem() {
-        var result = TeamEligibility.check(members(13, AcademicProgram.SYSTEMS_ENGINEERING));
+    void moreThanThirteenMembersIsAProblem() {
+        var result = TeamEligibility.check(members(14, AcademicProgram.SYSTEMS_ENGINEERING));
 
         assertThat(result.eligible()).isFalse();
-        assertThat(result.problems()).anySatisfy(p -> assertThat(p).contains("máximo 12"));
+        assertThat(result.problems()).containsExactly("El equipo tiene 14 integrantes; se permiten máximo 13.");
     }
 
     @Test
     void duplicateJerseyNumbersAreReported() {
-        List<MemberFacts> members = members(7, AcademicProgram.SYSTEMS_ENGINEERING);
+        List<MemberFacts> members = members(8, AcademicProgram.SYSTEMS_ENGINEERING);
         members.set(6, new MemberFacts(6L, "Member 6", true, 1, AcademicProgram.SYSTEMS_ENGINEERING));
 
         var result = TeamEligibility.check(members);
@@ -52,7 +52,7 @@ class TeamEligibilityTest {
 
     @Test
     void membersWithoutProfileAreReported() {
-        List<MemberFacts> members = members(7, AcademicProgram.SYSTEMS_ENGINEERING);
+        List<MemberFacts> members = members(8, AcademicProgram.SYSTEMS_ENGINEERING);
         members.set(0, new MemberFacts(0L, "Member 0", false, null, AcademicProgram.SYSTEMS_ENGINEERING));
 
         var result = TeamEligibility.check(members);

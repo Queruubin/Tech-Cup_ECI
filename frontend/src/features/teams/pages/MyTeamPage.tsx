@@ -18,10 +18,12 @@ import type { JoinRequestResponse, TeamMember, TeamResponse } from '@/types/api'
 import { teamsApi } from '../api'
 import { EligibilityPanel } from '../components/EligibilityPanel'
 import { JoinRequestsPanel } from '../components/JoinRequestsPanel'
+import { LeaveTeamCard } from '../components/LeaveTeamCard'
 import { SentInvitationsPanel } from '../components/SentInvitationsPanel'
 import { TeamForm, type TeamFormValues } from '../components/TeamForm'
 import { useEligibility, useMyTeam, useTeamInvitations } from '../hooks/useTeams'
 import { selectMyTeamView } from '../myTeamView'
+import { MAX_TEAM_MEMBERS, rosterCount } from '../teamSize'
 
 type PendingAction =
   | { kind: 'remove'; member: TeamMember }
@@ -263,7 +265,7 @@ export function MyTeamPage() {
                 <StatusBadge kind="team" value={team.status} />
                 <span>Capitán: {team.captain.fullName}</span>
                 <span>· Colores: {team.colors}</span>
-                <span>· {team.memberCount} / 12 integrantes</span>
+                <span>· {rosterCount(team.memberCount)}</span>
               </span>
             }
             actions={
@@ -282,6 +284,8 @@ export function MyTeamPage() {
               <TeamRoster members={team.members} captainId={team.captain.id} />
             </div>
           </Card>
+          {/* `GET /teams/mine` would now answer 404: show the no-team state straight away. */}
+          <LeaveTeamCard team={team} className="mt-6 max-w-3xl" onLeft={() => teamQuery.setData(null)} />
         </>
       )
     }
@@ -294,7 +298,7 @@ export function MyTeamPage() {
             <span className="flex flex-wrap items-center gap-2">
               <StatusBadge kind="team" value={team.status} />
               <span>Colores: {team.colors}</span>
-              <span>· {team.memberCount} / 12 integrantes</span>
+              <span>· {rosterCount(team.memberCount)}</span>
             </span>
           }
           actions={
@@ -390,7 +394,7 @@ export function MyTeamPage() {
               error={eligibilityQuery.error}
               onRetry={eligibilityQuery.refetch}
             />
-            {team.memberCount < 12 && team.status === 'ACTIVE' && !team.locked && (
+            {team.memberCount < MAX_TEAM_MEMBERS && team.status === 'ACTIVE' && !team.locked && (
               <Card title="¿Faltan jugadores?">
                 <p className="text-sm text-stone-600">Consulte los jugadores disponibles por posición e invítelos a su equipo.</p>
                 <Link to="/players" className="mt-3 inline-block">

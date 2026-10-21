@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { toDateTimeLocal } from '@/lib/format'
+import { splitDateTime } from '@/lib/format'
 import type { MatchResponse, RegistrationResponse, UserResponse } from '@/types/api'
 import { MatchEditForm } from './components/MatchEditForm'
 import {
@@ -113,19 +113,20 @@ describe('isPastDateTime', () => {
   const now = new Date('2026-06-15T12:00:00Z').getTime()
 
   it('detects past and future values', () => {
-    expect(isPastDateTime(toDateTimeLocal('2026-06-01T12:00:00Z'), now)).toBe(true)
-    expect(isPastDateTime(toDateTimeLocal('2026-07-01T12:00:00Z'), now)).toBe(false)
+    expect(isPastDateTime(splitDateTime('2026-06-01T12:00:00Z'), now)).toBe(true)
+    expect(isPastDateTime(splitDateTime('2026-07-01T12:00:00Z'), now)).toBe(false)
   })
 
   it('treats empty or invalid values as not past', () => {
-    expect(isPastDateTime('', now)).toBe(false)
-    expect(isPastDateTime('not-a-date', now)).toBe(false)
+    expect(isPastDateTime({ date: '', time: '' }, now)).toBe(false)
+    expect(isPastDateTime({ date: '2026-06-01', time: '' }, now)).toBe(false)
+    expect(isPastDateTime({ date: 'not-a-date', time: '10:00' }, now)).toBe(false)
   })
 })
 
 describe('validateMatchEdit / toUpdateMatchRequest', () => {
   it('rejects the same team on both sides but accepts past dates', () => {
-    const values = { ...matchEditValuesFromMatch(makeMatch()), scheduledAt: '2020-01-01T10:00', awayTeamId: '10' }
+    const values = { ...matchEditValuesFromMatch(makeMatch()), scheduledDate: '2020-01-01', scheduledTime: '10:00', awayTeamId: '10' }
     expect(validateMatchEdit(values)).toEqual({ awayTeamId: SAME_TEAMS_ERROR })
     expect(validateMatchEdit({ ...values, awayTeamId: '30' })).toEqual({})
   })
@@ -149,7 +150,8 @@ describe('validateMatchEdit / toUpdateMatchRequest', () => {
       ...matchEditValuesFromMatch(match),
       refereeId: '100',
       venueId: '2',
-      scheduledAt: '2099-04-01T18:00',
+      scheduledDate: '2099-04-01',
+      scheduledTime: '18:00',
     })
     expect(payload).toEqual({ refereeId: 100, venueId: 2, scheduledAt: new Date('2099-04-01T18:00').toISOString() })
     expect(hasMatchChanges(payload)).toBe(true)
@@ -157,7 +159,7 @@ describe('validateMatchEdit / toUpdateMatchRequest', () => {
 
   it('keeps an inactive assigned referee out of the body when only the date changes', () => {
     const match = makeMatch({ referee: { id: 99, fullName: 'Ana Ruiz' } })
-    const payload = toUpdateMatchRequest(match, { ...matchEditValuesFromMatch(match), scheduledAt: '2099-04-01T18:00' })
+    const payload = toUpdateMatchRequest(match, { ...matchEditValuesFromMatch(match), scheduledDate: '2099-04-01' })
     expect(payload).not.toHaveProperty('refereeId')
   })
 
@@ -240,9 +242,12 @@ describe('MatchEditForm', () => {
     expect(screen.queryByText(PAST_DATE_HINT)).not.toBeInTheDocument()
 
     const user = userEvent.setup()
-    const date = screen.getByLabelText('Fecha y hora')
+    const date = screen.getByLabelText('Fecha')
+    const time = screen.getByLabelText('Hora')
     await user.clear(date)
-    await user.type(date, '2020-05-01T15:30')
+    await user.type(date, '2020-05-01')
+    await user.clear(time)
+    await user.type(time, '15:30')
     expect(screen.getByText(PAST_DATE_HINT)).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('Equipo visitante'), '30')
@@ -250,6 +255,39 @@ describe('MatchEditForm', () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ scheduledAt: new Date('2020-05-01T15:30').toISOString(), awayTeamId: 30 }),
     )
+  })
+
+  it('prefills separate date and time from the current kick-off and sends only a changed time', async () => {
+    const onSubmit = vi.fn()
+    const match = makeMatch({ scheduledAt: '2099-03-10T23:00:00Z' })
+    render(<MatchEditForm {...baseProps} match={match} onSubmit={onSubmit} />)
+    const expected = splitDateTime(match.scheduledAt)
+    expect(screen.getByLabelText('Fecha')).toHaveValue(expected.date)
+    expect(screen.getByLabelText('Hora')).toHaveValue(expected.time)
+
+    const user = userEvent.setup()
+    await user.clear(screen.getByLabelText('Hora'))
+    await user.type(screen.getByLabelText('Hora'), '07:15')
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    expect(onSubmit).toHaveBeenCalledWith({ scheduledAt: new Date(`${expected.date}T07:15`).toISOString() })
+  })
+
+  it('offers 18:00 for an unscheduled match and asks for the time if it is cleared', async () => {
+    const onSubmit = vi.fn()
+    render(<MatchEditForm {...baseProps} match={makeMatch({ scheduledAt: null })} onSubmit={onSubmit} />)
+    expect(screen.getByLabelText('Fecha')).toHaveValue('')
+    expect(screen.getByLabelText('Hora')).toHaveValue('18:00')
+
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Fecha'), '2099-05-02')
+    await user.clear(screen.getByLabelText('Hora'))
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    expect(screen.getByText('Indique la hora.')).toBeInTheDocument()
+    expect(onSubmit).not.toHaveBeenCalled()
+
+    await user.type(screen.getByLabelText('Hora'), '18:00')
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    expect(onSubmit).toHaveBeenCalledWith({ scheduledAt: new Date('2099-05-02T18:00').toISOString() })
   })
 
   it('does not submit when nothing changed and says so', async () => {

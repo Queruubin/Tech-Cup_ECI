@@ -2,6 +2,7 @@ import { Link } from 'react-router'
 import { StatusBadge } from '@/components/atoms/Badge'
 import { Button } from '@/components/atoms/Button'
 import { Card } from '@/components/molecules/Card'
+import { rosterCount } from '@/features/teams/teamSize'
 import { formatDate } from '@/lib/format'
 import type { RegistrationResponse, TeamResponse } from '@/types/api'
 
@@ -66,7 +67,7 @@ export function MyTeamCard({ team, registration, isCaptain, isPlayer, tournament
         </div>
         <div>
           <dt className="text-stone-500">Integrantes</dt>
-          <dd className="font-medium text-ink">{team.memberCount} / 12</dd>
+          <dd className="font-medium text-ink">{rosterCount(team.memberCount, false)}</dd>
         </div>
         <div className="col-span-2">
           <dt className="text-stone-500">Inscripción</dt>

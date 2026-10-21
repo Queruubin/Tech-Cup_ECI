@@ -41,6 +41,8 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>Update name/colors, remove a member, inactivate: only by the team captain (or ADMIN) and
  *       only while the team is not locked by an approved registration in an ACTIVE or
  *       IN_PROGRESS tournament ({@link TeamLockPort}). The captain cannot be removed.
+ *       Every roster change (add, remove, leave) locks the team row first, so concurrent changes
+ *       and the registration approval (which re-checks the minimum size) serialise on it.
  *       Inactivating a team also cancels its pending join requests and invitations
  *       ({@link TeamJoinRequestPort}) and revokes CAPTAIN from its captain
  *       ({@link RoleService#revokeCaptainForClosedTeam}).</li>
@@ -50,10 +52,14 @@ import org.springframework.transaction.annotation.Transactional;
  *       memberships and join requests/invitations ({@code ON DELETE CASCADE}) and its REJECTED or
  *       CANCELLED registrations, whose receipts are deleted after commit; the players stay as users.
  *       Its captain loses CAPTAIN unless they still captain an ACTIVE team.</li>
- *   <li>Eligibility (7 to 12 members, unique jerseys, program majority, profiles) is delegated
- *       to the pure domain rule {@link TeamEligibility}.</li>
+ *   <li>Leave (any member but the captain): refused while the team is locked, like removing a
+ *       member; the captain cannot leave (an admin may delete the team instead).</li>
+ *   <li>Eligibility ({@value TeamEligibility#MIN_MEMBERS} to {@value TeamEligibility#MAX_MEMBERS}
+ *       members, unique jerseys, program majority, profiles) is delegated to the pure domain rule
+ *       {@link TeamEligibility}.</li>
  * </ul>
- * Audited as TEAM_CREATED / TEAM_UPDATED / TEAM_MEMBER_REMOVED / TEAM_INACTIVATED / TEAM_DELETED.
+ * Audited as TEAM_CREATED / TEAM_UPDATED / TEAM_MEMBER_REMOVED / TEAM_MEMBER_LEFT / TEAM_INACTIVATED /
+ * TEAM_DELETED.
  */
 @Service
 public class TeamService {
@@ -171,7 +177,7 @@ public class TeamService {
 
     @Transactional
     public TeamResponse removeMember(AuthenticatedUser actor, Long teamId, Long userId) {
-        Team team = requireTeam(teamId);
+        Team team = requireTeamForUpdate(teamId);
         requireCaptainOrAdmin(actor, team);
         requireUnlocked(team);
         if (team.isCaptain(userId)) {
@@ -181,6 +187,36 @@ public class TeamService {
         auditService.record(actor.id(), AuditAction.TEAM_MEMBER_REMOVED, ENTITY_TYPE, teamId,
                 Map.of("userId", userId));
         return assembler.toResponse(team);
+    }
+
+    /**
+     * The signed-in player leaves the team. Only a member may, never its captain (a team always
+     * keeps its captain, who cannot stop being one by hand), and not while the roster is frozen by
+     * a tournament ({@link TeamLockPort}, the same rule as removing a member). The team row is
+     * locked first, so the departure serialises with the other roster changes and with the
+     * registration approval, which re-checks the minimum size under that same lock.
+     *
+     * <p>Only the membership ties a player to a team: the profile's and the session's team are
+     * derived from it, and a member holds no pending join request or invitation (joining a team
+     * cancels them all, and none can be created while in a team), so nothing else is cleared.
+     */
+    @Transactional
+    public void leave(AuthenticatedUser actor, Long teamId) {
+        Team team = requireTeamForUpdate(teamId);
+        if (!team.hasMember(actor.id())) {
+            throw new ForbiddenOperationException("Usted no es integrante del equipo '" + team.getName() + "'.");
+        }
+        if (team.isCaptain(actor.id())) {
+            throw new BusinessRuleException("El capitán no puede salir del equipo. Si necesita retirarse, "
+                    + "un administrador puede eliminar el equipo.");
+        }
+        if (teamLock.isLocked(teamId)) {
+            throw new BusinessRuleException("El equipo '" + team.getName() + "' está inscrito en un torneo activo "
+                    + "o en curso; no puede salir de él hasta que el torneo finalice.");
+        }
+        team.removeMember(actor.id());
+        auditService.record(actor.id(), AuditAction.TEAM_MEMBER_LEFT, ENTITY_TYPE, teamId,
+                Map.of("userId", actor.id(), "remainingMembers", team.memberCount()));
     }
 
     /**
@@ -262,11 +298,12 @@ public class TeamService {
     /**
      * Adds a player to a team enforcing the membership rules. Called by the join-request flow of
      * the players module through {@code TeamGateway}, which locks the player's row first so the
-     * "not in another team" check cannot be raced by a second acceptance.
+     * "not in another team" check cannot be raced by a second acceptance. The team row is locked
+     * too, so two acceptances into the same team cannot both pass the size check.
      */
     @Transactional
     public void addMember(Long teamId, Long userId) {
-        Team team = requireTeam(teamId);
+        Team team = requireTeamForUpdate(teamId);
         if (!team.isActive()) {
             throw new BusinessRuleException("El equipo '" + team.getName() + "' no está activo.");
         }
@@ -320,6 +357,15 @@ public class TeamService {
     @Transactional(readOnly = true)
     public Team requireTeam(Long teamId) {
         return teams.findById(teamId).orElseThrow(() -> NotFoundException.of("el equipo", teamId));
+    }
+
+    /**
+     * Loads the team with a database write lock: roster changes and the registration approval
+     * (minimum-size re-check) take it so they cannot interleave.
+     */
+    @Transactional
+    public Team requireTeamForUpdate(Long teamId) {
+        return teams.findByIdForUpdate(teamId).orElseThrow(() -> NotFoundException.of("el equipo", teamId));
     }
 
     private static void requireCaptainOrAdmin(AuthenticatedUser actor, Team team) {

@@ -21,8 +21,14 @@ import java.util.TreeSet;
  */
 public final class TeamEligibility {
 
-    public static final int MIN_MEMBERS = 7;
-    public static final int MAX_MEMBERS = 12;
+    /**
+     * Roster bounds, the single source of truth for the backend (product decision of 2026-10, it
+     * replaces the 7..12 of the original specification). The minimum gates the tournament
+     * registration (and its approval); the maximum also caps every new membership
+     * ({@code TeamService.addMember}), so a team never grows past it.
+     */
+    public static final int MIN_MEMBERS = 8;
+    public static final int MAX_MEMBERS = 13;
 
     /** What the rule needs to know about one member. {@code jerseyNumber} is null without a profile. */
     public record MemberFacts(Long userId, String fullName, boolean hasProfile, Integer jerseyNumber,
