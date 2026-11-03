@@ -14,6 +14,7 @@ export const playersApi = {
   getMyProfile: (signal?: AbortSignal) => api.get<PlayerProfileResponse>('/players/me/profile', undefined, signal),
   upsertMyProfile: (payload: UpsertProfileRequest) => api.put<PlayerProfileResponse>('/players/me/profile', payload),
   uploadMyPhoto: (file: File) => api.upload<PlayerProfileResponse>('/players/me/profile/photo', file),
+  removeMyPhoto: () => api.delete<PlayerProfileResponse>('/players/me/profile/photo'),
   getProfile: (userId: number, signal?: AbortSignal) =>
     api.get<PlayerProfileResponse>(`/players/${userId}/profile`, undefined, signal),
   search: (filters: { position?: Position | ''; available?: boolean }, signal?: AbortSignal) =>

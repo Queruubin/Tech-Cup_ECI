@@ -81,6 +81,7 @@ export const AUDIT_ACTIONS = [
   'USER_UPDATED',
   'PROFILE_CREATED',
   'PROFILE_UPDATED',
+  'PLAYER_PHOTO_REMOVED_BY_ADMIN',
   'JOIN_REQUEST_CREATED',
   'JOIN_REQUEST_CANCELLED',
   'JOIN_REQUEST_ACCEPTED',
@@ -105,7 +106,9 @@ export const AUDIT_ACTIONS = [
   'TOURNAMENT_RESUMED',
   'RULEBOOK_UPLOADED',
   'VENUE_CREATED',
+  'VENUE_UPDATED',
   'VENUE_DELETED',
+  'PLAYERS_EXPORTED',
   'REGISTRATION_CREATED',
   'REGISTRATION_APPROVED',
   'REGISTRATION_REJECTED',
@@ -124,6 +127,11 @@ export const AUDIT_ACTIONS = [
   'GROUP_TEAM_REMOVED',
   'MATCH_CREATED',
   'KNOCKOUT_CREATED',
+  'MATCH_DELETED',
+  'TOURNAMENT_TEAM_SANCTIONED',
+  'TOURNAMENT_SANCTION_REMOVED',
+  'PODIUM_PHOTO_UPDATED',
+  'PODIUM_PHOTO_REMOVED',
 ] as const
 export type KnownAuditAction = (typeof AUDIT_ACTIONS)[number]
 /** Known audit actions. The backend may emit others; treat as an open string. */
@@ -161,6 +169,11 @@ export interface UserResponse {
   id: number
   fullName: string
   email: string | null
+  /**
+   * Contact phone, normalised (`+57XXXXXXXXXX` or `+digits`). `null` when the user has none or the
+   * viewer may not see it (only the user, ADMIN and ORGANIZER do).
+   */
+  phoneNumber: string | null
   /** `null` for referees, who are created without an affiliation. */
   schoolRelation: SchoolRelation | null
   academicProgram: AcademicProgram | null
@@ -186,6 +199,8 @@ export interface RegisterRequest {
   documentType: DocumentType
   documentNumber: string
   initialRole: InitialRole
+  /** Optional contact phone; `null` = none. */
+  phoneNumber?: string | null
 }
 
 export interface LoginRequest {
@@ -199,12 +214,16 @@ export interface LoginResponse {
   user: UserResponse
 }
 
-/** `schoolRelation` / `academicProgram` set to `null` keep the stored value. */
+/**
+ * `schoolRelation` / `academicProgram` set to `null` keep the stored value. `phoneNumber`: omitted or
+ * `null` keeps it, `''` removes it, anything else replaces it (validated and normalised by the server).
+ */
 export interface UpdateUserRequest {
   fullName: string
   schoolRelation: SchoolRelation | null
   academicProgram: AcademicProgram | null
   semester?: number | null
+  phoneNumber?: string | null
 }
 
 export interface AssignRoleRequest {
@@ -254,6 +273,8 @@ export interface PlayerProfileResponse {
   photoFileId: string | null
   teamId?: number | null
   teamName?: string | null
+  /** True while the player's team plays a tournament: the jersey number cannot change then. */
+  teamLocked?: boolean
 }
 
 export interface UpsertProfileRequest {
@@ -434,8 +455,17 @@ export interface MatchResponse {
   teamsEditable: boolean
   /** True when a PLAYED or CANCELLED match can go back to SCHEDULED (`POST /matches/{id}/reopen`). */
   reopenable: boolean
+  /**
+   * Knockout feeder link: the next-round match this one feeds and the side its winner takes there.
+   * `null` for group matches, the final, a round not drawn yet and knockout rounds drawn before the
+   * links existed (then the bracket view infers the feeder from the teams).
+   */
+  nextMatchId: number | null
+  nextSlot: BracketSlot | null
   events: MatchEvent[]
 }
+
+export type BracketSlot = 'HOME' | 'AWAY'
 
 /** Omitted fields stay unchanged. */
 export interface UpdateMatchRequest {
@@ -494,6 +524,15 @@ export interface KnockoutSuggestion {
   size: KnockoutSize
   source: 'GROUPS' | 'GENERAL'
   pairings: { home: KnockoutSeed; away: KnockoutSeed }[]
+}
+
+/** `POST /tournaments/{id}/groups/round-robin` ("Generar partidos", every group at once). */
+export interface GroupMatchesGenerated {
+  /** 0 when every group already had all its pairings (idempotent; `message` says so). */
+  created: number
+  groups: { groupId: number; name: string; teams: number; created: number }[]
+  matches: MatchResponse[]
+  message: string
 }
 
 /** `POST /tournaments/{id}/knockout`: 1, 2 or 4 pairings in bracket order. */
@@ -591,4 +630,79 @@ export interface HomeResponse {
   myRegistration: RegistrationResponse | null
   upcomingMatches: MatchResponse[]
   standingsTop: StandingRow[]
+}
+
+// ---------------------------------------------------------------------------
+// Tournament history (FINISHED tournaments, public)
+// ---------------------------------------------------------------------------
+
+/** `KNOCKOUT`: final and semi-finals; `STANDINGS`: general table (no final decided). */
+export type PodiumSource = 'KNOCKOUT' | 'STANDINGS'
+
+/** `GET /tournaments/history`: finished tournaments, the one that ended last first. */
+export interface TournamentHistorySummary {
+  id: number
+  name: string
+  startDate: string
+  endDate: string
+  podiumSource: PodiumSource | null
+  champion: { teamId: number; teamName: string } | null
+}
+
+export interface TeamNumbers {
+  teamId: number
+  teamName: string
+  played: number
+  points: number
+  goalDifference: number
+  goalsFor: number
+  goalsAgainst: number
+}
+
+/** One podium position (1 champion, 2 runner-up, 3 third) with the numbers it was decided on. */
+export interface PodiumEntry extends TeamNumbers {
+  position: number
+  /** Optional extra photo, served publicly by `GET /tournaments/{id}/history/podium/{position}/photo`. */
+  photoFileId: string | null
+}
+
+/** A sanctioned team as recorded (snapshot): `teamId` is null once the team was deleted. */
+export interface SanctionedTeam {
+  id: number
+  teamId: number | null
+  teamName: string
+  note: string | null
+  createdAt: string
+  /** Public data: names only, no account ids. */
+  members: { fullName: string; captain: boolean }[]
+}
+
+/** `GET /tournaments/{id}/history` (409 unless FINISHED). */
+export interface TournamentHistory {
+  tournamentId: number
+  name: string
+  startDate: string
+  endDate: string
+  podiumSource: PodiumSource | null
+  /** Only the positions that exist. */
+  podium: PodiumEntry[]
+  /** The semi-final losers compared for the third place, best first. */
+  thirdPlaceCandidates: TeamNumbers[]
+  bestDefence: { teamId: number; teamName: string; goalsConceded: number; matchesPlayed: number } | null
+  /** Every player tied on the most goals. */
+  topScorers: TopScorer[]
+  sanctionedTeams: SanctionedTeam[]
+  /** Teams that took part (approved or with matches): what staff may pick a sanctioned team from. */
+  participants: { id: number; name: string }[]
+}
+
+export interface SanctionTeamRequest {
+  teamId: number
+  note?: string
+}
+
+export interface PodiumPhotoResponse {
+  position: number
+  teamId: number
+  fileId: string
 }

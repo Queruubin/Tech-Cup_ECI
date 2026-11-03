@@ -28,6 +28,7 @@ import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.exception.InvalidRequestException;
+import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.teams.application.TeamService;
 import edu.escuelaing.techcup.teams.domain.Team;
@@ -498,6 +499,192 @@ class GroupStageServiceTest {
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessage("No hay fechas disponibles antes del año 2101 para programar los partidos.");
         verify(matches, never()).save(any());
+    }
+
+    // --- "Generar partidos": every group at once ----------------------------------------------------
+
+    @Test
+    void generatingEveryGroupIsRefusedWhileAnApprovedTeamHasNoGroup() {
+        TournamentGroup groupA = group(5L, 0);
+        Team tigers = team(10L, "Tigers");
+        Team lions = team(20L, "Lions");
+        when(groups.findByTournamentIdOrderByPositionAsc(1L)).thenReturn(List.of(groupA));
+        when(groupTeams.findByTournament(1L)).thenReturn(List.of(assignment(groupA, tigers), assignment(groupA, lions)));
+        when(tournamentService.approvedTeamIds(1L)).thenReturn(List.of(10L, 20L, 30L, 40L));
+        when(teamService.requireTeam(30L)).thenReturn(team(30L, "Pumas"));
+        when(teamService.requireTeam(40L)).thenReturn(team(40L, "Bears"));
+
+        assertThatThrownBy(() -> service.generateAll(ORGANIZER, 1L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Asigne todos los equipos aprobados a un grupo antes de generar los partidos. "
+                        + "Faltan: 'Bears', 'Pumas'.");
+        verify(matches, never()).save(any());
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void generatingEveryGroupNeedsAGroupWithTwoTeams() {
+        TournamentGroup groupA = group(5L, 0);
+        when(groups.findByTournamentIdOrderByPositionAsc(1L)).thenReturn(List.of(groupA));
+        when(groupTeams.findByTournament(1L)).thenReturn(List.of(assignment(groupA, team(10L, "Tigers"))));
+
+        assertThatThrownBy(() -> service.generateAll(ORGANIZER, 1L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("Para generar los partidos se necesita al menos un grupo con 2 equipos.");
+    }
+
+    @Test
+    void generatingEveryGroupIsRefusedWhenSuspendedOrOnceTheKnockoutStarted() {
+        tournament.suspend();
+        assertThatThrownBy(() -> service.generateAll(ORGANIZER, 1L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("está suspendido");
+
+        tournament.resume();
+        when(matches.existsByTournamentIdAndPhaseNot(1L, MatchPhase.GROUP)).thenReturn(true);
+        assertThatThrownBy(() -> service.generateAll(ORGANIZER, 1L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("La eliminatoria ya comenzó");
+
+        tournament.setStatus(TournamentStatus.ACTIVE);
+        assertThatThrownBy(() -> service.generateAll(ORGANIZER, 1L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("mientras el torneo esté en progreso");
+        verify(matches, never()).save(any());
+    }
+
+    /** Two groups of two and three teams (a third, single-team group is skipped): 1 + 3 matches, one audit. */
+    @Test
+    void generatingEveryGroupCreatesTheMissingPairingsOfEachGroup() {
+        TournamentGroup groupA = group(5L, 0);
+        TournamentGroup groupB = group(6L, 1);
+        TournamentGroup groupC = group(7L, 2);
+        Team tigers = team(10L, "Tigers");
+        Team lions = team(20L, "Lions");
+        Team pumas = team(30L, "Pumas");
+        Team bears = team(40L, "Bears");
+        Team wolves = team(50L, "Wolves");
+        Team hawks = team(60L, "Hawks");
+        when(groups.findByTournamentIdOrderByPositionAsc(1L)).thenReturn(List.of(groupA, groupB, groupC));
+        when(groupTeams.findByTournament(1L)).thenReturn(List.of(assignment(groupA, tigers), assignment(groupA, lions),
+                assignment(groupB, pumas), assignment(groupB, bears), assignment(groupB, wolves),
+                assignment(groupC, hawks)));
+        when(tournamentService.approvedTeamIds(1L)).thenReturn(List.of(10L, 20L, 30L, 40L, 50L, 60L));
+        when(groupTeams.findTeamIdsByGroupId(5L)).thenReturn(List.of(10L, 20L));
+        when(groupTeams.findTeamIdsByGroupId(6L)).thenReturn(List.of(30L, 40L, 50L));
+        when(groupTeams.findTeamIdsByGroupId(7L)).thenReturn(List.of(60L));
+        when(refereeService.activeReferees()).thenReturn(List.of());
+        for (Team team : List.of(tigers, lions, pumas, bears, wolves)) {
+            lenient().when(teamService.requireTeam(team.getId())).thenReturn(team);
+        }
+        List<Match> saved = new ArrayList<>();
+        when(matches.save(any())).thenAnswer(invocation -> {
+            saved.add(invocation.getArgument(0));
+            return invocation.getArgument(0);
+        });
+
+        var response = service.generateAll(ORGANIZER, 1L);
+
+        assertThat(response.created()).isEqualTo(4);
+        assertThat(response.groups()).extracting(count -> count.created()).containsExactly(1, 3, 0);
+        assertThat(response.message()).isEqualTo("Se crearon 4 partidos en 2 grupos.");
+        assertThat(saved).filteredOn(match -> match.getGroup() == groupA).hasSize(1);
+        assertThat(saved).filteredOn(match -> match.getGroup() == groupB).hasSize(3);
+        assertThat(saved).allSatisfy(match ->
+                assertThat(match.getScheduledAt().atZone(ZONE).getHour()).isEqualTo(MatchService.KICK_OFF_HOUR));
+        verify(tournamentService).requireTournamentForUpdate(1L);
+        verify(auditService).record(eq(7L), eq(AuditAction.MATCHES_GENERATED), eq("TOURNAMENT"), eq(1L),
+                argThat(details -> Boolean.TRUE.equals(details.get("allGroups")) && details.get("matches").equals(4)));
+    }
+
+    @Test
+    void generatingEveryGroupAgainCreatesNothingAndSaysSo() {
+        TournamentGroup groupA = group(5L, 0);
+        Team tigers = team(10L, "Tigers");
+        Team lions = team(20L, "Lions");
+        when(groups.findByTournamentIdOrderByPositionAsc(1L)).thenReturn(List.of(groupA));
+        when(groupTeams.findByTournament(1L)).thenReturn(List.of(assignment(groupA, tigers), assignment(groupA, lions)));
+        when(tournamentService.approvedTeamIds(1L)).thenReturn(List.of(10L, 20L));
+        when(groupTeams.findTeamIdsByGroupId(5L)).thenReturn(List.of(10L, 20L));
+        when(matches.findByGroupIdOrderByIdAsc(5L)).thenReturn(List.of(match(40L, groupA, lions, tigers)));
+
+        var response = service.generateAll(ORGANIZER, 1L);
+
+        assertThat(response.created()).isZero();
+        assertThat(response.matches()).isEmpty();
+        assertThat(response.message()).contains("no se creó ningún partido");
+        verify(matches, never()).save(any());
+        verifyNoInteractions(auditService);
+    }
+
+    // --- deleting a group match -----------------------------------------------------------------------
+
+    @Test
+    void aScheduledOrCancelledGroupMatchCanBeDeleted() {
+        TournamentGroup groupA = group(5L, 0);
+        Match scheduled = match(40L, groupA, team(10L, "Tigers"), team(20L, "Lions"));
+        when(matches.findById(40L)).thenReturn(Optional.of(scheduled));
+
+        service.deleteMatch(ORGANIZER, 1L, 40L);
+
+        verify(matches).delete(scheduled);
+        verify(auditService).record(eq(7L), eq(AuditAction.MATCH_DELETED), eq("MATCH"), eq(40L),
+                argThat(details -> details.get("groupId").equals(5L) && "SCHEDULED".equals(details.get("status"))));
+
+        Match cancelled = match(41L, groupA, team(30L, "Pumas"), team(20L, "Lions"));
+        cancelled.setStatus(MatchStatus.CANCELLED);
+        when(matches.findById(41L)).thenReturn(Optional.of(cancelled));
+        service.deleteMatch(ORGANIZER, 1L, 41L);
+        verify(matches).delete(cancelled);
+    }
+
+    @Test
+    void aPlayedGroupMatchIsNotDeleted() {
+        Match played = match(40L, group(5L, 0), team(10L, "Tigers"), team(20L, "Lions"));
+        played.setStatus(MatchStatus.PLAYED);
+        played.setHomeScore(1);
+        played.setAwayScore(0);
+        when(matches.findById(40L)).thenReturn(Optional.of(played));
+
+        assertThatThrownBy(() -> service.deleteMatch(ORGANIZER, 1L, 40L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("El partido Tigers vs Lions ya tiene un resultado: reábralo antes de eliminarlo.");
+        verify(matches, never()).delete(any());
+    }
+
+    @Test
+    void knockoutMatchesAndMatchesOfAnotherTournamentAreNotDeletedThisWay() {
+        Match knockout = match(40L, null, team(10L, "Tigers"), team(20L, "Lions"));
+        knockout.setPhase(MatchPhase.SEMIFINAL);
+        when(matches.findById(40L)).thenReturn(Optional.of(knockout));
+        assertThatThrownBy(() -> service.deleteMatch(ORGANIZER, 1L, 40L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("Solo se pueden eliminar partidos de la fase de grupos");
+
+        Tournament other = tournament(TournamentStatus.IN_PROGRESS);
+        other.setId(2L);
+        Match foreign = match(41L, group(5L, 0), team(10L, "Tigers"), team(20L, "Lions"));
+        foreign.setTournament(other);
+        when(matches.findById(41L)).thenReturn(Optional.of(foreign));
+        assertThatThrownBy(() -> service.deleteMatch(ORGANIZER, 1L, 41L))
+                .isInstanceOf(NotFoundException.class);
+        verify(matches, never()).delete(any());
+    }
+
+    @Test
+    void groupMatchesAreNotDeletedOnceTheKnockoutStartedOrOutsideInProgress() {
+        Match scheduled = match(40L, group(5L, 0), team(10L, "Tigers"), team(20L, "Lions"));
+        when(matches.findById(40L)).thenReturn(Optional.of(scheduled));
+        when(matches.existsByTournamentIdAndPhaseNot(1L, MatchPhase.GROUP)).thenReturn(true);
+        assertThatThrownBy(() -> service.deleteMatch(ORGANIZER, 1L, 40L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("La eliminatoria ya comenzó");
+
+        tournament.setStatus(TournamentStatus.FINISHED);
+        assertThatThrownBy(() -> service.deleteMatch(ORGANIZER, 1L, 40L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageStartingWith("Solo se puede eliminar partidos de grupo mientras el torneo esté en progreso");
+        verify(matches, never()).delete(any());
     }
 
     // --- helpers ----------------------------------------------------------------------------------

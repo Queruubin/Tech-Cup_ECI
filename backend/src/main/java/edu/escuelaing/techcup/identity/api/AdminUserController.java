@@ -45,6 +45,13 @@ public class AdminUserController {
         return userService.search(search, actor);
     }
 
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'ORGANIZER')")
+    @Operation(summary = "One user for staff (organizers do not receive the birth date or identity document)")
+    public UserResponse get(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
+        return userService.getForStaff(id, actor);
+    }
+
     @GetMapping("/{id}/roles")
     @PreAuthorize("hasRole('ADMIN')")
     public List<Role> roles(@PathVariable Long id) {

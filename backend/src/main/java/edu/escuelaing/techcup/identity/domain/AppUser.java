@@ -47,6 +47,13 @@ public class AppUser {
     @Column(nullable = false, unique = true, length = 150)
     private String email;
 
+    /**
+     * Optional contact phone, already normalised by {@link PhoneNumbers} ({@code +57XXXXXXXXXX} or
+     * {@code +digits}); null = none. Personal data: see {@code UserService} for who may read it.
+     */
+    @Column(name = "phone_number", length = 20)
+    private String phoneNumber;
+
     @Column(name = "password_hash", nullable = false, length = 100)
     private String passwordHash;
 

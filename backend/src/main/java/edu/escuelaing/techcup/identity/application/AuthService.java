@@ -99,6 +99,7 @@ public class AuthService {
                 .birthDate(request.birthDate())
                 .documentType(request.documentType())
                 .documentNumber(request.documentNumber().trim())
+                .phoneNumber(UserService.normalizePhone(request.phoneNumber()))
                 .roles(new HashSet<>(Set.of(initialRole)))
                 .build();
         user = users.save(user);

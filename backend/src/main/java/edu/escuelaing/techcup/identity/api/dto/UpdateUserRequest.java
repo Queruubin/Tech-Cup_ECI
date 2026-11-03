@@ -13,6 +13,10 @@ import jakarta.validation.constraints.Size;
  * <p>{@code schoolRelation} and {@code academicProgram} are optional: {@code null} keeps the stored
  * value. Referees are created without either, so requiring them would stop a referee from even
  * renaming themself.
+ *
+ * <p>{@code phoneNumber} follows the same convention: {@code null} (absent) keeps the stored phone,
+ * an empty or blank string removes it, anything else must be a valid phone ({@code PhoneNumbers})
+ * and replaces it. It is contact data, so it stays editable while a tournament locks the team.
  */
 public record UpdateUserRequest(
         @NotBlank(message = "El nombre completo es obligatorio.")
@@ -22,5 +26,7 @@ public record UpdateUserRequest(
         AcademicProgram academicProgram,
         @Min(value = 1, message = "El semestre debe estar entre 1 y 20.")
         @Max(value = 20, message = "El semestre debe estar entre 1 y 20.")
-        Integer semester) {
+        Integer semester,
+        @PhoneNumber
+        String phoneNumber) {
 }

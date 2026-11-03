@@ -25,6 +25,8 @@ function makeMatch(overrides: Partial<MatchResponse> & { id: number; phase: Matc
     resultEditable: true,
     teamsEditable: true,
     reopenable: false,
+    nextMatchId: null,
+    nextSlot: null,
     events: [],
     ...overrides,
   }

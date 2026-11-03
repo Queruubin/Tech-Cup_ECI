@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Link } from 'react-router'
 import { Avatar } from '@/components/atoms/Avatar'
 import { Badge } from '@/components/atoms/Badge'
 import { EmptyState } from '@/components/molecules/EmptyState'
@@ -10,9 +11,11 @@ export interface TeamRosterProps {
   captainId?: number | null
   /** Renders per-member actions (e.g. a remove button). Presentational only. */
   renderActions?: (member: TeamMember) => ReactNode
+  /** When given, each member's name links there (e.g. staff open the user's profile). */
+  memberHref?: (member: TeamMember) => string
 }
 
-export function TeamRoster({ members, captainId, renderActions }: TeamRosterProps) {
+export function TeamRoster({ members, captainId, renderActions, memberHref }: TeamRosterProps) {
   if (members.length === 0) {
     return <EmptyState title="Sin integrantes" description="Este equipo todavía no tiene jugadores vinculados." />
   }
@@ -23,7 +26,16 @@ export function TeamRoster({ members, captainId, renderActions }: TeamRosterProp
           <Avatar name={member.fullName} photoFileId={member.photoFileId} size="md" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="truncate text-sm font-medium text-ink">{member.fullName}</p>
+              {memberHref ? (
+                <Link
+                  to={memberHref(member)}
+                  className="truncate text-sm font-medium text-ink underline-offset-2 hover:text-brand-700 hover:underline"
+                >
+                  {member.fullName}
+                </Link>
+              ) : (
+                <p className="truncate text-sm font-medium text-ink">{member.fullName}</p>
+              )}
               {member.userId === captainId && <Badge tone="success">Capitán</Badge>}
             </div>
             <p className="truncate text-xs text-stone-500">

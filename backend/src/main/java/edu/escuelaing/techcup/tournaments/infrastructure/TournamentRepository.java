@@ -17,6 +17,9 @@ public interface TournamentRepository extends JpaRepository<Tournament, Long> {
     /** The public list: every tournament except those in {@code status} (SUSPENDED). */
     List<Tournament> findAllByStatusNotOrderByStartDateDescIdDesc(TournamentStatus status);
 
+    /** Tournaments in one status, the one that ended last first (the history of FINISHED ones). */
+    List<Tournament> findAllByStatusOrderByEndDateDescIdDesc(TournamentStatus status);
+
     /**
      * Latest tournament in one status; {@code GET /tournaments/current} asks for IN_PROGRESS first
      * and falls back to ACTIVE, so the precedence between statuses lives in the service.

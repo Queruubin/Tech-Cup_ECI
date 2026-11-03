@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -172,6 +173,22 @@ public class TournamentController {
                                      String description,
                                      @RequestPart(value = "file", required = false) MultipartFile file) {
         return tournamentService.createVenue(actor, id, name, description, file);
+    }
+
+    @PutMapping(value = "/{id}/venues/{venueId}/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('ORGANIZER')")
+    @Operation(summary = "Replace a venue's image (DRAFT, ACTIVE or IN_PROGRESS)")
+    public VenueResponse replaceVenueImage(@CurrentUser AuthenticatedUser actor, @PathVariable Long id,
+                                           @PathVariable Long venueId, @RequestPart("file") MultipartFile file) {
+        return tournamentService.replaceVenueImage(actor, id, venueId, file);
+    }
+
+    @DeleteMapping("/{id}/venues/{venueId}/image")
+    @PreAuthorize("hasRole('ORGANIZER')")
+    @Operation(summary = "Remove a venue's image (DRAFT, ACTIVE or IN_PROGRESS)")
+    public VenueResponse removeVenueImage(@CurrentUser AuthenticatedUser actor, @PathVariable Long id,
+                                          @PathVariable Long venueId) {
+        return tournamentService.removeVenueImage(actor, id, venueId);
     }
 
     @DeleteMapping("/{id}/venues/{venueId}")

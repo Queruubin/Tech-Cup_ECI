@@ -15,7 +15,9 @@ describe('AUDIT_ACTION_LABELS', () => {
     for (const key of Object.keys(AUDIT_ACTION_LABELS)) {
       expect(known.has(key), `unexpected label ${key}`).toBe(true)
     }
-    expect(known.has('MATCH_DELETED')).toBe(false)
+    // MATCH_DELETED is emitted again since group matches can be deleted (2026-10); a made-up name is not.
+    expect(known.has('MATCH_DELETED')).toBe(true)
+    expect(known.has('MATCHES_DELETED')).toBe(false)
   })
 
   it('falls back to the raw value for unknown actions', () => {

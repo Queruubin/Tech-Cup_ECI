@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,7 +43,7 @@ public class PlayerController {
 
     @PutMapping("/me/profile")
     @PreAuthorize("hasRole('PLAYER')")
-    @Operation(summary = "Create or update my sport profile (locked while in an active team)")
+    @Operation(summary = "Create or update my sport profile (the jersey is locked while my team plays a tournament)")
     public PlayerProfileResponse upsertProfile(@CurrentUser AuthenticatedUser actor,
                                                @Valid @RequestBody PlayerProfileRequest request) {
         return profileService.upsert(actor, request);
@@ -54,6 +55,13 @@ public class PlayerController {
     public PlayerProfileResponse uploadPhoto(@CurrentUser AuthenticatedUser actor,
                                              @RequestPart("file") MultipartFile file) {
         return profileService.uploadPhoto(actor, file);
+    }
+
+    @DeleteMapping("/me/profile/photo")
+    @PreAuthorize("hasRole('PLAYER')")
+    @Operation(summary = "Remove my profile photo")
+    public PlayerProfileResponse removePhoto(@CurrentUser AuthenticatedUser actor) {
+        return profileService.removeMyPhoto(actor);
     }
 
     @GetMapping("/{userId}/profile")

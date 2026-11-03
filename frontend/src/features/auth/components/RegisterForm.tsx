@@ -6,6 +6,7 @@ import { Select } from '@/components/atoms/Select'
 import { Alert } from '@/components/molecules/Alert'
 import { FormField } from '@/components/molecules/FormField'
 import { ACADEMIC_PROGRAM_LABELS, DOCUMENT_TYPE_LABELS, toOptions } from '@/lib/labels'
+import { PHONE_HINT, PHONE_MAX_INPUT_LENGTH } from '@/lib/phone'
 import { ACADEMIC_PROGRAMS, DOCUMENT_TYPES, type AcademicProgram, type DocumentType } from '@/types/api'
 import {
   EMPTY_REGISTER_VALUES,
@@ -117,6 +118,17 @@ export function RegisterForm({ loading, error, fieldErrors, onSubmit }: Register
             autoComplete="email"
             value={values.email}
             onChange={(event) => update('email', event.target.value)}
+          />
+        </FormField>
+        <FormField label="Celular" error={errorFor('phoneNumber')} hint={PHONE_HINT} className="sm:col-span-2">
+          <Input
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            maxLength={PHONE_MAX_INPUT_LENGTH}
+            placeholder="300 123 4567"
+            value={values.phoneNumber}
+            onChange={(event) => update('phoneNumber', event.target.value)}
           />
         </FormField>
         <FormField label="Contraseña" required error={errorFor('password')} hint={PASSWORD_RULE_HINT}>

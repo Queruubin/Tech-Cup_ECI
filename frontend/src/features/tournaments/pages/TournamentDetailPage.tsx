@@ -1,4 +1,4 @@
-import { useParams, useSearchParams } from 'react-router'
+import { useLocation, useParams, useSearchParams } from 'react-router'
 import { StatusBadge } from '@/components/atoms/Badge'
 import { EmptyState } from '@/components/molecules/EmptyState'
 import { PageHeader } from '@/components/molecules/PageHeader'
@@ -8,15 +8,17 @@ import { BracketView } from '@/components/organisms/BracketView'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { formatDate } from '@/lib/format'
 import { CaptainRegistration } from '../components/CaptainRegistration'
+import { HistoryTab } from '../components/HistoryTab'
 import { InfoTab } from '../components/InfoTab'
 import { MatchesTab } from '../components/MatchesTab'
 import { OrganizerPanel } from '../components/OrganizerPanel'
 import { StandingsTab } from '../components/StandingsTab'
 import { StatsTab } from '../components/StatsTab'
+import type { HistoryLocationState } from '../history'
 import { useBracket, useTournament } from '../hooks/useTournaments'
 
-type TabId = 'info' | 'standings' | 'bracket' | 'matches' | 'stats' | 'register' | 'manage'
-const TAB_IDS: TabId[] = ['info', 'standings', 'bracket', 'matches', 'stats', 'register', 'manage']
+type TabId = 'info' | 'standings' | 'bracket' | 'matches' | 'stats' | 'history' | 'register' | 'manage'
+const TAB_IDS: TabId[] = ['info', 'standings', 'bracket', 'matches', 'stats', 'history', 'register', 'manage']
 
 function BracketTab({ tournamentId }: { tournamentId: number }) {
   const { data, loading, error, refetch } = useBracket(tournamentId)
@@ -32,6 +34,8 @@ export function TournamentDetailPage() {
   const tournamentId = params.id && /^\d+$/.test(params.id) ? Number(params.id) : null
   const { user, hasRole, hasExactRole } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  const justFinished = (location.state as HistoryLocationState | null)?.justFinished === true
   const query = useTournament(tournamentId)
   const tournament = query.data
 
@@ -50,6 +54,8 @@ export function TournamentDetailPage() {
     { id: 'matches', label: 'Partidos' },
     { id: 'stats', label: 'Estadísticas' },
   ]
+  // The history (podium, best defence, top scorers, sanctioned teams) exists once the tournament finished.
+  if (tournament?.status === 'FINISHED') tabs.push({ id: 'history', label: 'Historial' })
   if (isCaptain) tabs.push({ id: 'register', label: 'Inscripción' })
   if (isOrganizer) tabs.push({ id: 'manage', label: 'Gestión', highlight: true })
 
@@ -85,11 +91,15 @@ export function TournamentDetailPage() {
           {active === 'bracket' && <BracketTab tournamentId={tournament.id} />}
           {active === 'matches' && <MatchesTab tournamentId={tournament.id} highlightTeamId={user?.teamId ?? null} />}
           {active === 'stats' && <StatsTab tournamentId={tournament.id} />}
+          {active === 'history' && (
+            <HistoryTab tournamentId={tournament.id} canManage={isOrganizer} justFinished={justFinished} />
+          )}
           {active === 'register' && isCaptain && <CaptainRegistration tournament={tournament} onRegistered={query.refetch} />}
           {active === 'manage' && isOrganizer && (
             <OrganizerPanel
               tournament={tournament}
               canHardDelete={hasRole('ADMIN')}
+              canExportPlayers={hasRole('ADMIN')}
               onUpdated={(update) =>
                 query.setData((previous) => (typeof update === 'function' ? (previous ? update(previous) : previous) : update))
               }

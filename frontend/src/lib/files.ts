@@ -63,7 +63,11 @@ export function useFileUrl(fileId: string | null | undefined): FileUrlState {
 
 /** Downloads a stored file with the bearer token and triggers a browser download. */
 export async function downloadFile(fileId: string, filename: string): Promise<void> {
-  const blob = await fetchBlob(`/files/${encodeURIComponent(fileId)}`)
+  saveBlob(await fetchBlob(`/files/${encodeURIComponent(fileId)}`), filename)
+}
+
+/** Hands a blob to the browser as a download named `filename` (object URL + temporary link). */
+export function saveBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   try {
     const anchor = document.createElement('a')

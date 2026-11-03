@@ -3,6 +3,7 @@ import { Badge, StatusBadge } from '@/components/atoms/Badge'
 import { cn } from '@/lib/cn'
 import { formatDate, formatMoney } from '@/lib/format'
 import type { TournamentResponse } from '@/types/api'
+import { historyPath } from '../history'
 
 export interface TournamentCardProps {
   tournament: TournamentResponse
@@ -10,9 +11,11 @@ export interface TournamentCardProps {
 }
 
 export function TournamentCard({ tournament, current }: TournamentCardProps) {
+  const finished = tournament.status === 'FINISHED'
   return (
     <Link
-      to={`/tournaments/${tournament.id}`}
+      // A finished tournament opens on its history (podium, best defence, top scorers).
+      to={finished ? historyPath(tournament.id) : `/tournaments/${tournament.id}`}
       className={cn(
         'flex flex-col gap-3 rounded-2xl border bg-white p-4 shadow-sm transition hover:shadow',
         current ? 'border-brand-400 ring-2 ring-brand-100' : 'border-stone-200 hover:border-brand-300',
@@ -45,6 +48,7 @@ export function TournamentCard({ tournament, current }: TournamentCardProps) {
           </dd>
         </div>
       </dl>
+      {finished && <span className="text-xs font-medium text-brand-700">Ver historial →</span>}
     </Link>
   )
 }

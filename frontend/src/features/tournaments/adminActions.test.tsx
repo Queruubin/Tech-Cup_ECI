@@ -127,6 +127,7 @@ describe('TeamDetailPage "Eliminar equipo"', () => {
       id: 1,
       fullName: 'Admin',
       email: 'admin@escuelaing.edu.co',
+      phoneNumber: null,
       schoolRelation: null,
       academicProgram: null,
       semester: null,

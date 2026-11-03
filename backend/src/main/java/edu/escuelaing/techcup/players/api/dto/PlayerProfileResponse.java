@@ -9,5 +9,10 @@ public record PlayerProfileResponse(
         int jerseyNumber,
         String photoFileId,
         Long teamId,
-        String teamName) {
+        String teamName,
+        /*
+         * True while the player's team is locked by a tournament (APPROVED registration in an
+         * ACTIVE, IN_PROGRESS or SUSPENDED one): the jersey number cannot change then.
+         */
+        boolean teamLocked) {
 }

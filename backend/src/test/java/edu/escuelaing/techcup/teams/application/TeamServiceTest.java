@@ -464,6 +464,26 @@ class TeamServiceTest {
         assertThatThrownBy(() -> service.leave(MEMBER, 99L)).isInstanceOf(NotFoundException.class);
     }
 
+    @Test
+    void theRosterFlagsTheCaptainAndLeavesTheProfileEmptyForMembersWithoutOne() {
+        Team team = teamWithCaptain();
+        team.addMember(user(10L));
+        when(teams.findById(5L)).thenReturn(Optional.of(team));
+        when(memberProfiles.findProfiles(anyCollection())).thenReturn(Map.of(20L, profile(20L, 9)));
+
+        List<TeamRosterEntry> roster = service.rosterOf(5L);
+
+        assertThat(roster).hasSize(2);
+        TeamRosterEntry captain = roster.stream().filter(TeamRosterEntry::captain).findFirst().orElseThrow();
+        assertThat(captain.user().getId()).isEqualTo(20L);
+        assertThat(captain.teamName()).isEqualTo("Tigers");
+        assertThat(captain.jerseyNumber()).isEqualTo(9);
+        assertThat(captain.position()).isEqualTo(Position.MIDFIELDER);
+        TeamRosterEntry member = roster.stream().filter(entry -> !entry.captain()).findFirst().orElseThrow();
+        assertThat(member.jerseyNumber()).isNull();
+        assertThat(member.position()).isNull();
+    }
+
     private static Team teamWithCaptain() {
         AppUser captain = user(20L);
         Team team = Team.builder().id(5L).name("Tigers").colors("orange").captain(captain)

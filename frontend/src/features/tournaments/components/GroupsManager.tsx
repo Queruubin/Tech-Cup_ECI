@@ -1,12 +1,15 @@
 import { useState } from 'react'
+import { Link } from 'react-router'
 import { Button } from '@/components/atoms/Button'
 import { Select } from '@/components/atoms/Select'
 import { EmptyState } from '@/components/molecules/EmptyState'
 import { ConfirmDialog } from '@/components/molecules/Modal'
 import { errorMessage } from '@/lib/api'
+import { formatDateTime } from '@/lib/format'
+import { MATCH_STATUS_LABELS } from '@/lib/labels'
 import { useMutation } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
-import type { GroupResponse } from '@/types/api'
+import type { GroupResponse, MatchResponse } from '@/types/api'
 import { tournamentsApi } from '../api'
 import { NO_GROUPS_HINT, type TeamOption } from '../groupStage'
 
@@ -15,6 +18,8 @@ export interface GroupsManagerProps {
   groups: GroupResponse[]
   /** Approved teams without a group. */
   unassigned: TeamOption[]
+  /** Every match of the tournament; each group lists its own (deletable while it has no result). */
+  matches?: MatchResponse[]
   /** Groups and assignments may change (ACTIVE or IN_PROGRESS, knockout not started). */
   groupsEditable: boolean
   /** Group matches may be created (IN_PROGRESS, knockout not started). */
@@ -23,17 +28,25 @@ export interface GroupsManagerProps {
   onChanged: (matchesChanged: boolean) => void
 }
 
-type Pending = { kind: 'roundRobin' | 'delete'; group: GroupResponse }
+type Pending =
+  | { kind: 'roundRobin' | 'delete'; group: GroupResponse }
+  | { kind: 'deleteMatch'; group: GroupResponse; match: MatchResponse }
+
+function matchLabel(match: MatchResponse): string {
+  return `${match.homeTeam.name} vs ${match.awayTeam.name}`
+}
 
 /**
  * Organizer view of the groups: create a group, add the approved teams that have no group, take a
- * team out while it has no match in its group, delete an empty group, and create every missing
- * pairing of one group ("todos contra todos").
+ * team out while it has no match in its group, delete an empty group, create every missing
+ * pairing of one group ("todos contra todos"), and list each group's matches, deleting the ones
+ * without a result (SCHEDULED or CANCELLED) while group matches may change.
  */
 export function GroupsManager({
   tournamentId,
   groups,
   unassigned,
+  matches = [],
   groupsEditable,
   matchesEditable,
   onChanged,
@@ -58,6 +71,15 @@ export function GroupsManager({
 
   const confirmPending = () => {
     if (!pending) return
+    if (pending.kind === 'deleteMatch') {
+      const { match } = pending
+      void act(
+        () => tournamentsApi.deleteGroupMatch(tournamentId, match.id),
+        `Partido ${matchLabel(match)} eliminado.`,
+        true,
+      ).finally(() => setPending(null))
+      return
+    }
     const { kind, group } = pending
     const done =
       kind === 'delete'
@@ -98,6 +120,9 @@ export function GroupsManager({
             const picked = selection[group.id] ?? ''
             const chosen = unassignedIds.has(picked) ? picked : ''
             const deletable = groupsEditable && group.teams.length === 0 && group.matchCount === 0
+            const groupMatches = matches
+              .filter((match) => match.phase === 'GROUP' && match.group?.id === group.id)
+              .sort((a, b) => a.roundNumber - b.roundNumber || a.id - b.id)
             return (
               <section
                 key={group.id}
@@ -164,6 +189,37 @@ export function GroupsManager({
                     </Button>
                   </div>
                 )}
+                {groupMatches.length > 0 && (
+                  <details className="rounded-lg border border-stone-100 px-3 py-2 text-sm">
+                    <summary className="cursor-pointer font-medium text-stone-700">
+                      Partidos del grupo ({groupMatches.length})
+                    </summary>
+                    <ul className="mt-2 flex flex-col divide-y divide-stone-100" aria-label={`Partidos del ${group.name}`}>
+                      {groupMatches.map((match) => (
+                        <li key={match.id} className="flex items-center justify-between gap-2 py-1.5">
+                          <Link to={`/matches/${match.id}`} className="min-w-0 hover:text-brand-700">
+                            <span className="block truncate text-ink">{matchLabel(match)}</span>
+                            <span className="block text-xs text-stone-500">
+                              Jornada {match.roundNumber} · {formatDateTime(match.scheduledAt)} ·{' '}
+                              {MATCH_STATUS_LABELS[match.status]}
+                            </span>
+                          </Link>
+                          {matchesEditable && match.status !== 'PLAYED' && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={run.loading}
+                              aria-label={`Eliminar el partido ${matchLabel(match)}`}
+                              onClick={() => setPending({ kind: 'deleteMatch', group, match })}
+                            >
+                              Eliminar
+                            </Button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
                 {(matchesEditable || deletable) && (
                   <div className="flex flex-wrap gap-2 border-t border-stone-100 pt-3">
                     {matchesEditable && (
@@ -207,16 +263,24 @@ export function GroupsManager({
 
       <ConfirmDialog
         open={pending !== null}
-        title={pending?.kind === 'delete' ? 'Eliminar grupo' : 'Generar todos contra todos'}
+        title={
+          pending?.kind === 'delete'
+            ? 'Eliminar grupo'
+            : pending?.kind === 'deleteMatch'
+              ? 'Eliminar partido'
+              : 'Generar todos contra todos'
+        }
         description={
           pending?.kind === 'delete'
             ? `¿Desea eliminar el ${pending.group.name}?`
-            : pending
+            : pending?.kind === 'deleteMatch'
+              ? `¿Desea eliminar el partido ${matchLabel(pending.match)} del ${pending.group.name}? Se borrarán también sus alineaciones. Podrá crearlo de nuevo con «Crear partido».`
+              : pending
               ? `Se crearán solo los partidos que le faltan al ${pending.group.name} para que todos sus equipos se enfrenten una vez, a las 18:00, un día por jornada, con canchas y árbitros asignados en orden, sin repetir una cancha ni un árbitro a la misma hora (si no queda ninguno libre, se deja sin asignar). Podrá editarlos después.`
               : undefined
         }
-        confirmLabel={pending?.kind === 'delete' ? 'Eliminar' : 'Generar'}
-        danger={pending?.kind === 'delete'}
+        confirmLabel={pending?.kind === 'roundRobin' ? 'Generar' : 'Eliminar'}
+        danger={pending?.kind === 'delete' || pending?.kind === 'deleteMatch'}
         loading={run.loading}
         onConfirm={confirmPending}
         onCancel={() => setPending(null)}

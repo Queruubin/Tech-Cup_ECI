@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import { Button } from '@/components/atoms/Button'
 import { Alert } from '@/components/molecules/Alert'
 import { Card } from '@/components/molecules/Card'
@@ -9,6 +9,8 @@ import { PageHeader } from '@/components/molecules/PageHeader'
 import { QueryState } from '@/components/molecules/QueryState'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { useTeam } from '@/features/teams/hooks/useTeams'
+import { tournamentsApi } from '@/features/tournaments/api'
+import { isGroupMatchDeletable } from '@/features/tournaments/groupStage'
 import {
   useGroups,
   useRegistrations,
@@ -41,6 +43,7 @@ export function MatchDetailPage() {
   const params = useParams<{ id: string }>()
   const matchId = params.id && /^\d+$/.test(params.id) ? Number(params.id) : null
   const { user, hasRole } = useAuth()
+  const navigate = useNavigate()
   const isOrganizer = hasRole('ORGANIZER')
   const isReferee = hasRole('REFEREE')
 
@@ -63,6 +66,7 @@ export function MatchDetailPage() {
   const [editing, setEditing] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [reopenOpen, setReopenOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   // A PLAYED match shows its result with a "Corregir resultado" button; the form opens prefilled on demand.
   const [correcting, setCorrecting] = useState(false)
   const showResultForm = isOrganizer && canRecordResult && (!isCorrection || correcting)
@@ -85,12 +89,26 @@ export function MatchDetailPage() {
   const knockoutDrawn = !!match && knockoutDrawnFromGroups(match, tournamentMatches.data)
   // The server refuses to reopen a group match once the knockout exists (it would block finishing).
   const reopenBlocked = knockoutDrawn
+  // A group match without result may be deleted while the group stage is open (the organizer rebuilds
+  // a generated fixture by hand).
+  const deletable =
+    isOrganizer && !!match && !!tournament.data && isGroupMatchDeletable(match, tournament.data.status, knockoutDrawn)
 
   const update = useMutation((payload: UpdateMatchRequest) => competitionApi.updateMatch(matchId as number, payload))
   const cancel = useMutation((input: CancelMatchInput) =>
     competitionApi.cancelMatch(matchId as number, input.reason, input.winnerTeamId),
   )
   const result = useMutation((payload: MatchResultRequest) => competitionApi.recordResult(matchId as number, payload))
+  const remove = useMutation(() => tournamentsApi.deleteGroupMatch(match?.tournamentId as number, matchId as number))
+  const confirmDelete = () =>
+    remove
+      .mutate()
+      .then(() => {
+        toast.success('Partido eliminado.')
+        navigate(`/tournaments/${match?.tournamentId}?tab=manage`, { replace: true })
+      })
+      .catch((cause: unknown) => toast.error(errorMessage(cause, 'No fue posible eliminar el partido.')))
+      .finally(() => setDeleteOpen(false))
   const reopen = useMutation(async () => {
     const reopened = await competitionApi.reopenMatch(matchId as number)
     query.setData(reopened)
@@ -166,7 +184,7 @@ export function MatchDetailPage() {
                     : 'La programación solo se puede editar mientras el torneo esté en curso.'
                 }
                 actions={
-                  (editable || reopenable) && (
+                  (editable || reopenable || deletable) && (
                     <div className="flex flex-wrap gap-2">
                       {editable && (
                         <Button size="sm" variant="outline" onClick={() => setEditing((value) => !value)}>
@@ -187,6 +205,11 @@ export function MatchDetailPage() {
                       {cancellable && (
                         <Button size="sm" variant="danger" onClick={() => setCancelOpen(true)}>
                           Cancelar partido
+                        </Button>
+                      )}
+                      {deletable && (
+                        <Button size="sm" variant="danger" onClick={() => setDeleteOpen(true)}>
+                          Eliminar partido
                         </Button>
                       )}
                     </div>
@@ -354,6 +377,17 @@ export function MatchDetailPage() {
             loading={reopen.loading}
             onConfirm={confirmReopen}
             onCancel={() => setReopenOpen(false)}
+          />
+
+          <ConfirmDialog
+            open={deleteOpen}
+            title="Eliminar partido"
+            description={`¿Desea eliminar el partido ${match.homeTeam.name} vs ${match.awayTeam.name}? Se borrarán también sus alineaciones. Podrá crearlo de nuevo desde «Gestión».`}
+            confirmLabel="Eliminar"
+            danger
+            loading={remove.loading}
+            onConfirm={confirmDelete}
+            onCancel={() => setDeleteOpen(false)}
           />
 
           <CancelMatchDialog

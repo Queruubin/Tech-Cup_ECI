@@ -11,6 +11,8 @@ public record UserResponse(
         Long id,
         String fullName,
         String email,
+        /** Contact phone ({@code +57XXXXXXXXXX} or {@code +digits}); null when none or not visible to the viewer. */
+        String phoneNumber,
         SchoolRelation schoolRelation,
         AcademicProgram academicProgram,
         Integer semester,

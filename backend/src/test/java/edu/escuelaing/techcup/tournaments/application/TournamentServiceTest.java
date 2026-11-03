@@ -78,6 +78,8 @@ class TournamentServiceTest {
     @Mock
     private FinalMatchPort finalMatch;
     @Mock
+    private TournamentFilesPort attachedFiles;
+    @Mock
     private AuditService auditService;
 
     private TournamentService service;
@@ -86,7 +88,7 @@ class TournamentServiceTest {
     void setUp() {
         Clock clock = Clock.fixed(TODAY.atStartOfDay(ZONE).toInstant(), ZONE);
         service = new TournamentService(tournaments, venues, registrations, userService, fileStorage, fileDeletion,
-                finalMatch, auditService, clock);
+                finalMatch, attachedFiles, auditService, clock);
         lenient().when(registrations.countByTournamentIdAndStatus(eq(1L), eq(RegistrationStatus.APPROVED)))
                 .thenReturn(0L);
     }
@@ -487,6 +489,86 @@ class TournamentServiceTest {
         verify(fileStorage, never()).delete(any());
     }
 
+    // --- venue image -------------------------------------------------------------------------
+
+    private static final MockMultipartFile VENUE_PHOTO =
+            new MockMultipartFile("file", "field.png", "image/png", new byte[]{1, 2, 3});
+
+    @Test
+    void theVenueImageIsReplacedInAnActiveTournamentAndTheOldOneDeletedAfterCommit() {
+        Tournament tournament = givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+        Venue venue = Venue.builder().id(3L).name("Field").imageFileId("old-image").build();
+        tournament.addVenue(venue);
+        when(venues.findById(3L)).thenReturn(Optional.of(venue));
+        when(fileStorage.store(any(), eq(FileKind.IMAGE), eq(FileOwner.venue(1L)))).thenReturn("new-image");
+
+        var response = service.replaceVenueImage(ORGANIZER, 1L, 3L, VENUE_PHOTO);
+
+        assertThat(response.imageFileId()).isEqualTo("new-image");
+        assertThat(venue.getImageFileId()).isEqualTo("new-image");
+        verify(fileDeletion).deleteAfterCommit("old-image");
+        verify(fileStorage, never()).delete(any());
+        verify(auditService).record(eq(7L), eq(AuditAction.VENUE_UPDATED), eq("VENUE"), eq(3L), any());
+    }
+
+    @Test
+    void theVenueImageIsReplacedInDraftAndInProgressToo() {
+        for (TournamentStatus status : List.of(TournamentStatus.DRAFT, TournamentStatus.IN_PROGRESS)) {
+            Tournament tournament = withStatus(status, "rulebook-file");
+            Venue venue = Venue.builder().id(3L).name("Field").build();
+            tournament.addVenue(venue);
+            when(tournaments.findByIdForUpdate(1L)).thenReturn(Optional.of(tournament));
+            when(venues.findById(3L)).thenReturn(Optional.of(venue));
+            when(fileStorage.store(any(), eq(FileKind.IMAGE), eq(FileOwner.venue(1L)))).thenReturn("image-" + status);
+
+            assertThat(service.replaceVenueImage(ORGANIZER, 1L, 3L, VENUE_PHOTO).imageFileId())
+                    .isEqualTo("image-" + status);
+        }
+    }
+
+    @Test
+    void theVenueImageCannotChangeWhileSuspendedOrFinished() {
+        Tournament suspended = withStatus(TournamentStatus.SUSPENDED, "rulebook-file");
+        suspended.setSuspendedFromStatus(TournamentStatus.ACTIVE);
+        when(tournaments.findByIdForUpdate(1L)).thenReturn(Optional.of(suspended));
+
+        assertThatThrownBy(() -> service.replaceVenueImage(ORGANIZER, 1L, 3L, VENUE_PHOTO))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("modificar sus canchas");
+
+        when(tournaments.findByIdForUpdate(1L)).thenReturn(Optional.of(withStatus(TournamentStatus.FINISHED, "r")));
+        assertThatThrownBy(() -> service.removeVenueImage(ORGANIZER, 1L, 3L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("finalizado");
+        verify(fileStorage, never()).store(any(), any(), any());
+        verify(fileDeletion, never()).deleteAfterCommit(any());
+    }
+
+    @Test
+    void theVenueImageIsRemovedAndDeletedAfterCommit() {
+        Tournament tournament = givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+        Venue venue = Venue.builder().id(3L).name("Field").imageFileId("old-image").build();
+        tournament.addVenue(venue);
+        when(venues.findById(3L)).thenReturn(Optional.of(venue));
+
+        assertThat(service.removeVenueImage(ORGANIZER, 1L, 3L).imageFileId()).isNull();
+        verify(fileDeletion).deleteAfterCommit("old-image");
+    }
+
+    @Test
+    void aVenueOfAnotherTournamentIsNotFound() {
+        givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+        Tournament other = withStatus(TournamentStatus.ACTIVE, "rulebook-file");
+        other.setId(2L);
+        Venue venue = Venue.builder().id(3L).name("Field").build();
+        other.addVenue(venue);
+        when(venues.findById(3L)).thenReturn(Optional.of(venue));
+
+        assertThatThrownBy(() -> service.replaceVenueImage(ORGANIZER, 1L, 3L, VENUE_PHOTO))
+                .isInstanceOf(NotFoundException.class);
+        verify(fileStorage, never()).store(any(), any(), any());
+    }
+
     // --- suspend / resume ----------------------------------------------------------------------
 
     private static final AuthenticatedUser ADMIN =
@@ -651,6 +733,7 @@ class TournamentServiceTest {
         Tournament tournament = givenLocked(withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file"));
         tournament.addVenue(Venue.builder().id(3L).name("Field").imageFileId("venue-image").build());
         when(registrations.findReceiptFileIdsByTournamentId(1L)).thenReturn(List.of("receipt-1", "receipt-2"));
+        when(attachedFiles.fileIdsOf(1L)).thenReturn(List.of("podium-1", "podium-3"));
 
         service.hardDelete(ADMIN, 1L, "  TechCup 2026-1 ");
 
@@ -659,6 +742,9 @@ class TournamentServiceTest {
         verify(fileDeletion).deleteAfterCommit("venue-image");
         verify(fileDeletion).deleteAfterCommit("receipt-1");
         verify(fileDeletion).deleteAfterCommit("receipt-2");
+        // Podium photos of the history (competition module, through the port) go with it.
+        verify(fileDeletion).deleteAfterCommit("podium-1");
+        verify(fileDeletion).deleteAfterCommit("podium-3");
         verify(fileStorage, never()).delete(any());
         verify(auditService).record(eq(ADMIN.id()), eq(AuditAction.TOURNAMENT_DELETED), eq("TOURNAMENT"), eq(1L),
                 any(Map.class));

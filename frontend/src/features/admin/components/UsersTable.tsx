@@ -2,6 +2,7 @@ import { StatusBadge } from '@/components/atoms/Badge'
 import { Button } from '@/components/atoms/Button'
 import { Table, type Column } from '@/components/molecules/Table'
 import { ACADEMIC_PROGRAM_LABELS, SCHOOL_RELATION_LABELS } from '@/lib/labels'
+import { formatPhone } from '@/lib/phone'
 import type { UserResponse } from '@/types/api'
 
 export interface UsersTableProps {
@@ -41,6 +42,7 @@ export function UsersTable({
         <div className="min-w-0">
           <p className="truncate font-medium text-ink">{user.fullName}</p>
           <p className="truncate text-xs text-stone-500">{user.email ?? '—'}</p>
+          {user.phoneNumber && <p className="truncate text-xs text-stone-500">{formatPhone(user.phoneNumber)}</p>}
         </div>
       ),
     },

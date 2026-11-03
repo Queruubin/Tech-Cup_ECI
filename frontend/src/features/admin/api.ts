@@ -2,6 +2,7 @@ import { api } from '@/lib/api'
 import type {
   AuditLogResponse,
   CreateRefereeRequest,
+  PlayerProfileResponse,
   ResetPasswordRequest,
   Role,
   UpdateUserRequest,
@@ -11,6 +12,10 @@ import type {
 export const adminApi = {
   searchUsers: (search: string, signal?: AbortSignal) =>
     api.get<UserResponse[]>('/admin/users', { search: search || undefined }, signal),
+  /** ADMIN or ORGANIZER: one user (organizers do not receive the birth date or identity document). */
+  getUser: (userId: number, signal?: AbortSignal) => api.get<UserResponse>(`/admin/users/${userId}`, undefined, signal),
+  /** ADMIN only: removes a player's profile photo (moderation); the player may upload another one. */
+  removeUserPhoto: (userId: number) => api.delete<PlayerProfileResponse>(`/admin/users/${userId}/photo`),
   getUserRoles: (userId: number, signal?: AbortSignal) => api.get<Role[]>(`/admin/users/${userId}/roles`, undefined, signal),
   assignRole: (userId: number, role: Role) => api.post<Role[]>(`/admin/users/${userId}/roles`, { role }),
   removeRole: (userId: number, role: Role) => api.delete<Role[]>(`/admin/users/${userId}/roles/${role}`),

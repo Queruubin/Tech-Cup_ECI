@@ -19,6 +19,7 @@ import edu.escuelaing.techcup.shared.exception.ForbiddenOperationException;
 import edu.escuelaing.techcup.shared.exception.Messages;
 import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
+import edu.escuelaing.techcup.shared.security.Roles;
 import java.util.List;
 import java.util.Map;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -65,6 +66,11 @@ public class JoinRequestService {
 
     @Transactional
     public JoinRequestResponse create(AuthenticatedUser actor, Long teamId, JoinRequestCreateRequest request) {
+        // Same rule as founding a team: the ADMIN role implies PLAYER for endpoint security, but
+        // asking to join a team is personal, so only somebody who actually holds PLAYER may do it.
+        if (!actor.hasRole(Roles.PLAYER)) {
+            throw new ForbiddenOperationException("Solo un usuario con el rol de jugador puede solicitar unirse a un equipo.");
+        }
         if (!profiles.existsById(actor.id())) {
             throw new BusinessRuleException("Cree su perfil deportivo antes de solicitar el ingreso a un equipo.");
         }

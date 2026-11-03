@@ -46,6 +46,8 @@ public class MatchResponseAssembler {
                 match.isResultEditable(),
                 match.areTeamsEditable(),
                 match.isReopenable(),
+                match.getNextMatchId(),
+                match.getNextSlot(),
                 match.getEvents().stream().map(MatchResponseAssembler::event).toList());
     }
 

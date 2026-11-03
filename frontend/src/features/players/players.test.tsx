@@ -110,6 +110,7 @@ describe('BasicInfoForm relation lock', () => {
     id: 3,
     fullName: 'Ana Pérez',
     email: 'ana@gmail.com',
+    phoneNumber: null,
     schoolRelation: 'STUDENT',
     academicProgram: 'SYSTEMS_ENGINEERING',
     semester: 5,
@@ -140,6 +141,8 @@ describe('BasicInfoForm relation lock', () => {
       schoolRelation: 'STUDENT',
       academicProgram: 'SYSTEMS_ENGINEERING',
       semester: 6,
+      // No phone stored and none typed: null keeps "none".
+      phoneNumber: null,
     })
   })
 

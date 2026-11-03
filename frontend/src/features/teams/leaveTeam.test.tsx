@@ -39,6 +39,7 @@ function me(id: number, teamId: number | null, roles: Role[] = ['PLAYER']): User
     id,
     fullName: id === CAPTAIN_ID ? 'Ana Pérez' : 'Pedro Gómez',
     email: 'pedro@escuelaing.edu.co',
+    phoneNumber: null,
     schoolRelation: 'STUDENT',
     academicProgram: 'SYSTEMS_ENGINEERING',
     semester: 5,

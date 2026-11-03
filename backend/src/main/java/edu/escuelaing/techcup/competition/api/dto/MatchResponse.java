@@ -1,5 +1,6 @@
 package edu.escuelaing.techcup.competition.api.dto;
 
+import edu.escuelaing.techcup.competition.domain.BracketSlot;
 import edu.escuelaing.techcup.competition.domain.CancelReason;
 import edu.escuelaing.techcup.competition.domain.EventType;
 import edu.escuelaing.techcup.competition.domain.MatchPhase;
@@ -16,7 +17,10 @@ import java.util.List;
  * tournament is IN_PROGRESS: {@code resultEditable} (SCHEDULED or PLAYED) tells whether
  * {@code POST /matches/{id}/result} would be accepted, {@code teamsEditable} (not PLAYED) whether
  * {@code PATCH /matches/{id}} may replace the teams, and {@code reopenable} (PLAYED or CANCELLED)
- * whether {@code POST /matches/{id}/reopen} would be accepted.
+ * whether {@code POST /matches/{id}/reopen} would be accepted. {@code nextMatchId} and
+ * {@code nextSlot} name the next-round knockout match this one feeds and the side its winner takes
+ * there (null when there is no link: group matches, the final, a round not drawn yet, or knockout
+ * matches drawn before the links existed).
  */
 public record MatchResponse(
         Long id,
@@ -39,6 +43,8 @@ public record MatchResponse(
         boolean resultEditable,
         boolean teamsEditable,
         boolean reopenable,
+        Long nextMatchId,
+        BracketSlot nextSlot,
         List<Event> events) {
 
     public record TeamRef(Long id, String name, String colors) {

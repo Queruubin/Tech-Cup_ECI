@@ -11,10 +11,12 @@ import { ConfirmDialog, Modal } from '@/components/molecules/Modal'
 import { PageHeader } from '@/components/molecules/PageHeader'
 import { QueryState } from '@/components/molecules/QueryState'
 import { TeamRoster } from '@/components/organisms/TeamRoster'
+import { adminApi } from '@/features/admin/api'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { playersApi } from '@/features/players/api'
 import { errorMessage } from '@/lib/api'
-import { useMutation } from '@/lib/useQuery'
+import { formatPhone } from '@/lib/phone'
+import { useMutation, useQuery } from '@/lib/useQuery'
 import { toast } from '@/store/ui.store'
 import { teamsApi } from '../api'
 import { EligibilityPanel } from '../components/EligibilityPanel'
@@ -22,23 +24,46 @@ import { LeaveTeamCard } from '../components/LeaveTeamCard'
 import { useEligibility, useTeam } from '../hooks/useTeams'
 import { joinRequestAvailability, TEAM_NOT_RECRUITING_HINT } from '../rosterLock'
 import { MAX_TEAM_MEMBERS } from '../teamSize'
+import { REMOVE_PHOTO_QUESTION } from '@/features/admin/photoModeration'
+import type { TeamMember } from '@/types/api'
 
 export function TeamDetailPage() {
   const params = useParams<{ id: string }>()
   const teamId = params.id && /^\d+$/.test(params.id) ? Number(params.id) : null
-  const { user, hasRole } = useAuth()
+  const { user, hasRole, hasExactRole } = useAuth()
   const navigate = useNavigate()
   const isAdmin = hasRole('ADMIN')
+  // Staff open each member's full profile; players keep the plain roster.
+  const isStaff = hasRole('ADMIN', 'ORGANIZER')
   const teamQuery = useTeam(teamId)
   const eligibilityQuery = useEligibility(teamId)
+  // The captain's phone is personal data: only staff read it, through the staff user view
+  // (the team response never carries it).
+  const captainId = teamQuery.data?.captain.id ?? null
+  const captainQuery = useQuery((signal) => adminApi.getUser(captainId as number, signal), [captainId], {
+    enabled: isStaff && captainId !== null,
+  })
+  const captainPhone = isStaff ? captainQuery.data?.phoneNumber ?? null : null
   const [joinOpen, setJoinOpen] = useState(false)
   const [message, setMessage] = useState('')
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [photoMember, setPhotoMember] = useState<TeamMember | null>(null)
 
   const joinRequest = useMutation((payload: { teamId: number; message?: string }) =>
     playersApi.createJoinRequest(payload.teamId, payload.message ? { message: payload.message } : {}),
   )
   const deleteTeam = useMutation((id: number) => teamsApi.remove(id))
+  const removePhoto = useMutation(async (member: TeamMember) => {
+    await adminApi.removeUserPhoto(member.userId)
+    teamQuery.setData((previous) =>
+      previous
+        ? {
+            ...previous,
+            members: previous.members.map((item) => (item.userId === member.userId ? { ...item, photoFileId: null } : item)),
+          }
+        : previous,
+    )
+  })
 
   if (teamId === null) {
     return <EmptyState title="Equipo no encontrado" description="El identificador del equipo no es válido." />
@@ -49,7 +74,9 @@ export function TeamDetailPage() {
   const isCaptainOfTeam = !!team && team.captain.id === user?.id
   const joinAvailability = joinRequestAvailability(team, {
     userId: user?.id ?? null,
-    isPlayer: hasRole('PLAYER'),
+    // Asking to join is personal (like founding a team): ADMIN implies PLAYER for permissions, but
+    // only a user who actually holds PLAYER may join; the server refuses the others with 403.
+    isPlayer: hasExactRole('PLAYER'),
     teamId: user?.teamId ?? null,
   })
   const canRequestJoin = joinAvailability === 'open'
@@ -63,6 +90,16 @@ export function TeamDetailPage() {
         setMessage('')
       })
       .catch(() => undefined)
+  }
+
+  const confirmRemovePhoto = () => {
+    if (!photoMember) return
+    const target = photoMember
+    removePhoto
+      .mutate(target)
+      .then(() => toast.success(`Se quitó la foto de ${target.fullName}.`))
+      .catch((cause: unknown) => toast.error(errorMessage(cause, 'No fue posible quitar la foto.')))
+      .finally(() => setPhotoMember(null))
   }
 
   const confirmDelete = () => {
@@ -88,6 +125,18 @@ export function TeamDetailPage() {
                   <StatusBadge kind="team" value={team.status} />
                   {isMember && <Badge tone="accent">Mi equipo</Badge>}
                   <span>Capitán: {team.captain.fullName}</span>
+                  {isStaff && captainQuery.data && (
+                    <span>
+                      · Celular del capitán:{' '}
+                      {captainPhone ? (
+                        <a href={`tel:${captainPhone}`} className="font-medium text-brand-700 underline-offset-2 hover:underline">
+                          {formatPhone(captainPhone)}
+                        </a>
+                      ) : (
+                        'sin registrar'
+                      )}
+                    </span>
+                  )}
                   <span>· Colores: {team.colors}</span>
                 </span>
               }
@@ -143,7 +192,21 @@ export function TeamDetailPage() {
                   padded={false}
                 >
                   <div className="p-4">
-                    <TeamRoster members={team.members} captainId={team.captain.id} />
+                    <TeamRoster
+                      members={team.members}
+                      captainId={team.captain.id}
+                      memberHref={isStaff ? (member) => `/users/${member.userId}` : undefined}
+                      renderActions={
+                        isAdmin
+                          ? (member) =>
+                              member.photoFileId ? (
+                                <Button size="sm" variant="ghost" onClick={() => setPhotoMember(member)}>
+                                  Quitar foto
+                                </Button>
+                              ) : null
+                          : undefined
+                      }
+                    />
                   </div>
                 </Card>
               </div>
@@ -168,6 +231,19 @@ export function TeamDetailPage() {
           </>
         )}
       </QueryState>
+
+      {isAdmin && (
+        <ConfirmDialog
+          open={photoMember !== null}
+          title={photoMember ? `Quitar la foto de ${photoMember.fullName}` : 'Quitar foto'}
+          description={REMOVE_PHOTO_QUESTION}
+          confirmLabel="Quitar foto"
+          danger
+          loading={removePhoto.loading}
+          onConfirm={confirmRemovePhoto}
+          onCancel={() => setPhotoMember(null)}
+        />
+      )}
 
       {isAdmin && (
         <ConfirmDialog

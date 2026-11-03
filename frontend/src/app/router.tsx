@@ -1,5 +1,6 @@
 import { createBrowserRouter } from 'react-router'
 import { AuditPage } from '@/features/admin/pages/AuditPage'
+import { UserDetailPage } from '@/features/admin/pages/UserDetailPage'
 import { UsersAdminPage } from '@/features/admin/pages/UsersAdminPage'
 import { LoginPage } from '@/features/auth/pages/LoginPage'
 import { RegisterPage } from '@/features/auth/pages/RegisterPage'
@@ -14,6 +15,7 @@ import { MyTeamPage } from '@/features/teams/pages/MyTeamPage'
 import { TeamDetailPage } from '@/features/teams/pages/TeamDetailPage'
 import { TeamsPage } from '@/features/teams/pages/TeamsPage'
 import { TournamentDetailPage } from '@/features/tournaments/pages/TournamentDetailPage'
+import { PublicHistoryPage } from '@/features/tournaments/pages/PublicHistoryPage'
 import { TournamentsPage } from '@/features/tournaments/pages/TournamentsPage'
 import { AppLayout } from './AppLayout'
 import { RequireAuth, RequireRole } from './guards'
@@ -27,6 +29,9 @@ export const router = createBrowserRouter([
     children: [
       { path: '/login', element: <LoginPage /> },
       { path: '/register', element: <RegisterPage /> },
+      // Public history of finished tournaments (no session needed).
+      { path: '/history', element: <PublicHistoryPage /> },
+      { path: '/history/:id', element: <PublicHistoryPage /> },
       {
         element: <RequireAuth />,
         children: [
@@ -46,6 +51,7 @@ export const router = createBrowserRouter([
               { path: 'matches/:id/lineup', element: <LineupPage /> },
               { path: 'referee/matches', element: <RequireRole roles={['REFEREE']} exact><RefereeMatchesPage /></RequireRole> },
               { path: 'admin/users', element: <RequireRole roles={['ADMIN', 'ORGANIZER']}><UsersAdminPage /></RequireRole> },
+              { path: 'users/:id', element: <RequireRole roles={['ADMIN', 'ORGANIZER']}><UserDetailPage /></RequireRole> },
               { path: 'admin/audit', element: <RequireRole roles={['ADMIN']}><AuditPage /></RequireRole> },
               { path: '*', element: <NotFoundPage /> },
             ],

@@ -3,6 +3,7 @@ package edu.escuelaing.techcup.competition.api;
 import edu.escuelaing.techcup.competition.api.dto.BracketResponse;
 import edu.escuelaing.techcup.competition.api.dto.CreateKnockoutRequest;
 import edu.escuelaing.techcup.competition.api.dto.CreateMatchRequest;
+import edu.escuelaing.techcup.competition.api.dto.GroupMatchesGeneratedResponse;
 import edu.escuelaing.techcup.competition.api.dto.GroupResponse;
 import edu.escuelaing.techcup.competition.api.dto.GroupStandingsResponse;
 import edu.escuelaing.techcup.competition.api.dto.KnockoutSuggestionResponse;
@@ -111,7 +112,24 @@ public class TournamentCompetitionController {
         return groupStageService.roundRobin(actor, id, groupId);
     }
 
+    @PostMapping("/groups/round-robin")
+    @PreAuthorize("hasRole('ORGANIZER')")
+    @Operation(summary = "\"Generar partidos\": the missing pairings of every group at once (every approved team "
+            + "must be in a group; idempotent, created = 0 when nothing is missing)")
+    public GroupMatchesGeneratedResponse generateGroupMatches(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
+        return groupStageService.generateAll(actor, id);
+    }
+
     // --- matches and phases ----------------------------------------------------------------------
+
+    @DeleteMapping("/matches/{matchId}")
+    @PreAuthorize("hasRole('ORGANIZER')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Delete a group match without result (SCHEDULED or CANCELLED) while IN_PROGRESS, "
+            + "knockout not started")
+    public void deleteMatch(@CurrentUser AuthenticatedUser actor, @PathVariable Long id, @PathVariable Long matchId) {
+        groupStageService.deleteMatch(actor, id, matchId);
+    }
 
     @PostMapping("/matches")
     @PreAuthorize("hasRole('ORGANIZER')")

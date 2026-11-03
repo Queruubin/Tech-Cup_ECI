@@ -43,10 +43,15 @@ export function LoginPage() {
       title="Iniciar sesión"
       subtitle="Acceda con su correo y contraseña."
       footer={
-        <span>
-          ¿Aún no tiene cuenta?{' '}
-          <Link to="/register" className="font-medium text-brand-700 hover:underline">
-            Regístrese
+        <span className="flex flex-col items-center gap-2">
+          <span>
+            ¿Aún no tiene cuenta?{' '}
+            <Link to="/register" className="font-medium text-brand-700 hover:underline">
+              Regístrese
+            </Link>
+          </span>
+          <Link to="/history" className="text-brand-700 hover:underline">
+            Ver torneos anteriores
           </Link>
         </span>
       }

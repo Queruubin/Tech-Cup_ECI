@@ -136,7 +136,7 @@ class PasswordRulesValidationTest {
 
     private static RegisterRequest register(String password) {
         return new RegisterRequest("Ana Diaz", "ana@example.com", password, null,
-                AcademicProgram.SYSTEMS_ENGINEERING, 3, LocalDate.of(2004, 3, 4), DocumentType.CC, "1001", null);
+                AcademicProgram.SYSTEMS_ENGINEERING, 3, LocalDate.of(2004, 3, 4), DocumentType.CC, "1001", null, null);
     }
 
     private static CreateRefereeRequest referee(String password) {

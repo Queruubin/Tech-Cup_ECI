@@ -7,6 +7,7 @@ const player: UserResponse = {
   id: 7,
   fullName: 'Luis Gómez',
   email: 'luis@gmail.com',
+  phoneNumber: null,
   schoolRelation: 'FAMILY',
   academicProgram: 'OTHER',
   semester: null,

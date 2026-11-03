@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -16,6 +17,7 @@ import edu.escuelaing.techcup.identity.api.dto.RegisterRequest;
 import edu.escuelaing.techcup.identity.domain.AcademicProgram;
 import edu.escuelaing.techcup.identity.domain.AppUser;
 import edu.escuelaing.techcup.identity.domain.DocumentType;
+import edu.escuelaing.techcup.identity.domain.PhoneNumbers;
 import edu.escuelaing.techcup.identity.domain.Role;
 import edu.escuelaing.techcup.identity.domain.SchoolRelation;
 import edu.escuelaing.techcup.identity.domain.UserStatus;
@@ -24,6 +26,7 @@ import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.exception.ConflictException;
+import edu.escuelaing.techcup.shared.exception.InvalidRequestException;
 import edu.escuelaing.techcup.shared.exception.LoginRateLimitException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.shared.security.JwtService;
@@ -98,6 +101,41 @@ class AuthServiceTest {
         assertThat(saved.getValue().getSemester()).isEqualTo(5);
         assertThat(saved.getValue().getPasswordHash()).isEqualTo("hash");
         verify(auditService).record(eq(null), eq(AuditAction.USER_REGISTERED), anyString(), eq(7L), any());
+    }
+
+    @Test
+    void registrationStoresTheOptionalPhoneNormalised() {
+        stubSuccessfulSave();
+
+        authService.register(withPhone(request(null, null, "ana@mail.com", Role.PLAYER), "+57 300 123 4567"));
+
+        ArgumentCaptor<AppUser> saved = ArgumentCaptor.forClass(AppUser.class);
+        verify(users).save(saved.capture());
+        assertThat(saved.getValue().getPhoneNumber()).isEqualTo("+573001234567");
+    }
+
+    @Test
+    void registrationWithoutPhoneOrWithABlankOneStoresNone() {
+        stubSuccessfulSave();
+
+        authService.register(request(null, null, "ana@mail.com", Role.PLAYER));
+        authService.register(withPhone(request(null, null, "beto@mail.com", Role.PLAYER), "   "));
+
+        ArgumentCaptor<AppUser> saved = ArgumentCaptor.forClass(AppUser.class);
+        verify(users, times(2)).save(saved.capture());
+        assertThat(saved.getAllValues()).extracting(AppUser::getPhoneNumber).containsOnlyNulls();
+    }
+
+    @Test
+    void registrationRefusesAnInvalidPhoneThatSkippedBeanValidation() {
+        lenient().when(users.existsByEmailIgnoreCase(anyString())).thenReturn(false);
+        lenient().when(users.existsByDocumentTypeAndDocumentNumber(any(), anyString())).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.register(
+                withPhone(request(null, null, "ana@mail.com", Role.PLAYER), "12345")))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage(PhoneNumbers.INVALID_MESSAGE);
+        verify(users, never()).save(any());
     }
 
     @Test
@@ -288,9 +326,15 @@ class AuthServiceTest {
         return request(relation, semester, email, role, LocalDate.of(2016, 3, 4));
     }
 
+    private static RegisterRequest withPhone(RegisterRequest base, String phone) {
+        return new RegisterRequest(base.fullName(), base.email(), base.password(), base.schoolRelation(),
+                base.academicProgram(), base.semester(), base.birthDate(), base.documentType(), base.documentNumber(),
+                base.initialRole(), phone);
+    }
+
     private static RegisterRequest request(SchoolRelation relation, Integer semester, String email, Role role,
                                            LocalDate birthDate) {
         return new RegisterRequest("Ana Diaz", email, "Secret123*", relation, AcademicProgram.SYSTEMS_ENGINEERING,
-                semester, birthDate, DocumentType.CC, "1001", role);
+                semester, birthDate, DocumentType.CC, "1001", role, null);
     }
 }

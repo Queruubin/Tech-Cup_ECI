@@ -7,6 +7,7 @@ const baseUser: UserResponse = {
   id: 7,
   fullName: 'Ana Pérez',
   email: 'ana.perez@escuelaing.edu.co',
+  phoneNumber: null,
   schoolRelation: 'STUDENT',
   academicProgram: 'SYSTEMS_ENGINEERING',
   semester: 5,

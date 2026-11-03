@@ -3,7 +3,10 @@ import { EmptyState } from '@/components/molecules/EmptyState'
 import { cn } from '@/lib/cn'
 import { formatDateTime } from '@/lib/format'
 import { MATCH_PHASE_LABELS } from '@/lib/labels'
-import { MATCH_PHASES, type BracketPhase, type MatchPhase, type MatchResponse } from '@/types/api'
+import type { BracketPhase, MatchPhase, MatchResponse } from '@/types/api'
+import { KNOCKOUT_PHASES, matchWinnerId, orderKnockoutPhases } from './bracketOrder'
+
+export { matchWinnerId } from './bracketOrder'
 
 export interface BracketViewProps {
   phases: BracketPhase[]
@@ -11,17 +14,10 @@ export interface BracketViewProps {
   matchHref?: (match: MatchResponse) => string
 }
 
-const KNOCKOUT_PHASES: MatchPhase[] = ['QUARTERFINAL', 'SEMIFINAL', 'FINAL']
-
-/** Returns the winning team id of a knockout match (walkover, score, then penalties), or null. */
-export function matchWinnerId(match: MatchResponse): number | null {
-  if (match.status === 'CANCELLED') return match.walkoverWinnerTeamId
-  if (match.status !== 'PLAYED' || match.homeScore === null || match.awayScore === null) return null
-  if (match.homeScore !== match.awayScore) return match.homeScore > match.awayScore ? match.homeTeam.id : match.awayTeam.id
-  if (match.homePenalties !== null && match.awayPenalties !== null && match.homePenalties !== match.awayPenalties) {
-    return match.homePenalties > match.awayPenalties ? match.homeTeam.id : match.awayTeam.id
-  }
-  return null
+function chunkPairs(matches: MatchResponse[]): MatchResponse[][] {
+  const pairs: MatchResponse[][] = []
+  for (let index = 0; index < matches.length; index += 2) pairs.push(matches.slice(index, index + 2))
+  return pairs
 }
 
 function TeamLine({ name, score, penalties, winner }: { name: string; score: number | null; penalties: number | null; winner: boolean }) {
@@ -66,13 +62,17 @@ function MatchBox({ match, href }: { match: MatchResponse; href?: string }) {
   )
 }
 
-/** Tournament bracket: group-stage rounds as lists, knockout phases as columns. */
+/**
+ * Tournament bracket: group-stage rounds as lists, knockout phases as columns where the two
+ * matches feeding the same next-round match are drawn together and joined to it.
+ */
 export function BracketView({ phases, matchHref }: BracketViewProps) {
   const byPhase = new Map<MatchPhase, MatchResponse[]>()
   for (const phase of phases) byPhase.set(phase.phase, phase.matches)
 
   const groupMatches = byPhase.get('GROUP') ?? []
   const knockout = KNOCKOUT_PHASES.filter((phase) => (byPhase.get(phase) ?? []).length > 0)
+  const orderedKnockout = orderKnockoutPhases(phases)
 
   if (groupMatches.length === 0 && knockout.length === 0) {
     return (
@@ -116,18 +116,45 @@ export function BracketView({ phases, matchHref }: BracketViewProps) {
           <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">Fase eliminatoria</h3>
           <div className="overflow-x-auto pb-2">
             <div className="flex min-w-max items-stretch gap-8">
-              {MATCH_PHASES.filter((phase): phase is Exclude<MatchPhase, 'GROUP'> => knockout.includes(phase)).map((phase) => (
-                <div key={phase} className="flex flex-col" data-testid={`bracket-phase-${phase}`}>
-                  <p className="mb-3 text-center text-xs font-semibold uppercase tracking-wide text-brand-700">
-                    {MATCH_PHASE_LABELS[phase]}
-                  </p>
-                  <div className="flex flex-1 flex-col justify-around gap-4">
-                    {(byPhase.get(phase) ?? []).map((match) => (
-                      <MatchBox key={match.id} match={match} href={matchHref?.(match)} />
-                    ))}
+              {knockout.map((phase, column) => {
+                const matches = orderedKnockout.get(phase) ?? []
+                const last = column === knockout.length - 1
+                // Every column but the last is drawn in pairs: the two matches of a pair feed the
+                // match of the next column drawn at the same height (match 1 and 2, 3 and 4, ...).
+                const slots = last ? matches.map((match) => [match]) : chunkPairs(matches)
+                return (
+                  <div key={phase} className="flex flex-col" data-testid={`bracket-phase-${phase}`}>
+                    <p className="mb-3 text-center text-xs font-semibold uppercase tracking-wide text-brand-700">
+                      {MATCH_PHASE_LABELS[phase]}
+                    </p>
+                    <div className="flex flex-1 flex-col">
+                      {slots.map((slot) => (
+                        <div
+                          key={slot.map((match) => match.id).join('-')}
+                          className="relative flex flex-1 flex-col justify-around gap-4 py-2"
+                          data-testid="bracket-slot"
+                        >
+                          {slot.map((match) => (
+                            <MatchBox key={match.id} match={match} href={matchHref?.(match)} />
+                          ))}
+                          {!last && slot.length === 2 && (
+                            <>
+                              <span
+                                aria-hidden="true"
+                                className="pointer-events-none absolute -right-4 top-1/4 bottom-1/4 w-4 rounded-r-md border-y border-r border-stone-300"
+                              />
+                              <span
+                                aria-hidden="true"
+                                className="pointer-events-none absolute -right-8 top-1/2 w-4 border-t border-stone-300"
+                              />
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </section>

@@ -53,6 +53,7 @@ class FileAccessGuardTest {
     void otherKindsAndLegacyFilesAreServedToAnyAuthenticatedUser() {
         assertThat(guard.canDownload(PLAYER, file(FileOwner.photo(99L)))).isTrue();
         assertThat(guard.canDownload(PLAYER, file(FileOwner.rulebook(1L)))).isTrue();
+        assertThat(guard.canDownload(PLAYER, file(FileOwner.podium(1L)))).isTrue();
         assertThat(guard.canDownload(PLAYER, file(null))).isTrue();
     }
 

@@ -2,7 +2,7 @@ package edu.escuelaing.techcup.competition.domain;
 
 /**
  * Stages of a tournament. The group stage is a single round-robin; the three knockout phases are
- * played only when there are enough teams (see {@code KnockoutFixtureStrategy}).
+ * played only when there are enough teams (see {@code KnockoutSeeding} and {@code KnockoutFixtureStrategy}).
  */
 public enum MatchPhase {
 

@@ -16,15 +16,18 @@ import java.util.Objects;
  * groups the top of the general table goes through.</p>
  *
  * <p><b>Seeds and pairings.</b> The qualifiers are seeded in that order (all winners before any
- * runner-up). The top half of the seeds meets the bottom half, the best seed the worst one (the
- * classic fold, as {@code KnockoutFixtureStrategy} does), except that two teams of the same group
- * are kept apart whenever possible: the bottom half is assigned to the top half in the way that
- * first minimises the pairings within a group, then (in quarter-finals) the teams of a group that
- * could meet again in the semi-final, and only then the distance from the fold. With two groups
- * and four qualifiers this yields 1°A–2°B and 1°B–2°A.</p>
+ * runner-up). The top half of the seeds meets the bottom half, the best seed the worst one (1v8,
+ * 2v7, ...), except that two teams of the same group are kept apart whenever possible: the bottom
+ * half is assigned to the top half in the way that first minimises the pairings within a group,
+ * then (in quarter-finals) the teams of a group that could meet again in the semi-final, and only
+ * then the distance from 1vN. With two groups and four qualifiers this yields 1°A–2°B and 1°B–2°A.</p>
  *
- * <p>The pairings come out in bracket order: the winner of the first pairing meets the winner of
- * the last one in the next round, the second meets the second to last, and so on.</p>
+ * <p><b>Bracket order.</b> The next round pairs neighbouring matches (winner of match 1 against
+ * winner of match 2, 3 against 4; {@code KnockoutFixtureStrategy}), so the pairings come out in
+ * the standard bracket order that keeps the top seeds apart for as long as possible: seeds 1 and 2
+ * in opposite halves, so they can only meet in the final, and seeds 1 and 4 (and 2 and 3) on the
+ * same side. Eight teams: {@code [1v8, 4v5, 3v6, 2v7]}; four: {@code [1v4, 2v3]}; two: {@code [1v2]}.
+ * With groups, the two best group winners (e.g. 1°A and 1°B) are therefore in opposite halves.</p>
  */
 public final class KnockoutSeeding {
 
@@ -119,7 +122,21 @@ public final class KnockoutSeeding {
                 .toList();
     }
 
-    /** Top half against bottom half, with the assignment of lowest cost (see the class comment). */
+    /**
+     * Position in the bracket of the pairing of seed {@code i} (0-based, top half), by number of
+     * pairings: the standard order 1, 4, 3, 2 for four pairings (1v8, 4v5, 3v6, 2v7), so that seed
+     * 1 meets seed 4's side in the semi-final and seed 2 only in the final.
+     */
+    private static final List<List<Integer>> BRACKET_ORDER = List.of(
+            List.of(0),
+            List.of(0, 1),
+            List.of(),
+            List.of(0, 3, 2, 1));
+
+    /**
+     * Top half against bottom half, with the assignment of lowest cost (see the class comment),
+     * returned in bracket order.
+     */
     private static List<Pairing> pair(List<Seed> seeds) {
         int half = seeds.size() / 2;
         List<Seed> top = seeds.subList(0, half);
@@ -134,16 +151,18 @@ public final class KnockoutSeeding {
                 best = assignment;
             }
         }
-        List<Pairing> pairings = new ArrayList<>(half);
+        List<Pairing> bySeed = new ArrayList<>(half);
         for (int index = 0; index < half; index++) {
-            pairings.add(new Pairing(top.get(index), bottom.get(Objects.requireNonNull(best)[index])));
+            bySeed.add(new Pairing(top.get(index), bottom.get(Objects.requireNonNull(best)[index])));
         }
-        return List.copyOf(pairings);
+        return BRACKET_ORDER.get(half - 1).stream().map(bySeed::get).toList();
     }
 
     /**
      * 1000 per pairing inside one group, 10 per pair of same-group teams that could meet in the
-     * following round (only meaningful with four pairings), 1 per step away from the fold.
+     * following round (only meaningful with four pairings), 1 per step away from 1vN. In bracket
+     * order the pairings of seeds {@code i} and {@code half - 1 - i} are neighbours (1v8 with 4v5,
+     * 2v7 with 3v6), so those two pairings feed the same semi-final.
      */
     private static long cost(List<Seed> top, List<Seed> bottom, int[] assignment) {
         int half = top.size();

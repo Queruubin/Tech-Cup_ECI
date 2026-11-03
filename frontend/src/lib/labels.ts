@@ -173,6 +173,7 @@ export const AUDIT_ACTION_LABELS: Record<KnownAuditAction, string> = {
   USER_UPDATED: 'Actualización de usuario',
   PROFILE_CREATED: 'Creación de perfil deportivo',
   PROFILE_UPDATED: 'Actualización de perfil deportivo',
+  PLAYER_PHOTO_REMOVED_BY_ADMIN: 'Foto de jugador quitada por administrador',
   JOIN_REQUEST_CREATED: 'Solicitud de vinculación enviada',
   JOIN_REQUEST_CANCELLED: 'Solicitud de vinculación cancelada',
   JOIN_REQUEST_ACCEPTED: 'Solicitud de vinculación aceptada',
@@ -197,7 +198,9 @@ export const AUDIT_ACTION_LABELS: Record<KnownAuditAction, string> = {
   TOURNAMENT_RESUMED: 'Reanudación de torneo',
   RULEBOOK_UPLOADED: 'Reglamento cargado',
   VENUE_CREATED: 'Creación de cancha',
+  VENUE_UPDATED: 'Actualización de cancha',
   VENUE_DELETED: 'Eliminación de cancha',
+  PLAYERS_EXPORTED: 'Exportación de jugadores',
   REGISTRATION_CREATED: 'Inscripción creada',
   REGISTRATION_APPROVED: 'Inscripción aprobada',
   REGISTRATION_REJECTED: 'Inscripción rechazada',
@@ -216,6 +219,11 @@ export const AUDIT_ACTION_LABELS: Record<KnownAuditAction, string> = {
   GROUP_TEAM_REMOVED: 'Equipo quitado de un grupo',
   MATCH_CREATED: 'Partido creado',
   KNOCKOUT_CREATED: 'Eliminatoria armada',
+  MATCH_DELETED: 'Partido eliminado',
+  TOURNAMENT_TEAM_SANCTIONED: 'Equipo sancionado en un torneo',
+  TOURNAMENT_SANCTION_REMOVED: 'Sanción de equipo retirada',
+  PODIUM_PHOTO_UPDATED: 'Foto del podio actualizada',
+  PODIUM_PHOTO_REMOVED: 'Foto del podio eliminada',
 }
 
 export function auditActionLabel(action: string): string {

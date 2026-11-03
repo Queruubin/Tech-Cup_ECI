@@ -265,8 +265,8 @@ export const api = {
   },
 }
 
-/** Authenticated binary fetch, e.g. for `GET /files/{id}`. */
-export async function fetchBlob(path: string, signal?: AbortSignal): Promise<Blob> {
+/** Authenticated GET of a binary response; errors are normalised like `request`. */
+async function fetchBinary(path: string, signal?: AbortSignal): Promise<Response> {
   const headers = new Headers()
   const token = sessionHandlers.getToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
@@ -282,5 +282,43 @@ export async function fetchBlob(path: string, signal?: AbortSignal): Promise<Blo
     if (response.status === 401) sessionHandlers.onUnauthorized()
     throw error
   }
-  return response.blob()
+  return response
+}
+
+/** Authenticated binary fetch, e.g. for `GET /files/{id}`. */
+export async function fetchBlob(path: string, signal?: AbortSignal): Promise<Blob> {
+  return (await fetchBinary(path, signal)).blob()
+}
+
+export interface DownloadedFile {
+  blob: Blob
+  /** File name sent by the server in `Content-Disposition`, or `null` when it sent none. */
+  filename: string | null
+}
+
+/**
+ * File name of a `Content-Disposition` header: the RFC 5987 `filename*=UTF-8''...` form when
+ * present, otherwise the plain (optionally quoted) `filename=`.
+ */
+export function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null
+  const extended = /filename\*\s*=\s*([^']*)''([^;]+)/i.exec(header)
+  if (extended) {
+    try {
+      return decodeURIComponent((extended[2] ?? '').trim().replace(/^"|"$/g, ''))
+    } catch {
+      // fall back to the plain form
+    }
+  }
+  const plain = /filename\s*=\s*("([^"]*)"|[^;]+)/i.exec(header)
+  if (!plain) return null
+  const value = (plain[2] ?? plain[1] ?? '').trim()
+  return value || null
+}
+
+/** Authenticated download of a generated file (e.g. an export), keeping the server's file name. */
+export async function downloadBlob(path: string, signal?: AbortSignal): Promise<DownloadedFile> {
+  const response = await fetchBinary(path, signal)
+  const filename = filenameFromContentDisposition(response.headers.get('content-disposition'))
+  return { blob: await response.blob(), filename }
 }

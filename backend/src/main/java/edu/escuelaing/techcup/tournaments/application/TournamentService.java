@@ -54,14 +54,18 @@ import org.springframework.web.multipart.MultipartFile;
  *       can be recorded afterwards ({@link FinalMatchPort}).</li>
  *   <li>The rulebook is a PDF and venues carry an optional image; both go through the
  *       {@link FileStorage} port and the binaries they replace or orphan are deleted after the
- *       transaction commits. Venues may not be touched once the tournament is FINISHED.</li>
+ *       transaction commits. Venues may not be touched once the tournament is FINISHED. A venue's
+ *       image may be replaced or removed in DRAFT, ACTIVE and IN_PROGRESS (refused while SUSPENDED
+ *       or FINISHED, like every other venue change).</li>
  *   <li>Suspend (ADMIN or ORGANIZER): DRAFT, ACTIVE or IN_PROGRESS &rarr; SUSPENDED; resume
  *       returns to exactly that status. A suspended tournament is hidden from everyone but
  *       ADMIN/ORGANIZER and refuses every change ({@link Tournament#requireNotSuspended}).</li>
  *   <li>Hard delete (ADMIN only, any status): the caller must type the tournament name; the row
  *       goes together with everything that belongs to it (venues, registrations, matches with their
- *       events and lineups, through the {@code ON DELETE CASCADE} foreign keys of V1) and its
- *       binaries are deleted after commit. Audit rows are kept.</li>
+ *       events and lineups, through the {@code ON DELETE CASCADE} foreign keys of V1; groups,
+ *       sanctioned teams and podium photos of V7/V8 likewise) and its binaries (rulebook, venue
+ *       images, receipts and the podium photos reported by {@link TournamentFilesPort}) are
+ *       deleted after commit. Audit rows are kept.</li>
  * </ul>
  * The shape of the lifecycle itself is owned by the {@link TournamentStatus} State machine; this
  * service only adds the guards that need collaborators. Every mutation is audited.
@@ -93,13 +97,14 @@ public class TournamentService {
     private final FileStorage fileStorage;
     private final FileDeletionScheduler fileDeletion;
     private final FinalMatchPort finalMatch;
+    private final TournamentFilesPort attachedFiles;
     private final AuditService auditService;
     private final Clock clock;
 
     public TournamentService(TournamentRepository tournaments, VenueRepository venues,
                              RegistrationRepository registrations, UserService userService,
                              FileStorage fileStorage, FileDeletionScheduler fileDeletion, FinalMatchPort finalMatch,
-                             AuditService auditService, Clock clock) {
+                             TournamentFilesPort attachedFiles, AuditService auditService, Clock clock) {
         this.tournaments = tournaments;
         this.venues = venues;
         this.registrations = registrations;
@@ -107,6 +112,7 @@ public class TournamentService {
         this.fileStorage = fileStorage;
         this.fileDeletion = fileDeletion;
         this.finalMatch = finalMatch;
+        this.attachedFiles = attachedFiles;
         this.auditService = auditService;
         this.clock = clock;
     }
@@ -197,6 +203,12 @@ public class TournamentService {
     public List<VenueResponse> venuesOf(Long tournamentId, AuthenticatedUser viewer) {
         requireVisible(tournamentId, viewer);
         return venues.findByTournamentIdOrderByIdAsc(tournamentId).stream().map(VenueResponse::from).toList();
+    }
+
+    /** FINISHED tournaments, the one that ended last first (public history; they are never suspended). */
+    @Transactional(readOnly = true)
+    public List<Tournament> finishedTournaments() {
+        return tournaments.findAllByStatusOrderByEndDateDescIdDesc(TournamentStatus.FINISHED);
     }
 
     /** Ids of the approved teams, in registration order. Used by the fixture generator. */
@@ -436,12 +448,16 @@ public class TournamentService {
         tournament.getVenues().forEach(venue -> files.add(venue.getImageFileId()));
         List<String> receipts = registrations.findReceiptFileIdsByTournamentId(id);
         files.addAll(receipts);
+        // Podium photos of the history (competition module); their rows cascade with the tournament.
+        List<String> attached = attachedFiles.fileIdsOf(id);
+        files.addAll(attached);
         files.forEach(fileDeletion::deleteAfterCommit);
 
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("name", tournament.getName());
         details.put("status", tournament.getStatus().name());
         details.put("registrations", receipts.size());
+        details.put("attachedFiles", attached.size());
         details.put("hardDelete", true);
         tournaments.delete(tournament);
         auditService.record(actor.id(), AuditAction.TOURNAMENT_DELETED, ENTITY_TYPE, id, details);
@@ -485,6 +501,53 @@ public class TournamentService {
         auditService.record(actor.id(), AuditAction.VENUE_CREATED, VENUE_ENTITY_TYPE, venue.getId(),
                 Map.of("tournamentId", id, "name", venue.getName()));
         return VenueResponse.from(venue);
+    }
+
+    /**
+     * Replaces (or sets) the image of a venue; the previous binary is deleted once the change is
+     * committed. Allowed while the tournament is DRAFT, ACTIVE or IN_PROGRESS.
+     */
+    @Transactional
+    public VenueResponse replaceVenueImage(AuthenticatedUser actor, Long id, Long venueId, MultipartFile image) {
+        Venue venue = requireEditableVenue(id, venueId);
+        String previous = venue.getImageFileId();
+        String imageFileId = fileStorage.store(FileUpload.from(image), FileKind.IMAGE, FileOwner.venue(id));
+        venue.setImageFileId(imageFileId);
+        fileDeletion.deleteAfterCommit(previous);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("tournamentId", id);
+        details.put("imageFileId", imageFileId);
+        if (previous != null) details.put("previousImageFileId", previous);
+        auditService.record(actor.id(), AuditAction.VENUE_UPDATED, VENUE_ENTITY_TYPE, venueId, details);
+        return VenueResponse.from(venue);
+    }
+
+    /** Removes the image of a venue (deleted after commit); same statuses as {@link #replaceVenueImage}. */
+    @Transactional
+    public VenueResponse removeVenueImage(AuthenticatedUser actor, Long id, Long venueId) {
+        Venue venue = requireEditableVenue(id, venueId);
+        String previous = venue.getImageFileId();
+        if (previous == null || previous.isBlank()) {
+            throw new BusinessRuleException("La cancha «" + venue.getName() + "» no tiene imagen.");
+        }
+        venue.setImageFileId(null);
+        fileDeletion.deleteAfterCommit(previous);
+        auditService.record(actor.id(), AuditAction.VENUE_UPDATED, VENUE_ENTITY_TYPE, venueId,
+                Map.of("tournamentId", id, "imageRemoved", true, "previousImageFileId", previous));
+        return VenueResponse.from(venue);
+    }
+
+    /**
+     * The venue of the tournament, once the tournament row is locked (so a concurrent suspend or
+     * finish waits) and its status allows venue changes.
+     */
+    private Venue requireEditableVenue(Long id, Long venueId) {
+        Tournament tournament = requireTournamentForUpdate(id);
+        tournament.requireNotSuspended("modificar sus canchas");
+        requireNotFinished(tournament, "las canchas");
+        return venues.findById(venueId)
+                .filter(candidate -> candidate.getTournament().getId().equals(id))
+                .orElseThrow(() -> NotFoundException.of("la cancha", venueId));
     }
 
     @Transactional

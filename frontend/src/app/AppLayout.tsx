@@ -4,6 +4,8 @@ import { Navbar } from '@/components/organisms/Navbar'
 import { AppShell } from '@/components/templates/AppShell'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { useSessionRefresh } from '@/features/auth/hooks/useSessionRefresh'
+import { MissingPhoneBanner } from '@/features/players/components/MissingPhoneBanner'
+import { needsPhoneBanner } from '@/features/players/phoneField'
 import { NAV_ITEMS } from './navigation'
 
 /** Container for authenticated pages: wires the store to the presentational Navbar. */
@@ -35,6 +37,7 @@ export function AppLayout() {
           loggingOut={loggingOut}
         />
       }
+      banner={needsPhoneBanner(user) ? <MissingPhoneBanner /> : undefined}
     >
       <Outlet />
     </AppShell>

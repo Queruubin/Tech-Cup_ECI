@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import edu.escuelaing.techcup.competition.api.dto.RecordResultRequest;
 import edu.escuelaing.techcup.competition.api.dto.UpdateMatchRequest;
+import edu.escuelaing.techcup.competition.domain.BracketSlot;
 import edu.escuelaing.techcup.competition.domain.CancelReason;
 import edu.escuelaing.techcup.competition.domain.EventType;
 import edu.escuelaing.techcup.competition.domain.Match;
@@ -481,7 +482,7 @@ class MatchServiceTest {
 
     /**
      * QF1 (1v8) is moved to the last kick-off: the semi-finals must still pair the winners by
-     * bracket slot (W1-W4, W2-W3), not by kick-off order.
+     * bracket slot (W1-W2, W3-W4: neighbouring matches), not by kick-off order.
      */
     @Test
     void reschedulingAQuarterFinalDoesNotChangeTheSemiFinalPairing() {
@@ -507,8 +508,85 @@ class MatchServiceTest {
         var created = service.advance(ORGANIZER, 1L);
 
         assertThat(created).allSatisfy(match -> assertThat(match.phase()).isEqualTo(MatchPhase.SEMIFINAL));
+        assertThat(created).extracting(response -> response.homeTeam().id()).containsExactly(1L, 3L);
+        assertThat(created).extracting(response -> response.awayTeam().id()).containsExactly(2L, 4L);
+    }
+
+    /** Advancing links QF i to the semi-final it feeds: QF1/QF2 to SF1 (home/away), QF3/QF4 to SF2. */
+    @Test
+    void drawingTheNextRoundLinksEveryMatchToTheSlotItFeeds() {
+        Match qf1 = playedMatch(MatchPhase.QUARTERFINAL, 1L, 8L, 1, 0);
+        qf1.setId(11L);
+        Match qf2 = playedMatch(MatchPhase.QUARTERFINAL, 4L, 5L, 0, 1);
+        qf2.setId(12L);
+        Match qf3 = playedMatch(MatchPhase.QUARTERFINAL, 3L, 6L, 2, 0);
+        qf3.setId(13L);
+        Match qf4 = playedMatch(MatchPhase.QUARTERFINAL, 2L, 7L, 3, 1);
+        qf4.setId(14L);
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
+        when(matches.findByTournamentIdOrderByScheduledAtAscIdAsc(1L)).thenReturn(List.of(qf1, qf2, qf3, qf4));
+        when(matches.findMaxRoundNumber(1L)).thenReturn(4);
+        when(refereeService.activeReferees()).thenReturn(List.of());
+        for (long id : new long[]{1L, 5L, 3L, 2L}) {
+            when(teamService.requireTeam(id)).thenReturn(team(id, "Team " + id));
+        }
+        long[] nextId = {20L};
+        when(matches.save(any())).thenAnswer(invocation -> {
+            Match saved = invocation.getArgument(0);
+            saved.setId(++nextId[0]);
+            return saved;
+        });
+
+        var created = service.advance(ORGANIZER, 1L);
+
+        // 1v8 / 4v5 feed SF 21 (W1 home, W2 away), 3v6 / 2v7 feed SF 22: seeds 1 and 2 only meet in the final.
+        assertThat(created).extracting(response -> response.homeTeam().id()).containsExactly(1L, 3L);
+        assertThat(created).extracting(response -> response.awayTeam().id()).containsExactly(5L, 2L);
+        assertThat(List.of(qf1, qf2, qf3, qf4)).extracting(Match::getNextMatchId).containsExactly(21L, 21L, 22L, 22L);
+        assertThat(List.of(qf1, qf2, qf3, qf4)).extracting(Match::getNextSlot)
+                .containsExactly(BracketSlot.HOME, BracketSlot.AWAY, BracketSlot.HOME, BracketSlot.AWAY);
+    }
+
+    /**
+     * Quarter-finals drawn before 2026-10 (marked legacy by V8, listed by seed 1v8 2v7 3v6 4v5)
+     * keep the fold they were seeded for: W1vW4, W2vW3, linked accordingly, and the semi-finals
+     * inherit the mark.
+     */
+    @Test
+    void aLegacyBracketKeepsTheFoldForTheRoundDrawnFromIt() {
+        Match qf1 = playedMatch(MatchPhase.QUARTERFINAL, 1L, 8L, 1, 0);
+        qf1.setId(11L);
+        Match qf2 = playedMatch(MatchPhase.QUARTERFINAL, 2L, 7L, 1, 0);
+        qf2.setId(12L);
+        Match qf3 = playedMatch(MatchPhase.QUARTERFINAL, 3L, 6L, 1, 0);
+        qf3.setId(13L);
+        Match qf4 = playedMatch(MatchPhase.QUARTERFINAL, 4L, 5L, 1, 0);
+        qf4.setId(14L);
+        List.of(qf1, qf2, qf3, qf4).forEach(match -> match.setLegacyFold(true));
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
+        when(matches.findByTournamentIdOrderByScheduledAtAscIdAsc(1L)).thenReturn(List.of(qf1, qf2, qf3, qf4));
+        when(matches.findMaxRoundNumber(1L)).thenReturn(4);
+        when(refereeService.activeReferees()).thenReturn(List.of());
+        for (long seed = 1; seed <= 4; seed++) {
+            when(teamService.requireTeam(seed)).thenReturn(team(seed, "Team " + seed));
+        }
+        long[] nextId = {20L};
+        List<Match> saved = new java.util.ArrayList<>();
+        when(matches.save(any())).thenAnswer(invocation -> {
+            Match match = invocation.getArgument(0);
+            match.setId(++nextId[0]);
+            saved.add(match);
+            return match;
+        });
+
+        var created = service.advance(ORGANIZER, 1L);
+
         assertThat(created).extracting(response -> response.homeTeam().id()).containsExactly(1L, 2L);
         assertThat(created).extracting(response -> response.awayTeam().id()).containsExactly(4L, 3L);
+        assertThat(List.of(qf1, qf2, qf3, qf4)).extracting(Match::getNextMatchId).containsExactly(21L, 22L, 22L, 21L);
+        assertThat(List.of(qf1, qf2, qf3, qf4)).extracting(Match::getNextSlot)
+                .containsExactly(BracketSlot.HOME, BracketSlot.HOME, BracketSlot.AWAY, BracketSlot.AWAY);
+        assertThat(saved).allMatch(Match::isLegacyFold);
     }
 
     @Test
@@ -830,6 +908,89 @@ class MatchServiceTest {
         verify(lineups).deleteByMatchIdAndTeamId(60L, 20L);
     }
 
+    /** QF 3 (Tigers 0-1 Lions) feeds the AWAY side of SF 61: correcting it to a Tigers win puts Tigers there. */
+    @Test
+    void aCorrectionFollowsTheStoredLinkToTheSlotItFeeds() {
+        Match quarterfinal = givenMatch(playedQuarterfinalLionsWon());
+        quarterfinal.linkTo(61L, BracketSlot.AWAY);
+        Match sf60 = matchBetween(60L, MatchPhase.SEMIFINAL, MatchStatus.SCHEDULED, team(30L, "Pumas"), team(40L, "Bears"));
+        Match sf61 = matchBetween(61L, MatchPhase.SEMIFINAL, MatchStatus.SCHEDULED, team(50L, "Wolves"),
+                quarterfinal.getAwayTeam());
+        when(matches.findByTournamentIdAndPhaseOrderByIdAsc(1L, MatchPhase.SEMIFINAL)).thenReturn(List.of(sf60, sf61));
+        when(userService.getUser(101L)).thenReturn(player(101L));
+        when(userService.getUser(102L)).thenReturn(player(102L));
+
+        service.recordResult(ORGANIZER, 3L, new RecordResultRequest(
+                2, 0, null, null, List.of(goal(10L, 101L), goal(10L, 102L))));
+
+        assertThat(sf61.getAwayTeam().getId()).isEqualTo(10L);
+        assertThat(sf61.getHomeTeam().getId()).isEqualTo(50L);
+        assertThat(sf60.involves(10L)).isFalse();
+        verify(lineups).deleteByMatchIdAndTeamId(61L, 20L);
+    }
+
+    /**
+     * The link wins over "wherever the loser stands": the organizer moved Lions to SF 60 by hand and
+     * put Hawks on the linked slot of SF 61. The correction leaves both semi-finals as the organizer set them.
+     */
+    @Test
+    void aSlotFilledByHandWithAnotherTeamIsLeftAloneByTheLink() {
+        Match quarterfinal = givenMatch(playedQuarterfinalLionsWon());
+        quarterfinal.linkTo(61L, BracketSlot.AWAY);
+        Match sf60 = matchBetween(60L, MatchPhase.SEMIFINAL, MatchStatus.SCHEDULED, team(30L, "Pumas"),
+                quarterfinal.getAwayTeam());
+        Match sf61 = matchBetween(61L, MatchPhase.SEMIFINAL, MatchStatus.SCHEDULED, team(50L, "Wolves"), team(60L, "Hawks"));
+        when(matches.findByTournamentIdAndPhaseOrderByIdAsc(1L, MatchPhase.SEMIFINAL)).thenReturn(List.of(sf60, sf61));
+        when(userService.getUser(101L)).thenReturn(player(101L));
+
+        service.recordResult(ORGANIZER, 3L, new RecordResultRequest(1, 0, null, null, List.of(goal(10L, 101L))));
+
+        assertThat(sf60.getAwayTeam().getId()).isEqualTo(20L);
+        assertThat(sf61.getAwayTeam().getId()).isEqualTo(60L);
+        verifyNoInteractions(lineups);
+    }
+
+    /**
+     * Legacy bracket (drawn with the old fold, no links): QF4's winner went to the AWAY side of SF1
+     * (W1 v W4). Correcting QF4 still replaces the loser exactly there.
+     */
+    @Test
+    void legacySemiFinalsWithoutLinksStillFollowTheFoldSlots() {
+        Match quarterfinal4 = givenMatch(playedQuarterfinalLionsWon());
+        assertThat(quarterfinal4.getNextMatchId()).isNull();
+        Match sf1 = matchBetween(60L, MatchPhase.SEMIFINAL, MatchStatus.SCHEDULED, team(1L, "Winner QF1"),
+                quarterfinal4.getAwayTeam());
+        Match sf2 = matchBetween(61L, MatchPhase.SEMIFINAL, MatchStatus.SCHEDULED, team(2L, "Winner QF2"),
+                team(3L, "Winner QF3"));
+        when(matches.findByTournamentIdAndPhaseOrderByIdAsc(1L, MatchPhase.SEMIFINAL)).thenReturn(List.of(sf1, sf2));
+        when(userService.getUser(101L)).thenReturn(player(101L));
+
+        service.recordResult(ORGANIZER, 3L, new RecordResultRequest(1, 0, null, null, List.of(goal(10L, 101L))));
+
+        assertThat(sf1.getHomeTeam().getId()).isEqualTo(1L);
+        assertThat(sf1.getAwayTeam().getId()).isEqualTo(10L);
+        assertThat(sf2.involves(10L)).isFalse();
+        verify(lineups).deleteByMatchIdAndTeamId(60L, 20L);
+    }
+
+    @Test
+    void undoingARoundForgetsTheLinksOfTheRoundThatFedIt() {
+        Match qf1 = matchBetween(11L, MatchPhase.QUARTERFINAL, MatchStatus.PLAYED, team(1L, "A"), team(8L, "H"));
+        qf1.linkTo(21L, BracketSlot.HOME);
+        Match qf2 = matchBetween(12L, MatchPhase.QUARTERFINAL, MatchStatus.PLAYED, team(4L, "D"), team(5L, "E"));
+        qf2.linkTo(21L, BracketSlot.AWAY);
+        Match sf = matchBetween(21L, MatchPhase.SEMIFINAL, MatchStatus.SCHEDULED, team(1L, "A"), team(5L, "E"));
+        when(tournamentService.requireTournamentForUpdate(1L)).thenReturn(tournament(TournamentStatus.IN_PROGRESS));
+        when(matches.findByTournamentIdOrderByScheduledAtAscIdAsc(1L)).thenReturn(List.of(qf1, qf2, sf));
+
+        service.undoPhase(ORGANIZER, 1L);
+
+        verify(matches).deleteAll(List.of(sf));
+        assertThat(qf1.getNextMatchId()).isNull();
+        assertThat(qf1.getNextSlot()).isNull();
+        assertThat(qf2.getNextMatchId()).isNull();
+    }
+
     @Test
     void aCancellationIsRefusedBeforeLookingAtTheBracketWhenTheMatchIsNotScheduled() {
         givenMatch(match(MatchPhase.SEMIFINAL, MatchStatus.PLAYED));
@@ -1117,9 +1278,10 @@ class MatchServiceTest {
 
         service.cancel(ORGANIZER, 14L, CancelReason.NO_SHOW, 5L);
 
-        // W1 (A) v W4 (E by walkover), W2 (G) v W3 (C on penalties).
-        assertThat(saved).extracting(created -> created.getHomeTeam().getId()).containsExactly(1L, 7L);
-        assertThat(saved).extracting(created -> created.getAwayTeam().getId()).containsExactly(5L, 3L);
+        // W1 (A) v W2 (G), W3 (C on penalties) v W4 (E by walkover).
+        assertThat(saved).extracting(created -> created.getHomeTeam().getId()).containsExactly(1L, 3L);
+        assertThat(saved).extracting(created -> created.getAwayTeam().getId()).containsExactly(7L, 5L);
+        assertThat(qf4.getNextSlot()).isEqualTo(BracketSlot.AWAY);
         assertThat(saved).allSatisfy(created -> assertThat(created.getPhase()).isEqualTo(MatchPhase.SEMIFINAL));
     }
 

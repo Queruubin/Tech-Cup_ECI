@@ -12,7 +12,9 @@ public record FileOwner(Category category, Long ownerId) {
         RECEIPT("teamId"),
         PHOTO("userId"),
         VENUE("tournamentId"),
-        RULEBOOK("tournamentId");
+        RULEBOOK("tournamentId"),
+        /** An extra photo of a podium team in the history of a finished tournament (public). */
+        PODIUM("tournamentId");
 
         private final String ownerField;
 
@@ -50,6 +52,11 @@ public record FileOwner(Category category, Long ownerId) {
     /** The rulebook of {@code tournamentId}. */
     public static FileOwner rulebook(Long tournamentId) {
         return new FileOwner(Category.RULEBOOK, tournamentId);
+    }
+
+    /** A podium photo of the history of {@code tournamentId}. */
+    public static FileOwner podium(Long tournamentId) {
+        return new FileOwner(Category.PODIUM, tournamentId);
     }
 
     public boolean isReceipt() {

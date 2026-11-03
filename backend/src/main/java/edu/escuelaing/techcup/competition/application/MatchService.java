@@ -5,6 +5,7 @@ import edu.escuelaing.techcup.competition.api.dto.MatchResponse;
 import edu.escuelaing.techcup.competition.api.dto.PhaseUndoneResponse;
 import edu.escuelaing.techcup.competition.api.dto.RecordResultRequest;
 import edu.escuelaing.techcup.competition.api.dto.UpdateMatchRequest;
+import edu.escuelaing.techcup.competition.domain.BracketSlot;
 import edu.escuelaing.techcup.competition.domain.CancelReason;
 import edu.escuelaing.techcup.competition.domain.EventType;
 import edu.escuelaing.techcup.competition.domain.Match;
@@ -61,8 +62,10 @@ import org.springframework.transaction.annotation.Transactional;
  *       outcome (result or walkover) and the next phase does not exist yet, the next phase is
  *       drawn automatically: the winners move on, a cancelled knockout match contributing its
  *       walkover winner, always in bracket order (the order the phase was drawn in, never
- *       kick-off order), paired by {@link KnockoutFixtureStrategy} (winner of the first match
- *       against the winner of the last one, and so on). {@code advance} does the same by hand
+ *       kick-off order), paired by {@link KnockoutFixtureStrategy} (winner of match 1 against
+ *       the winner of match 2, 3 against 4, and so on). Every match of the finished phase is
+ *       linked to the match it feeds and the side its winner takes there
+ *       ({@link Match#getNextMatchId()}, {@link Match#getNextSlot()}). {@code advance} does the same by hand
  *       (after an undo, for example); it never leaves the group stage. Venues and ACTIVE referees
  *       are handed out by cycling the available lists and each matchday kicks off at
  *       {@value #KICK_OFF_HOUR}:00, starting the day after the latest kick-off or on the first
@@ -95,7 +98,9 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li><b>Knockout propagation</b>: a knockout result or walkover whose winner is not the team
  *       holding the slot in the next phase replaces the loser there (see
  *       {@link #planPropagation(Match, Team)}), or refuses the whole request when that next match
- *       was already played.</li>
+ *       was already played. The slot is the stored feeder link; knockout matches drawn before the
+ *       links existed (folded semi-finals, W1vW4) fall back to the next-phase match holding the
+ *       loser, which is where the old rule had put it.</li>
  *   <li><b>Reopen</b>: PLAYED or CANCELLED &rarr; SCHEDULED, clearing the recorded outcome.</li>
  * </ul>
  * Every mutating use case runs in one transaction, so a failure part-way (for example while
@@ -268,8 +273,8 @@ public class MatchService {
                     + "el tamaño, revisar los cruces sugeridos y confirmarlos.");
         }
         // Bracket order is creation order (id), never kick-off order: the organizer may reschedule a
-        // match, and the fold of KnockoutFixtureStrategy must still pair the winners of the
-        // original bracket slots.
+        // match, and KnockoutFixtureStrategy must still pair the winners of neighbouring bracket
+        // slots (match 1 with match 2, 3 with 4).
         List<Match> currentMatches = all.stream()
                 .filter(match -> match.getPhase() == currentPhase)
                 .sorted(BRACKET_ORDER)
@@ -282,7 +287,7 @@ public class MatchService {
         if (currentPhase == MatchPhase.FINAL) {
             throw new BusinessRuleException("La final ya se jugó; lo que sigue es finalizar el torneo.");
         }
-        List<Match> created = drawNextRound(actor, tournament, currentPhase, winnersOf(currentMatches), all, false);
+        List<Match> created = drawNextRound(actor, tournament, currentPhase, currentMatches, all, false);
         return assembler.toResponses(created);
     }
 
@@ -309,23 +314,43 @@ public class MatchService {
                 || !matches.findByTournamentIdAndPhaseOrderByIdAsc(tournamentId, nextPhase).isEmpty()) {
             return;
         }
-        List<Long> winners = phaseMatches.stream()
-                .map(candidate -> outcomeWinner(candidate).orElseThrow().getId())
-                .toList();
         List<Match> all = matches.findByTournamentIdOrderByScheduledAtAscIdAsc(tournamentId);
         if (!fitsCalendar(nextRoundDay(match.getTournament(), all))) {
             return;
         }
-        drawNextRound(actor, match.getTournament(), phase, winners, all, true);
+        drawNextRound(actor, match.getTournament(), phase, phaseMatches, all, true);
     }
 
-    /** Persists the round after {@code phase} from its winners (bracket order) and audits it. */
+    /**
+     * Persists the round after {@code phase} from the winners of {@code phaseMatches} (bracket
+     * order), links every match of {@code phase} to the match it feeds (match {@code i} feeds
+     * created match {@code i / 2}, HOME when {@code i} is even, AWAY otherwise) and audits it.
+     * A legacy bracket ({@link Match#isLegacyFold()}, drawn before 2026-10) is folded instead, as
+     * it was seeded for, and the new round inherits the mark.
+     */
     private List<Match> drawNextRound(AuthenticatedUser actor, Tournament tournament, MatchPhase phase,
-                                      List<Long> winners, List<Match> all, boolean automatic) {
+                                      List<Match> phaseMatches, List<Match> all, boolean automatic) {
         MatchPhase nextPhase = phase.nextKnockoutPhase();
+        List<Long> winners = winnersOf(phaseMatches);
         int roundOffset = matches.findMaxRoundNumber(tournament.getId());
-        List<Match> created = persist(tournament, nextPhase, knockoutStrategy.generate(winners),
+        // A bracket drawn before 2026-10 keeps the fold it was seeded for (W1vW4, W2vW3).
+        boolean legacy = phaseMatches.stream().allMatch(Match::isLegacyFold);
+        List<Match> created = persist(tournament, nextPhase,
+                legacy ? knockoutStrategy.fold(winners) : knockoutStrategy.generate(winners),
                 roundOffset, nextRoundDay(tournament, all));
+        int size = phaseMatches.size();
+        for (int index = 0; index < size; index++) {
+            if (legacy) {
+                // Fold: matches i and size - 1 - i feed created match min(i, size - 1 - i).
+                phaseMatches.get(index).linkTo(created.get(Math.min(index, size - 1 - index)).getId(),
+                        index < size / 2 ? BracketSlot.HOME : BracketSlot.AWAY);
+            } else {
+                phaseMatches.get(index).linkTo(created.get(index / 2).getId(), BracketSlot.forIndex(index));
+            }
+        }
+        if (legacy) {
+            created.forEach(match -> match.setLegacyFold(true));
+        }
 
         auditService.record(actor.id(), AuditAction.MATCHES_GENERATED, TOURNAMENT_ENTITY_TYPE, tournament.getId(),
                 Map.of("tournamentId", tournament.getId(), "phase", nextPhase.name(), "matches", created.size(),
@@ -379,6 +404,13 @@ public class MatchService {
                     + ": ya tiene partidos jugados. Reábralos primero.");
         }
 
+        // The previous round fed the deleted matches: forget those links (the database would clear
+        // the id anyway, ON DELETE SET NULL, but not the side, and the loaded rows must agree).
+        Set<Long> deletedIds = new HashSet<>();
+        phaseMatches.forEach(deleted -> deletedIds.add(deleted.getId()));
+        all.stream()
+                .filter(other -> other.getNextMatchId() != null && deletedIds.contains(other.getNextMatchId()))
+                .forEach(Match::unlink);
         matches.deleteAll(phaseMatches);
 
         auditService.record(actor.id(), AuditAction.PHASE_UNDONE, TOURNAMENT_ENTITY_TYPE, tournamentId,
@@ -921,11 +953,19 @@ public class MatchService {
 
     /**
      * Works out, <em>without changing anything</em>, how the next knockout phase must follow a new
-     * outcome of {@code match}. It looks for the match of the next phase that holds one of the two
-     * teams: when it already holds {@code winner} (or there is no next phase, or no such match)
-     * nothing needs to change; when it holds the loser, the loser must be replaced by the winner.
-     * That is refused while the next match is PLAYED, or CANCELLED with the loser sent through by
-     * walkover, because its own outcome would silently become meaningless.
+     * outcome of {@code match}. When the winner already stands in the next phase (or there is no
+     * next phase) nothing needs to change. Otherwise the match it feeds is the one to fix:
+     * <ul>
+     *   <li>with a feeder link (rounds drawn since 2026-10), the linked match, as long as it still
+     *       holds the loser (normally on the linked side; on the other one if the organizer swapped
+     *       home and away). A slot the organizer filled by hand with a third team is left alone;</li>
+     *   <li>without a link (knockout rounds drawn before the links existed, with the old fold
+     *       W1vW4, W2vW3), the next-phase match holding the loser, which is exactly the slot the
+     *       old rule had sent it to.</li>
+     * </ul>
+     * The loser is then replaced by the winner. That is refused while the next match is PLAYED, or
+     * CANCELLED with the loser sent through by walkover, because its own outcome would silently
+     * become meaningless.
      *
      * @throws BusinessRuleException when the next phase cannot follow the new outcome
      */
@@ -940,9 +980,10 @@ public class MatchService {
         if (nextMatches.stream().anyMatch(next -> next.involves(winner.getId()))) {
             return Optional.empty();
         }
-        Optional<Match> holdingLoser = nextMatches.stream()
-                .filter(next -> next.involves(loser.getId()))
-                .min(Comparator.comparing((Match next) -> next.getStatus() == MatchStatus.CANCELLED));
+        Optional<Match> linked = fedMatch(match, nextMatches);
+        Optional<Match> holdingLoser = linked.isPresent()
+                ? linked.filter(candidate -> candidate.involves(loser.getId()))
+                : legacyMatchHolding(nextMatches, loser);
         if (holdingLoser.isEmpty()) {
             return Optional.empty();
         }
@@ -958,6 +999,21 @@ public class MatchService {
         }
         requireNotAdvancedBeyond(match.getTournament().getId(), nextPhase, loser);
         return Optional.of(new BracketFix(target, loser, winner));
+    }
+
+    /** The next-phase match {@code match} is linked to, when it has a link and that match still exists. */
+    private static Optional<Match> fedMatch(Match match, List<Match> nextMatches) {
+        if (match.getNextMatchId() == null) {
+            return Optional.empty();
+        }
+        return nextMatches.stream().filter(next -> next.getId().equals(match.getNextMatchId())).findFirst();
+    }
+
+    /** Legacy rounds (no feeder link): the next-phase match holding the loser, a non-cancelled one first. */
+    private static Optional<Match> legacyMatchHolding(List<Match> nextMatches, Team loser) {
+        return nextMatches.stream()
+                .filter(next -> next.involves(loser.getId()))
+                .min(Comparator.comparing((Match next) -> next.getStatus() == MatchStatus.CANCELLED));
     }
 
     /**

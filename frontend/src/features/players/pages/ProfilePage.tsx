@@ -1,10 +1,10 @@
-import { useState } from 'react'
-import { Link } from 'react-router'
+import { useEffect, useState } from 'react'
+import { Link, useLocation } from 'react-router'
 import { Avatar } from '@/components/atoms/Avatar'
 import { Button } from '@/components/atoms/Button'
 import { FileInput } from '@/components/atoms/FileInput'
-import { Alert } from '@/components/molecules/Alert'
 import { Card } from '@/components/molecules/Card'
+import { ConfirmDialog } from '@/components/molecules/Modal'
 import { PageHeader } from '@/components/molecules/PageHeader'
 import { QueryState } from '@/components/molecules/QueryState'
 import { authApi } from '@/features/auth/api'
@@ -17,6 +17,7 @@ import { toast } from '@/store/ui.store'
 import type { ChangePasswordRequest, UpdateUserRequest, UpsertProfileRequest } from '@/types/api'
 import { playersApi } from '../api'
 import { BasicInfoForm } from '../components/BasicInfoForm'
+import { PHONE_FIELD_HASH, PHONE_INPUT_ID } from '../phoneField'
 import { ProfileForm } from '../components/ProfileForm'
 import { useMyProfile } from '../hooks/usePlayers'
 
@@ -27,10 +28,27 @@ export function ProfilePage() {
   const profileQuery = useMyProfile(isPlayer)
   const profile = profileQuery.data
   const [photo, setPhoto] = useState<File | null>(null)
+  const [removePhotoOpen, setRemovePhotoOpen] = useState(false)
   // Remounts the password form (clearing its fields) after a successful change.
   const [passwordFormKey, setPasswordFormKey] = useState(0)
+  const location = useLocation()
+  const hasUser = !!user
+  // On a phone the sport-profile cards sit above the field and grow once loaded; wait for them.
+  const profileLoading = profileQuery.loading
+
+  // "Agregar mi celular" (captain banner) links to /profile#celular: bring the phone field into view.
+  useEffect(() => {
+    if (location.hash !== PHONE_FIELD_HASH || !hasUser || profileLoading) return
+    const input = document.getElementById(PHONE_INPUT_ID)
+    if (!input) return
+    input.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+    input.focus({ preventScroll: true })
+  }, [location.hash, location.key, hasUser, profileLoading])
 
   const inTeam = !!(profile?.teamId ?? user?.teamId)
+  // Photo, position and personal data stay editable in a team; only the jersey freezes while the
+  // team plays a tournament (the server answers 409 otherwise).
+  const jerseyLocked = !!profile?.teamLocked
 
   const saveProfile = useMutation(async (payload: UpsertProfileRequest) => {
     const saved = await playersApi.upsertMyProfile(payload)
@@ -45,10 +63,19 @@ export function ProfilePage() {
     return saved
   })
 
+  const removePhoto = useMutation(async () => {
+    const saved = await playersApi.removeMyPhoto()
+    profileQuery.setData(saved)
+    return saved
+  })
+
   const saveBasicInfo = useMutation(async (payload: UpdateUserRequest) => {
     if (!user) throw new Error('Sesión no disponible.')
     const updated = await playersApi.updateUser(user.id, payload)
     useAuthStore.setState({ user: updated })
+    // Reload the session user so everything derived from it (e.g. the captain phone banner) updates
+    // without a page reload; the PATCH answer above already covers a failed refresh.
+    await refreshMe().catch(() => null)
     return updated
   })
 
@@ -82,6 +109,19 @@ export function ProfilePage() {
       .catch(() => undefined)
   }
 
+  const handleRemovePhoto = () => {
+    removePhoto
+      .mutate()
+      .then(() => {
+        toast.success('Foto eliminada.')
+        setRemovePhotoOpen(false)
+      })
+      .catch((cause: unknown) => {
+        toast.error(cause instanceof Error ? cause.message : 'No fue posible eliminar la foto.')
+        setRemovePhotoOpen(false)
+      })
+  }
+
   const handleSaveBasicInfo = (payload: UpdateUserRequest) => {
     saveBasicInfo
       .mutate(payload)
@@ -104,17 +144,10 @@ export function ProfilePage() {
                     : 'Cree su perfil deportivo para poder unirse a un equipo.'
                 }
               >
-                {inTeam && (
-                  <Alert kind="info" className="mb-4">
-                    Su perfil deportivo no se puede modificar mientras pertenece a un equipo
-                    {profile?.teamName ? ` (${profile.teamName})` : ''}. Si necesita cambiar su posición o dorsal,
-                    comuníquese con su capitán.
-                  </Alert>
-                )}
                 <ProfileForm
                   key={profile ? `${profile.position}-${profile.jerseyNumber}` : 'new'}
                   profile={profile}
-                  disabled={inTeam}
+                  jerseyLocked={jerseyLocked}
                   loading={saveProfile.loading}
                   error={saveProfile.error}
                   fieldErrors={saveProfile.fieldErrors}
@@ -132,21 +165,25 @@ export function ProfilePage() {
                         maxBytes={MAX_UPLOAD_BYTES}
                         value={photo}
                         onChange={setPhoto}
-                        disabled={inTeam}
                         invalid={!!uploadPhoto.error}
                         hint={IMAGE_HINT}
                       />
                       {uploadPhoto.error && <p className="text-xs font-medium text-brand-600">{uploadPhoto.error}</p>}
-                      <div>
+                      <div className="flex flex-wrap gap-2">
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={!photo || inTeam}
+                          disabled={!photo}
                           loading={uploadPhoto.loading}
                           onClick={handleUploadPhoto}
                         >
                           Subir foto
                         </Button>
+                        {profile.photoFileId && (
+                          <Button size="sm" variant="ghost" onClick={() => setRemovePhotoOpen(true)}>
+                            Quitar foto
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -167,7 +204,9 @@ export function ProfilePage() {
           {user && (
             <Card title="Información básica">
               <BasicInfoForm
+                key={user.phoneNumber ?? 'no-phone'}
                 user={user}
+                phoneInputId={PHONE_INPUT_ID}
                 loading={saveBasicInfo.loading}
                 error={saveBasicInfo.error}
                 fieldErrors={saveBasicInfo.fieldErrors}
@@ -210,6 +249,17 @@ export function ProfilePage() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={removePhotoOpen}
+        title="Quitar foto de perfil"
+        description="Su foto dejará de mostrarse en la plantilla de su equipo. Puede subir otra cuando quiera."
+        confirmLabel="Quitar foto"
+        danger
+        loading={removePhoto.loading}
+        onConfirm={handleRemovePhoto}
+        onCancel={() => setRemovePhotoOpen(false)}
+      />
     </>
   )
 }

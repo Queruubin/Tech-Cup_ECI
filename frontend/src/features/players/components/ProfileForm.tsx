@@ -9,7 +9,11 @@ import { POSITIONS, type PlayerProfileResponse, type Position, type UpsertProfil
 
 export interface ProfileFormProps {
   profile: PlayerProfileResponse | null
-  disabled: boolean
+  /**
+   * The player's team plays a tournament: the jersey number is frozen (the backend refuses a
+   * change with 409). The position stays editable and the current number is sent unchanged.
+   */
+  jerseyLocked?: boolean
   loading: boolean
   error: string | null
   fieldErrors: Record<string, string>
@@ -18,8 +22,10 @@ export interface ProfileFormProps {
 
 const POSITION_OPTIONS = toOptions(POSITIONS, POSITION_LABELS)
 
+export const JERSEY_LOCKED_HINT = 'No puede cambiar su dorsal mientras su equipo juega un torneo.'
+
 /** Controlled by initial props only; the page remounts it (via `key`) when the profile changes. */
-export function ProfileForm({ profile, disabled, loading, error, fieldErrors, onSubmit }: ProfileFormProps) {
+export function ProfileForm({ profile, jerseyLocked = false, loading, error, fieldErrors, onSubmit }: ProfileFormProps) {
   const [position, setPosition] = useState<Position | ''>(profile?.position ?? '')
   const [jerseyNumber, setJerseyNumber] = useState(profile ? String(profile.jerseyNumber) : '')
   const [localErrors, setLocalErrors] = useState<{ position?: string; jerseyNumber?: string }>({})
@@ -46,24 +52,28 @@ export function ProfileForm({ profile, disabled, loading, error, fieldErrors, on
             options={POSITION_OPTIONS}
             placeholder="Seleccione"
             value={position}
-            disabled={disabled}
             onChange={(event) => setPosition(event.target.value as Position | '')}
           />
         </FormField>
-        <FormField label="Número de dorsal" required error={localErrors.jerseyNumber ?? fieldErrors.jerseyNumber} hint="Entre 1 y 99.">
+        <FormField
+          label="Número de dorsal"
+          required
+          error={localErrors.jerseyNumber ?? fieldErrors.jerseyNumber}
+          hint={jerseyLocked ? JERSEY_LOCKED_HINT : 'Entre 1 y 99.'}
+        >
           <Input
             type="number"
             min={1}
             max={99}
             inputMode="numeric"
             value={jerseyNumber}
-            disabled={disabled}
+            disabled={jerseyLocked}
             onChange={(event) => setJerseyNumber(event.target.value)}
           />
         </FormField>
       </div>
       <div>
-        <Button type="submit" loading={loading} disabled={disabled}>
+        <Button type="submit" loading={loading}>
           {profile ? 'Guardar cambios' : 'Crear perfil deportivo'}
         </Button>
       </div>

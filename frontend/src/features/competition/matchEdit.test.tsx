@@ -47,6 +47,8 @@ function makeMatch(overrides: Partial<MatchResponse> = {}): MatchResponse {
     resultEditable: true,
     teamsEditable: true,
     reopenable: false,
+    nextMatchId: null,
+    nextSlot: null,
     events: [],
     ...overrides,
   }
@@ -71,6 +73,7 @@ function referee(id: number, fullName: string, status: UserResponse['status']): 
     id,
     fullName,
     email: null,
+    phoneNumber: null,
     schoolRelation: null,
     academicProgram: null,
     semester: null,

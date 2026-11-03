@@ -4,6 +4,7 @@ import edu.escuelaing.techcup.players.application.TeamGateway;
 import edu.escuelaing.techcup.teams.application.TeamService;
 import edu.escuelaing.techcup.teams.domain.Team;
 import edu.escuelaing.techcup.teams.domain.TeamEligibility;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +35,12 @@ public class TeamGatewayAdapter implements TeamGateway {
     @Transactional(readOnly = true)
     public boolean isLocked(Long teamId) {
         return teamService.isLocked(teamId);
+    }
+
+    @Override
+    @Transactional
+    public List<Long> lockMemberIds(Long teamId) {
+        return teamService.requireTeamForUpdate(teamId).memberIds();
     }
 
     @Override

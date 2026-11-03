@@ -12,6 +12,7 @@ function user(roles: Role[]): UserResponse {
     id: 1,
     fullName: 'Ana Pérez',
     email: 'ana@escuelaing.edu.co',
+    phoneNumber: null,
     schoolRelation: 'STUDENT',
     academicProgram: 'SYSTEMS_ENGINEERING',
     semester: 5,

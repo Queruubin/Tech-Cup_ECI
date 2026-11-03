@@ -296,6 +296,25 @@ public class TeamService {
     }
 
     /**
+     * The members of the team with their position and jersey number (null without a sport
+     * profile), in no particular order. Read model for other modules, e.g. the player export.
+     */
+    @Transactional(readOnly = true)
+    public List<TeamRosterEntry> rosterOf(Long teamId) {
+        Team team = requireTeam(teamId);
+        Map<Long, MemberProfilePort.MemberProfile> profiles = memberProfiles.findProfiles(team.memberIds());
+        return team.getMembers().stream()
+                .map(TeamMember::getUser)
+                .map(user -> {
+                    var profile = profiles.get(user.getId());
+                    return new TeamRosterEntry(team.getId(), team.getName(), user, team.isCaptain(user.getId()),
+                            profile == null ? null : profile.position(),
+                            profile == null ? null : profile.jerseyNumber());
+                })
+                .toList();
+    }
+
+    /**
      * Adds a player to a team enforcing the membership rules. Called by the join-request flow of
      * the players module through {@code TeamGateway}, which locks the player's row first so the
      * "not in another team" check cannot be raced by a second acceptance. The team row is locked

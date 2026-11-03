@@ -1,4 +1,5 @@
 import { todayIso } from '@/lib/format'
+import { normalizePhone, validatePhone } from '@/lib/phone'
 import type { AcademicProgram, DocumentType, RegisterRequest } from '@/types/api'
 
 /** Semester range accepted by the backend for students. */
@@ -74,6 +75,8 @@ export interface RegisterFormValues {
   birthDate: string
   documentType: DocumentType | ''
   documentNumber: string
+  /** Optional; blank = no phone. */
+  phoneNumber: string
 }
 
 export type RegisterFormErrors = Partial<Record<keyof RegisterFormValues, string>>
@@ -87,6 +90,7 @@ export const EMPTY_REGISTER_VALUES: RegisterFormValues = {
   birthDate: '',
   documentType: '',
   documentNumber: '',
+  phoneNumber: '',
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -160,6 +164,9 @@ export function validateRegister(values: RegisterFormValues): RegisterFormErrors
   if (!values.documentType) errors.documentType = 'Seleccione el tipo de documento.'
   if (!values.documentNumber.trim()) errors.documentNumber = 'Ingrese el número de documento.'
 
+  const phoneError = validatePhone(values.phoneNumber)
+  if (phoneError) errors.phoneNumber = phoneError
+
   return errors
 }
 
@@ -177,5 +184,6 @@ export function toRegisterRequest(values: RegisterFormValues): RegisterRequest {
     documentType: values.documentType as DocumentType,
     documentNumber: values.documentNumber.trim(),
     initialRole: 'PLAYER',
+    phoneNumber: normalizePhone(values.phoneNumber),
   }
 }

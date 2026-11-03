@@ -8,6 +8,7 @@ import {
   type MatchPhase,
   type MatchResponse,
   type RegistrationResponse,
+  type TournamentResponse,
 } from '@/types/api'
 
 /** Pure helpers behind the organizer's group stage and knockout builder (kept out of the components for testing). */
@@ -129,9 +130,60 @@ export function toCreateKnockoutRequest(pairings: readonly PairingDraft[]): Crea
   }
 }
 
-/** How the winners of the first round meet next (winner of the first pairing against the winner of the last one, ...). */
+/** How the winners of the first round meet next: neighbouring pairings (1 with 2, 3 with 4). */
 export function nextRoundHint(pairingCount: number): string | null {
   if (pairingCount === 2) return 'Los ganadores de los dos cruces juegan la final.'
-  if (pairingCount === 4) return 'En semifinales se cruzan los ganadores de los cruces 1 y 4, y los de los cruces 2 y 3.'
+  if (pairingCount === 4) return 'En semifinales se cruzan los ganadores de los cruces 1 y 2, y los de los cruces 3 y 4.'
   return null
+}
+
+/** Pairings a group of `teams` teams needs so that everybody meets everybody once. */
+export function pairingsNeeded(teams: number): number {
+  return teams < 2 ? 0 : (teams * (teams - 1)) / 2
+}
+
+export interface GenerateAllState {
+  /** True when "Generar partidos" may be pressed. */
+  enabled: boolean
+  /** Why it is disabled (shown next to the button), `null` when enabled. */
+  reason: string | null
+}
+
+/**
+ * State of "Generar partidos" (every group at once). Mirrors the server, which answers 409 in the
+ * same cases: tournament in progress (so not suspended), knockout not started, at least one group
+ * with 2 teams, every approved team in a group; and something left to create (it is idempotent).
+ */
+export function generateAllState(
+  status: TournamentResponse['status'],
+  matches: readonly Pick<MatchResponse, 'phase'>[],
+  groups: readonly GroupResponse[],
+  unassigned: readonly TeamOption[],
+): GenerateAllState {
+  if (status === 'SUSPENDED') return { enabled: false, reason: 'El torneo está suspendido.' }
+  if (status !== 'IN_PROGRESS') return { enabled: false, reason: 'Disponible cuando el torneo esté en progreso.' }
+  if (knockoutStarted(matches)) return { enabled: false, reason: 'La eliminatoria ya comenzó.' }
+  if (!groups.some((group) => group.teams.length >= 2)) {
+    return { enabled: false, reason: 'Se necesita al menos un grupo con 2 equipos.' }
+  }
+  if (unassigned.length > 0) {
+    const names = unassigned.map((team) => team.name).join(', ')
+    return {
+      enabled: false,
+      reason: `Asigne todos los equipos aprobados a un grupo. ${unassigned.length === 1 ? 'Falta' : 'Faltan'}: ${names}.`,
+    }
+  }
+  if (groups.every((group) => group.matchCount >= pairingsNeeded(group.teams.length))) {
+    return { enabled: false, reason: 'Todos los grupos ya tienen un partido para cada pareja de equipos.' }
+  }
+  return { enabled: true, reason: null }
+}
+
+/** A group match the organizer may delete: in progress, knockout not started, no result. */
+export function isGroupMatchDeletable(
+  match: Pick<MatchResponse, 'phase' | 'status'>,
+  tournamentStatus: TournamentResponse['status'],
+  knockout: boolean,
+): boolean {
+  return tournamentStatus === 'IN_PROGRESS' && !knockout && match.phase === 'GROUP' && match.status !== 'PLAYED'
 }

@@ -32,6 +32,8 @@ const GROUP_MATCH: MatchResponse = {
   resultEditable: true,
   teamsEditable: false,
   reopenable: true,
+  nextMatchId: null,
+  nextSlot: null,
   events: [{ id: 1, teamId: 10, playerId: 101, playerName: 'Daniel Soto', type: 'GOAL', minute: 10 }],
 }
 

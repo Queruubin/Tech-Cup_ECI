@@ -67,3 +67,15 @@ export function useMyRegistration(id: number | null, enabled = true) {
     nullOnStatus: [404],
   })
 }
+
+/** Finished tournaments with their champion (public). */
+export function usePastTournaments(enabled = true) {
+  return useQuery((signal) => tournamentsApi.pastTournaments(signal), [], { enabled })
+}
+
+/** History of a FINISHED tournament (public; 409 for any other status). */
+export function useTournamentHistory(id: number | null, enabled = true) {
+  return useQuery((signal) => tournamentsApi.tournamentHistory(id as number, signal), [id], {
+    enabled: id !== null && enabled,
+  })
+}

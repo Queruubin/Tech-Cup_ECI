@@ -56,6 +56,17 @@ class JoinRequestServiceTest {
     @InjectMocks
     private JoinRequestService service;
 
+    /** Same rule as creating a team: ADMIN implies PLAYER for the endpoint, but only a literal PLAYER may ask to join. */
+    @Test
+    void onlyAUserWhoLiterallyHoldsPlayerCanAskToJoin() {
+        AuthenticatedUser admin = new AuthenticatedUser(1L, "admin@escuelaing.edu.co", Set.of("ADMIN"));
+
+        assertThatThrownBy(() -> service.create(admin, 5L, null))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessage("Solo un usuario con el rol de jugador puede solicitar unirse a un equipo.");
+        verifyNoInteractions(requests, profiles, auditService);
+    }
+
     @Test
     void requiresASportProfile() {
         when(profiles.existsById(10L)).thenReturn(false);

@@ -8,29 +8,32 @@ import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/** The bracket fold: the best seed always meets the worst one. */
+/**
+ * Adjacent pairing in bracket order: match 1 against match 2, 3 against 4 (the order of the first
+ * round, chosen by {@code KnockoutSeeding}, is what keeps the top seeds apart).
+ */
 class KnockoutFixtureStrategyTest {
 
     private final KnockoutFixtureStrategy strategy = new KnockoutFixtureStrategy();
 
     @Test
-    void eightTeamsSeedTheQuarterFinalsOneVersusEight() {
+    void eightTeamsArePairedWithTheirNeighbour() {
         List<Fixture> fixtures = strategy.generate(List.of(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L));
 
         assertThat(fixtures).containsExactly(
-                new Fixture(1, 1L, 8L),
-                new Fixture(1, 2L, 7L),
-                new Fixture(1, 3L, 6L),
-                new Fixture(1, 4L, 5L));
+                new Fixture(1, 1L, 2L),
+                new Fixture(1, 3L, 4L),
+                new Fixture(1, 5L, 6L),
+                new Fixture(1, 7L, 8L));
     }
 
     @Test
-    void fourTeamsSeedTheSemiFinals() {
+    void fourTeamsGiveTwoSemiFinalsOfNeighbours() {
         List<Fixture> fixtures = strategy.generate(List.of(10L, 20L, 30L, 40L));
 
         assertThat(fixtures).containsExactly(
-                new Fixture(1, 10L, 40L),
-                new Fixture(1, 20L, 30L));
+                new Fixture(1, 10L, 20L),
+                new Fixture(1, 30L, 40L));
     }
 
     @Test
@@ -41,13 +44,23 @@ class KnockoutFixtureStrategyTest {
     }
 
     @Test
-    void winnersAdvanceWithTheSameFold() {
-        // Winners of QF1..QF4 in bracket order produce the classic semi-final pairing.
-        List<Fixture> fixtures = strategy.generate(List.of(1L, 2L, 3L, 4L));
+    void winnersOfMatchesOneAndTwoMeetAndSoDoThreeAndFour() {
+        // Winners of QF1..QF4 in bracket order: W1 v W2 (home = winner of the first match), W3 v W4.
+        List<Fixture> fixtures = strategy.generate(List.of(101L, 102L, 103L, 104L));
 
         assertThat(fixtures).containsExactly(
-                new Fixture(1, 1L, 4L),
-                new Fixture(1, 2L, 3L));
+                new Fixture(1, 101L, 102L),
+                new Fixture(1, 103L, 104L));
+    }
+
+    @Test
+    void theLegacyFoldPairsFirstWithLast() {
+        // Only for brackets drawn before 2026-10: W1 v W4, W2 v W3.
+        assertThat(strategy.fold(List.of(101L, 102L, 103L, 104L))).containsExactly(
+                new Fixture(1, 101L, 104L),
+                new Fixture(1, 102L, 103L));
+        assertThatThrownBy(() -> strategy.fold(List.of(1L, 2L, 3L)))
+                .isInstanceOf(BusinessRuleException.class);
     }
 
     @Test

@@ -56,6 +56,7 @@ describe('TournamentDetailPage "Gestión" tab', () => {
       id: 3,
       fullName: 'Olga Ruiz',
       email: 'olga@escuelaing.edu.co',
+      phoneNumber: null,
       schoolRelation: null,
       academicProgram: null,
       semester: null,

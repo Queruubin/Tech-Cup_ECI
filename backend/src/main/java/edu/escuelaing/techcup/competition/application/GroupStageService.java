@@ -1,6 +1,7 @@
 package edu.escuelaing.techcup.competition.application;
 
 import edu.escuelaing.techcup.competition.api.dto.CreateMatchRequest;
+import edu.escuelaing.techcup.competition.api.dto.GroupMatchesGeneratedResponse;
 import edu.escuelaing.techcup.competition.api.dto.GroupResponse;
 import edu.escuelaing.techcup.competition.api.dto.MatchResponse;
 import edu.escuelaing.techcup.competition.domain.GroupTeam;
@@ -15,6 +16,7 @@ import edu.escuelaing.techcup.identity.domain.AppUser;
 import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
+import edu.escuelaing.techcup.shared.exception.Messages;
 import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.teams.application.TeamService;
@@ -26,6 +28,7 @@ import edu.escuelaing.techcup.tournaments.domain.Venue;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,11 +56,19 @@ import org.springframework.transaction.annotation.Transactional;
  *       drawn by {@link RoundRobinFixtureStrategy}, one matchday per day at
  *       {@value MatchService#KICK_OFF_HOUR}:00 with venues and referees cycled, like the rest of
  *       the fixture. Needs at least two teams in the group.</li>
+ *   <li><b>All groups at once</b> ("Generar partidos", hybrid fixture): the same round robin in
+ *       every group with at least two teams, in one transaction. Same preconditions as a group
+ *       match, plus at least one group with two teams and every APPROVED team assigned to a group
+ *       (409 naming the teams without one). Idempotent: when no pairing is missing nothing is
+ *       created and the answer says so. The organizer keeps full control afterwards (delete a
+ *       match, create more, edit them).</li>
+ *   <li><b>Deleting a group match</b>: only a SCHEDULED or CANCELLED match of the group stage (no
+ *       result), with the same preconditions as creating one; lineups go with it (FK cascade).</li>
  * </ul>
  * The matchday ({@code roundNumber}) of a group match is the next matchday of the busier of its
  * two teams inside the group. Every mutation locks the tournament row first, refuses a suspended
  * tournament and is audited (GROUP_CREATED / GROUP_DELETED / GROUP_TEAM_ASSIGNED /
- * GROUP_TEAM_REMOVED / MATCH_CREATED / MATCHES_GENERATED).
+ * GROUP_TEAM_REMOVED / MATCH_CREATED / MATCHES_GENERATED / MATCH_DELETED).
  */
 @Service
 public class GroupStageService {
@@ -245,14 +256,119 @@ public class GroupStageService {
             throw new BusinessRuleException("El " + group.getName() + " necesita al menos 2 equipos para generar "
                     + "sus partidos (tiene " + teamIds.size() + ").");
         }
-        List<Match> existing = matches.findByGroupIdOrderByIdAsc(groupId);
+        List<Match> created = generateMissing(tournament, group, teamIds);
+        if (created.isEmpty()) {
+            throw new BusinessRuleException("El " + group.getName()
+                    + " ya tiene un partido para cada pareja de equipos.");
+        }
+        auditService.record(actor.id(), AuditAction.MATCHES_GENERATED, MatchService.TOURNAMENT_ENTITY_TYPE,
+                tournamentId, Map.of("tournamentId", tournamentId, "phase", MatchPhase.GROUP.name(),
+                        "groupId", groupId, "matches", created.size(), "teams", teamIds.size()));
+        return assembler.toResponses(created);
+    }
+
+    /**
+     * "Generar partidos": the round robin of every group at once (only the pairings each group is
+     * missing, scheduled exactly like {@link #roundRobin}). Refused unless at least one group has
+     * two teams and every APPROVED team of the tournament is in a group; idempotent (nothing missing
+     * &rarr; nothing created, and the message says so).
+     */
+    @Transactional
+    public GroupMatchesGeneratedResponse generateAll(AuthenticatedUser actor, Long tournamentId) {
+        Tournament tournament = tournamentService.requireTournamentForUpdate(tournamentId);
+        requireGroupMatchesAllowed(tournament, "generar los partidos");
+        List<TournamentGroup> tournamentGroups = groups.findByTournamentIdOrderByPositionAsc(tournamentId);
+        Map<Long, List<Long>> teamsByGroup = new HashMap<>();
+        Set<Long> assigned = new HashSet<>();
+        for (GroupTeam assignment : groupTeams.findByTournament(tournamentId)) {
+            teamsByGroup.computeIfAbsent(assignment.getGroup().getId(), key -> new ArrayList<>())
+                    .add(assignment.getTeam().getId());
+            assigned.add(assignment.getTeam().getId());
+        }
+        if (tournamentGroups.stream().noneMatch(group -> teamsByGroup.getOrDefault(group.getId(), List.of()).size() >= 2)) {
+            throw new BusinessRuleException("Para generar los partidos se necesita al menos un grupo con 2 equipos.");
+        }
+        List<String> unassigned = tournamentService.approvedTeamIds(tournamentId).stream()
+                .filter(teamId -> !assigned.contains(teamId))
+                .map(teamId -> "'" + teamService.requireTeam(teamId).getName() + "'")
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+        if (!unassigned.isEmpty()) {
+            throw new BusinessRuleException("Asigne todos los equipos aprobados a un grupo antes de generar los "
+                    + "partidos. " + (unassigned.size() == 1 ? "Falta: " : "Faltan: ") + String.join(", ", unassigned) + ".");
+        }
+
+        List<Match> created = new ArrayList<>();
+        List<GroupMatchesGeneratedResponse.GroupCount> counts = new ArrayList<>();
+        for (TournamentGroup group : tournamentGroups) {
+            // Group members in assignment order, as the per-group round robin reads them.
+            List<Long> teamIds = groupTeams.findTeamIdsByGroupId(group.getId());
+            List<Match> ofGroup = teamIds.size() < 2 ? List.of() : generateMissing(tournament, group, teamIds);
+            created.addAll(ofGroup);
+            counts.add(new GroupMatchesGeneratedResponse.GroupCount(group.getId(), group.getName(), teamIds.size(),
+                    ofGroup.size()));
+        }
+        if (created.isEmpty()) {
+            return new GroupMatchesGeneratedResponse(0, counts, List.of(),
+                    "Todos los grupos ya tienen un partido para cada pareja de equipos: no se creó ningún partido.");
+        }
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("tournamentId", tournamentId);
+        details.put("phase", MatchPhase.GROUP.name());
+        details.put("allGroups", true);
+        details.put("matches", created.size());
+        details.put("groups", counts.stream().filter(count -> count.created() > 0).count());
+        auditService.record(actor.id(), AuditAction.MATCHES_GENERATED, MatchService.TOURNAMENT_ENTITY_TYPE,
+                tournamentId, details);
+        long groupsWithNew = counts.stream().filter(count -> count.created() > 0).count();
+        return new GroupMatchesGeneratedResponse(created.size(), counts, assembler.toResponses(created),
+                "Se " + (created.size() == 1 ? "creó " : "crearon ") + Messages.plural(created.size(), "partido", "partidos")
+                        + " en " + Messages.plural(groupsWithNew, "grupo", "grupos") + ".");
+    }
+
+    /**
+     * Deletes a group match that has no result (SCHEDULED or CANCELLED), so the organizer can
+     * rebuild the fixture by hand after generating it. Same preconditions as creating one.
+     */
+    @Transactional
+    public void deleteMatch(AuthenticatedUser actor, Long tournamentId, Long matchId) {
+        Tournament tournament = tournamentService.requireTournamentForUpdate(tournamentId);
+        Match match = matches.findById(matchId)
+                .filter(candidate -> candidate.getTournament().getId().equals(tournamentId))
+                .orElseThrow(() -> NotFoundException.of("el partido", matchId));
+        if (match.getPhase() != MatchPhase.GROUP) {
+            throw new BusinessRuleException("Solo se pueden eliminar partidos de la fase de grupos; las fases "
+                    + "eliminatorias se deshacen completas con «Deshacer última fase».");
+        }
+        requireGroupMatchesAllowed(tournament, "eliminar partidos");
+        if (match.isPlayed()) {
+            throw new BusinessRuleException("El partido " + match.getHomeTeam().getName() + " vs "
+                    + match.getAwayTeam().getName() + " ya tiene un resultado: reábralo antes de eliminarlo.");
+        }
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("tournamentId", tournamentId);
+        details.put("groupId", match.getGroup() == null ? null : match.getGroup().getId());
+        details.put("status", match.getStatus().name());
+        details.put("homeTeamId", match.getHomeTeam().getId());
+        details.put("awayTeamId", match.getAwayTeam().getId());
+        details.put("scheduledAt", match.getScheduledAt() == null ? null : match.getScheduledAt().toString());
+        matches.delete(match);
+        auditService.record(actor.id(), AuditAction.MATCH_DELETED, MatchService.ENTITY_TYPE, matchId, details);
+    }
+
+    /**
+     * Persists the pairings {@code group} is still missing (possibly none), one day per matchday
+     * of the draw, starting on the tournament's start date or the day after the latest kick-off of
+     * the group (never in the past), with venues and referees cycled and never double-booked.
+     */
+    private List<Match> generateMissing(Tournament tournament, TournamentGroup group, List<Long> teamIds) {
+        List<Match> existing = matches.findByGroupIdOrderByIdAsc(group.getId());
         List<FixtureStrategy.Fixture> missing = roundRobinStrategy.generate(teamIds).stream()
                 .filter(fixture -> existing.stream()
                         .noneMatch(match -> match.isBetween(fixture.homeTeamId(), fixture.awayTeamId())))
                 .toList();
         if (missing.isEmpty()) {
-            throw new BusinessRuleException("El " + group.getName()
-                    + " ya tiene un partido para cada pareja de equipos.");
+            return List.of();
         }
 
         // One day per matchday of the draw that still has a missing pairing, starting on the
@@ -278,12 +394,7 @@ public class GroupStageService {
             planned.add(new MatchService.PlannedMatch(matchday, fixture.homeTeamId(), fixture.awayTeamId(),
                     firstDay.plusDays(dayOfRound.get(fixture.roundNumber()))));
         }
-        List<Match> created = matchService.persist(tournament, MatchPhase.GROUP, group, planned);
-
-        auditService.record(actor.id(), AuditAction.MATCHES_GENERATED, MatchService.TOURNAMENT_ENTITY_TYPE,
-                tournamentId, Map.of("tournamentId", tournamentId, "phase", MatchPhase.GROUP.name(),
-                        "groupId", groupId, "matches", created.size(), "teams", teamIds.size()));
-        return assembler.toResponses(created);
+        return matchService.persist(tournament, MatchPhase.GROUP, group, planned);
     }
 
     // --- helpers ---------------------------------------------------------------------------
@@ -308,7 +419,7 @@ public class GroupStageService {
     private void requireGroupMatchesAllowed(Tournament tournament, String action) {
         tournament.requireNotSuspended(action);
         if (tournament.getStatus() != TournamentStatus.IN_PROGRESS) {
-            throw new BusinessRuleException("Los partidos de grupo solo se pueden crear mientras el torneo esté en "
+            throw new BusinessRuleException("Solo se puede " + action + " de grupo mientras el torneo esté en "
                     + "progreso; su estado actual es «" + tournament.getStatus().label() + "».");
         }
         requireKnockoutNotStarted(tournament);

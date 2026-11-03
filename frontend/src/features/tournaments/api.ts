@@ -1,19 +1,25 @@
-import { api } from '@/lib/api'
+import { API_BASE_URL, api, downloadBlob, type DownloadedFile } from '@/lib/api'
 import type {
   BracketResponse,
   CreateKnockoutRequest,
   CreateMatchRequest,
   CreateTournamentRequest,
+  GroupMatchesGenerated,
   GroupResponse,
   GroupStandings,
   KnockoutSize,
   KnockoutSuggestion,
   MatchPhase,
   MatchResponse,
+  PodiumPhotoResponse,
   RegistrationResponse,
   ReviewRegistrationRequest,
+  SanctionTeamRequest,
+  SanctionedTeam,
   StandingRow,
   TopScorer,
+  TournamentHistory,
+  TournamentHistorySummary,
   TournamentResponse,
   UndoPhaseResponse,
   UpdateTournamentRequest,
@@ -44,6 +50,14 @@ export const tournamentsApi = {
       description: payload.description,
     }),
   deleteVenue: (id: number, venueId: number) => api.delete<void>(`/tournaments/${id}/venues/${venueId}`),
+  /** Organizer: replaces a venue's image (DRAFT, ACTIVE or IN_PROGRESS). */
+  replaceVenueImage: (id: number, venueId: number, file: File) =>
+    api.upload<VenueResponse>(`/tournaments/${id}/venues/${venueId}/image`, file, {}, 'file', 'PUT'),
+  /** Organizer: removes a venue's image. */
+  removeVenueImage: (id: number, venueId: number) =>
+    api.delete<VenueResponse>(`/tournaments/${id}/venues/${venueId}/image`),
+  /** ADMIN only: the players of the approved (and under review) teams as an .xlsx file. */
+  exportPlayers: (id: number): Promise<DownloadedFile> => downloadBlob(`/tournaments/${id}/players/export`),
 
   createRegistration: (id: number, receipt: File) =>
     api.upload<RegistrationResponse>(`/tournaments/${id}/registrations`, receipt),
@@ -73,6 +87,13 @@ export const tournamentsApi = {
   /** Organizer: creates the pairings the group is still missing (all against all). */
   groupRoundRobin: (id: number, groupId: number) =>
     api.post<MatchResponse[]>(`/tournaments/${id}/groups/${groupId}/round-robin`),
+  /**
+   * Organizer, "Generar partidos": the missing pairings of every group at once (409 while an approved
+   * team has no group, etc.). Idempotent: `created` is 0 when nothing was missing.
+   */
+  generateGroupMatches: (id: number) => api.post<GroupMatchesGenerated>(`/tournaments/${id}/groups/round-robin`),
+  /** Organizer: deletes a group match without result (SCHEDULED or CANCELLED). */
+  deleteGroupMatch: (id: number, matchId: number) => api.delete<void>(`/tournaments/${id}/matches/${matchId}`),
   /** Organizer: one group match created by hand. */
   createMatch: (id: number, payload: CreateMatchRequest) => api.post<MatchResponse>(`/tournaments/${id}/matches`, payload),
   knockoutSuggestion: (id: number, size: KnockoutSize, signal?: AbortSignal) =>
@@ -94,4 +115,28 @@ export const tournamentsApi = {
   history: (id: number, signal?: AbortSignal) => api.get<MatchResponse[]>(`/tournaments/${id}/stats/history`, undefined, signal),
   teamResults: (id: number, teamId: number, signal?: AbortSignal) =>
     api.get<MatchResponse[]>(`/tournaments/${id}/teams/${teamId}/results`, undefined, signal),
+
+  /** Public: finished tournaments with their champion, the one that ended last first. */
+  pastTournaments: (signal?: AbortSignal) => api.get<TournamentHistorySummary[]>('/tournaments/history', undefined, signal),
+  /** Public: podium, best defence, top scorers and sanctioned teams of a FINISHED tournament. */
+  tournamentHistory: (id: number, signal?: AbortSignal) =>
+    api.get<TournamentHistory>(`/tournaments/${id}/history`, undefined, signal),
+  /** Staff: records a team of the tournament as sanctioned (its name and members are copied). */
+  addSanction: (id: number, payload: SanctionTeamRequest) =>
+    api.post<SanctionedTeam>(`/tournaments/${id}/history/sanctions`, payload),
+  removeSanction: (id: number, sanctionId: number) =>
+    api.delete<void>(`/tournaments/${id}/history/sanctions/${sanctionId}`),
+  /** Staff: uploads or replaces the photo of podium position 1, 2 or 3. */
+  uploadPodiumPhoto: (id: number, position: number, file: File) =>
+    api.upload<PodiumPhotoResponse>(`/tournaments/${id}/history/podium/${position}/photo`, file, {}, 'file', 'PUT'),
+  removePodiumPhoto: (id: number, position: number) =>
+    api.delete<void>(`/tournaments/${id}/history/podium/${position}/photo`),
+}
+
+/**
+ * Public URL of a podium photo (no session needed, usable in an `<img>`); `fileId` busts the cache
+ * when the photo is replaced.
+ */
+export function podiumPhotoUrl(tournamentId: number, position: number, fileId: string): string {
+  return `${API_BASE_URL}/tournaments/${tournamentId}/history/podium/${position}/photo?v=${encodeURIComponent(fileId)}`
 }

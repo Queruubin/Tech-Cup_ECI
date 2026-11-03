@@ -31,6 +31,8 @@ const MATCH: MatchResponse = {
   resultEditable: true,
   teamsEditable: false,
   reopenable: true,
+  nextMatchId: null,
+  nextSlot: null,
   events: [
     { id: 1, teamId: 10, playerId: 101, playerName: 'Daniel Soto', type: 'GOAL', minute: 10 },
     { id: 2, teamId: 10, playerId: 101, playerName: 'Daniel Soto', type: 'GOAL', minute: 20 },
@@ -60,6 +62,7 @@ beforeEach(() => {
     id: 1,
     fullName: 'Organizadora',
     email: 'org@escuelaing.edu.co',
+    phoneNumber: null,
     schoolRelation: null,
     academicProgram: null,
     semester: null,

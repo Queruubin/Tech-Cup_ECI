@@ -6,6 +6,7 @@ import { Alert } from '@/components/molecules/Alert'
 import { FormField } from '@/components/molecules/FormField'
 import { SEMESTER_MAX, SEMESTER_MIN, validateSemester } from '@/features/auth/validation'
 import { ACADEMIC_PROGRAM_LABELS, SCHOOL_RELATION_LABELS, toOptions } from '@/lib/labels'
+import { formatPhone, normalizePhone, PHONE_HINT, PHONE_MAX_INPUT_LENGTH, validatePhone } from '@/lib/phone'
 import {
   ACADEMIC_PROGRAMS,
   SCHOOL_RELATIONS,
@@ -26,6 +27,8 @@ export interface BasicInfoFormProps {
    */
   canEditRelation: boolean
   submitLabel?: string
+  /** Id of the phone input, so a link (e.g. the captain banner) can scroll to and focus it. */
+  phoneInputId?: string
   onSubmit: (payload: UpdateUserRequest) => void
   onCancel?: () => void
 }
@@ -43,6 +46,7 @@ export function BasicInfoForm({
   fieldErrors,
   canEditRelation,
   submitLabel = 'Actualizar información',
+  phoneInputId,
   onSubmit,
   onCancel,
 }: BasicInfoFormProps) {
@@ -50,7 +54,8 @@ export function BasicInfoForm({
   const [schoolRelation, setSchoolRelation] = useState<SchoolRelation | null>(user.schoolRelation)
   const [academicProgram, setAcademicProgram] = useState<AcademicProgram | null>(user.academicProgram)
   const [semester, setSemester] = useState(user.semester ? String(user.semester) : '')
-  const [localErrors, setLocalErrors] = useState<{ fullName?: string; semester?: string }>({})
+  const [phoneNumber, setPhoneNumber] = useState(formatPhone(user.phoneNumber))
+  const [localErrors, setLocalErrors] = useState<{ fullName?: string; semester?: string; phoneNumber?: string }>({})
   // A locked relation always reflects (and sends) the user's current value.
   const relation = canEditRelation ? schoolRelation : user.schoolRelation
   // New self-registered users have no relation yet (an admin sets it) but do have a program;
@@ -60,13 +65,15 @@ export function BasicInfoForm({
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
-    const errors: { fullName?: string; semester?: string } = {}
+    const errors: { fullName?: string; semester?: string; phoneNumber?: string } = {}
     if (fullName.trim().length < 3) errors.fullName = 'Ingrese su nombre completo.'
     const semesterNumber = Number(semester)
     if (relation === 'STUDENT') {
       const semesterError = validateSemester(semester)
       if (semesterError) errors.semester = semesterError
     }
+    const phoneError = validatePhone(phoneNumber)
+    if (phoneError) errors.phoneNumber = phoneError
     setLocalErrors(errors)
     if (Object.keys(errors).length > 0) return
     onSubmit({
@@ -74,6 +81,8 @@ export function BasicInfoForm({
       schoolRelation: relation,
       academicProgram,
       semester: relation === 'STUDENT' ? semesterNumber : null,
+      // Contact data, never frozen by a tournament: '' removes a stored phone, null keeps "none".
+      phoneNumber: normalizePhone(phoneNumber) ?? (user.phoneNumber ? '' : null),
     })
   }
 
@@ -86,6 +95,22 @@ export function BasicInfoForm({
         </FormField>
         <FormField label="Correo electrónico" hint="El correo no se puede modificar.">
           <Input value={user.email ?? '—'} disabled readOnly />
+        </FormField>
+        <FormField
+          label="Celular"
+          id={phoneInputId}
+          error={localErrors.phoneNumber ?? fieldErrors.phoneNumber}
+          hint={PHONE_HINT}
+        >
+          <Input
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            maxLength={PHONE_MAX_INPUT_LENGTH}
+            placeholder="300 123 4567"
+            value={phoneNumber}
+            onChange={(event) => setPhoneNumber(event.target.value)}
+          />
         </FormField>
         {showRelation && (
           <FormField

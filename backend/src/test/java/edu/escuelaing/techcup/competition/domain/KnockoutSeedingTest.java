@@ -35,13 +35,13 @@ class KnockoutSeedingTest {
                 group(4L, "Grupo D", row(41L, "D1", 6), row(42L, "D2", 3))), List.of());
 
         assertThat(suggestion.pairings()).hasSize(4);
-        // Winners at home, in seeding order; every runner-up from another group.
+        // Winners at home, in standard bracket order (seeds 1, 4, 3, 2); every runner-up from another group.
         assertThat(suggestion.pairings()).extracting(pairing -> pairing.home().teamId())
-                .containsExactly(11L, 21L, 31L, 41L);
+                .containsExactly(11L, 41L, 31L, 21L);
         assertThat(suggestion.pairings())
                 .allSatisfy(pairing -> assertThat(pairing.home().groupId()).isNotEqualTo(pairing.away().groupId()));
-        // The two teams of a group sit in different halves (pairings 1+4 and 2+3 meet in the semi-finals).
-        for (int[] half : new int[][]{{0, 3}, {1, 2}}) {
+        // The two teams of a group sit in different halves (pairings 1+2 and 3+4 meet in the semi-finals).
+        for (int[] half : new int[][]{{0, 1}, {2, 3}}) {
             Set<Long> groups = new HashSet<>();
             for (int index : half) {
                 groups.add(suggestion.pairings().get(index).home().groupId());
@@ -95,6 +95,40 @@ class KnockoutSeedingTest {
         assertThat(pair(suggestion, 0)).containsExactly(1L, 4L);
         assertThat(pair(suggestion, 1)).containsExactly(2L, 3L);
         assertThat(suggestion.pairings().get(0).away().label()).isEqualTo("4° general");
+    }
+
+    @Test
+    void eightTeamsOfTheGeneralTableComeInStandardBracketOrder() {
+        List<Standings.Row> general = new ArrayList<>();
+        for (int position = 1; position <= 8; position++) {
+            general.add(generalRow(position, (long) position, "Team " + position));
+        }
+
+        var suggestion = KnockoutSeeding.suggest(8, List.of(), general);
+
+        // 1v8, 4v5 | 3v6, 2v7: with neighbours meeting next, 1 and 2 can only meet in the final.
+        assertThat(pair(suggestion, 0)).containsExactly(1L, 8L);
+        assertThat(pair(suggestion, 1)).containsExactly(4L, 5L);
+        assertThat(pair(suggestion, 2)).containsExactly(3L, 6L);
+        assertThat(pair(suggestion, 3)).containsExactly(2L, 7L);
+    }
+
+    @Test
+    void twoGroupsAndEightQualifiersPutBothGroupWinnersInOppositeHalves() {
+        var suggestion = KnockoutSeeding.suggest(8, List.of(
+                group(1L, "Grupo A", row(11L, "A1", 9), row(12L, "A2", 6), row(13L, "A3", 3), row(14L, "A4", 0)),
+                group(2L, "Grupo B", row(21L, "B1", 7), row(22L, "B2", 4), row(23L, "B3", 2), row(24L, "B4", 1))),
+                List.of());
+
+        List<Long> firstHalf = List.of(pair(suggestion, 0).get(0), pair(suggestion, 0).get(1),
+                pair(suggestion, 1).get(0), pair(suggestion, 1).get(1));
+        List<Long> secondHalf = List.of(pair(suggestion, 2).get(0), pair(suggestion, 2).get(1),
+                pair(suggestion, 3).get(0), pair(suggestion, 3).get(1));
+        assertThat(firstHalf).contains(11L).doesNotContain(21L);
+        assertThat(secondHalf).contains(21L).doesNotContain(11L);
+        // Same-group avoidance still holds in every quarter-final.
+        assertThat(suggestion.pairings())
+                .allSatisfy(pairing -> assertThat(pairing.home().groupId()).isNotEqualTo(pairing.away().groupId()));
     }
 
     @Test

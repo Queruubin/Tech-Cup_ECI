@@ -44,5 +44,8 @@ public record RegisterRequest(
         @Size(max = 30, message = "El número de documento no puede superar los 30 caracteres.")
         String documentNumber,
         /** Optional: every self-registered account is a PLAYER unless GUEST is sent explicitly. */
-        Role initialRole) {
+        Role initialRole,
+        /** Optional contact phone; blank = none. Normalised before it is stored ({@code PhoneNumbers}). */
+        @PhoneNumber
+        String phoneNumber) {
 }

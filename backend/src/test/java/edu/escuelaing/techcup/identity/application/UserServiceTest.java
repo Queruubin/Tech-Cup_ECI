@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -17,6 +18,7 @@ import edu.escuelaing.techcup.identity.api.dto.UserResponse;
 import edu.escuelaing.techcup.identity.domain.AcademicProgram;
 import edu.escuelaing.techcup.identity.domain.AppUser;
 import edu.escuelaing.techcup.identity.domain.DocumentType;
+import edu.escuelaing.techcup.identity.domain.PhoneNumbers;
 import edu.escuelaing.techcup.identity.domain.SchoolRelation;
 import edu.escuelaing.techcup.identity.domain.UserStatus;
 import edu.escuelaing.techcup.identity.infrastructure.AppUserRepository;
@@ -29,11 +31,13 @@ import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -56,6 +60,9 @@ class UserServiceTest {
     private AuditService auditService;
 
     private UserService userService;
+
+    /** The fixture user's stored (normalised) phone. */
+    private static final String PHONE = "+573001234567";
 
     @BeforeEach
     void setUp() {
@@ -124,7 +131,7 @@ class UserServiceTest {
     @Test
     void usersCanOnlyUpdateTheirOwnBasicInfo() {
         UpdateUserRequest request = new UpdateUserRequest("Other", SchoolRelation.STUDENT,
-                AcademicProgram.AI_ENGINEERING, 4);
+                AcademicProgram.AI_ENGINEERING, 4, null);
 
         assertThatThrownBy(() -> userService.updateBasicInfo(PLAYER, 11L, request))
                 .isInstanceOf(ForbiddenOperationException.class);
@@ -135,7 +142,7 @@ class UserServiceTest {
         when(users.findById(10L)).thenReturn(Optional.of(activeUser(10L)));
 
         assertThatThrownBy(() -> userService.updateBasicInfo(ADMIN, 10L,
-                new UpdateUserRequest("Ana", SchoolRelation.GRADUATE, AcademicProgram.AI_ENGINEERING, 4)))
+                new UpdateUserRequest("Ana", SchoolRelation.GRADUATE, AcademicProgram.AI_ENGINEERING, 4, null)))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("solo aplica para los estudiantes");
     }
@@ -145,7 +152,7 @@ class UserServiceTest {
         when(users.findById(10L)).thenReturn(Optional.of(activeUser(10L)));
 
         assertThatThrownBy(() -> userService.updateBasicInfo(PLAYER, 10L,
-                new UpdateUserRequest("Ana", SchoolRelation.STUDENT, AcademicProgram.AI_ENGINEERING, null)))
+                new UpdateUserRequest("Ana", SchoolRelation.STUDENT, AcademicProgram.AI_ENGINEERING, null, null)))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("El semestre es obligatorio");
     }
@@ -156,7 +163,7 @@ class UserServiceTest {
         when(users.findById(10L)).thenReturn(Optional.of(user));
 
         assertThatThrownBy(() -> userService.updateBasicInfo(PLAYER, 10L,
-                new UpdateUserRequest("Ana", SchoolRelation.FAMILY, AcademicProgram.OTHER, null)))
+                new UpdateUserRequest("Ana", SchoolRelation.FAMILY, AcademicProgram.OTHER, null, null)))
                 .isInstanceOf(ForbiddenOperationException.class)
                 .hasMessage("Solo un administrador puede cambiar la relación con la Escuela.");
         assertThat(user.getSchoolRelation()).isEqualTo(SchoolRelation.STUDENT);
@@ -170,7 +177,7 @@ class UserServiceTest {
         when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.empty());
 
         userService.updateBasicInfo(PLAYER, 10L,
-                new UpdateUserRequest(" Ana Maria ", SchoolRelation.STUDENT, AcademicProgram.AI_ENGINEERING, 6));
+                new UpdateUserRequest(" Ana Maria ", SchoolRelation.STUDENT, AcademicProgram.AI_ENGINEERING, 6, null));
 
         assertThat(user.getFullName()).isEqualTo("Ana Maria");
         assertThat(user.getAcademicProgram()).isEqualTo(AcademicProgram.AI_ENGINEERING);
@@ -185,7 +192,7 @@ class UserServiceTest {
         when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.empty());
 
         userService.updateBasicInfo(ADMIN, 10L,
-                new UpdateUserRequest("Ana", SchoolRelation.FAMILY, AcademicProgram.OTHER, null));
+                new UpdateUserRequest("Ana", SchoolRelation.FAMILY, AcademicProgram.OTHER, null, null));
 
         assertThat(user.getSchoolRelation()).isEqualTo(SchoolRelation.FAMILY);
         assertThat(user.getSemester()).isNull();
@@ -202,7 +209,7 @@ class UserServiceTest {
         when(users.findById(30L)).thenReturn(Optional.of(user));
         when(userFacts.activeTeamIdOf(30L)).thenReturn(Optional.empty());
 
-        userService.updateBasicInfo(referee, 30L, new UpdateUserRequest("Arbitro Nuevo", null, null, null));
+        userService.updateBasicInfo(referee, 30L, new UpdateUserRequest("Arbitro Nuevo", null, null, null, null));
 
         assertThat(user.getFullName()).isEqualTo("Arbitro Nuevo");
         assertThat(user.getSchoolRelation()).isNull();
@@ -216,7 +223,7 @@ class UserServiceTest {
         when(users.findById(10L)).thenReturn(Optional.of(user));
         when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.empty());
 
-        userService.updateBasicInfo(PLAYER, 10L, new UpdateUserRequest("Ana", null, null, 7));
+        userService.updateBasicInfo(PLAYER, 10L, new UpdateUserRequest("Ana", null, null, 7, null));
 
         assertThat(user.getSchoolRelation()).isEqualTo(SchoolRelation.STUDENT);
         assertThat(user.getAcademicProgram()).isEqualTo(AcademicProgram.SYSTEMS_ENGINEERING);
@@ -237,7 +244,7 @@ class UserServiceTest {
 
         for (AuthenticatedUser actor : List.of(PLAYER, ADMIN)) {
             assertThatThrownBy(() -> userService.updateBasicInfo(actor, 10L,
-                    new UpdateUserRequest("Ana", SchoolRelation.STUDENT, AcademicProgram.AI_ENGINEERING, 5)))
+                    new UpdateUserRequest("Ana", SchoolRelation.STUDENT, AcademicProgram.AI_ENGINEERING, 5, null)))
                     .isInstanceOf(BusinessRuleException.class)
                     .hasMessage(LOCKED_ELIGIBILITY_DATA);
         }
@@ -252,7 +259,7 @@ class UserServiceTest {
         when(userFacts.isLockedByTournament(10L)).thenReturn(true);
 
         assertThatThrownBy(() -> userService.updateBasicInfo(ADMIN, 10L,
-                new UpdateUserRequest("Ana", SchoolRelation.FAMILY, null, null)))
+                new UpdateUserRequest("Ana", SchoolRelation.FAMILY, null, null, null)))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessage(LOCKED_ELIGIBILITY_DATA);
         assertThat(user.getSchoolRelation()).isEqualTo(SchoolRelation.STUDENT);
@@ -268,8 +275,8 @@ class UserServiceTest {
 
         // Re-sending the stored relation and program is not a change.
         userService.updateBasicInfo(PLAYER, 10L,
-                new UpdateUserRequest("Ana Maria", SchoolRelation.STUDENT, AcademicProgram.SYSTEMS_ENGINEERING, 6));
-        userService.updateBasicInfo(PLAYER, 10L, new UpdateUserRequest("Ana María", null, null, 7));
+                new UpdateUserRequest("Ana Maria", SchoolRelation.STUDENT, AcademicProgram.SYSTEMS_ENGINEERING, 6, null));
+        userService.updateBasicInfo(PLAYER, 10L, new UpdateUserRequest("Ana María", null, null, 7, null));
 
         assertThat(user.getFullName()).isEqualTo("Ana María");
         assertThat(user.getSemester()).isEqualTo(7);
@@ -324,6 +331,7 @@ class UserServiceTest {
 
         assertThat(response.fullName()).isEqualTo("Ana Diaz");
         assertThat(response.email()).isNull();
+        assertThat(response.phoneNumber()).isNull();
         assertThat(response.birthDate()).isNull();
         assertThat(response.documentType()).isNull();
         assertThat(response.documentNumber()).isNull();
@@ -366,6 +374,151 @@ class UserServiceTest {
                 });
     }
 
+    // --- staff user detail -----------------------------------------------------------------------
+
+    @Test
+    void anAdminSeesEveryFieldOfAnotherUser() {
+        when(users.findById(10L)).thenReturn(Optional.of(activeUser(10L)));
+
+        UserResponse response = userService.getForStaff(10L, ADMIN);
+
+        assertThat(response.email()).isEqualTo("ana@escuelaing.edu.co");
+        assertThat(response.documentNumber()).isEqualTo("1001");
+        assertThat(response.birthDate()).isEqualTo(LocalDate.of(2002, 3, 4));
+        assertThat(response.schoolRelation()).isEqualTo(SchoolRelation.STUDENT);
+        assertThat(response.semester()).isEqualTo(5);
+    }
+
+    @Test
+    void anOrganizerSeesTheEmailButNotTheDocumentNorTheBirthDate() {
+        when(users.findById(10L)).thenReturn(Optional.of(activeUser(10L)));
+
+        UserResponse response = userService.getForStaff(10L, ORGANIZER);
+
+        assertThat(response.email()).isEqualTo("ana@escuelaing.edu.co");
+        assertThat(response.academicProgram()).isEqualTo(AcademicProgram.SYSTEMS_ENGINEERING);
+        assertThat(response.documentNumber()).isNull();
+        assertThat(response.documentType()).isNull();
+        assertThat(response.birthDate()).isNull();
+    }
+
+    @Test
+    void aPlayerCannotUseTheStaffUserDetail() {
+        assertThatThrownBy(() -> userService.getForStaff(10L, STRANGER))
+                .isInstanceOf(ForbiddenOperationException.class);
+        assertThatThrownBy(() -> userService.getForStaff(10L, null))
+                .isInstanceOf(ForbiddenOperationException.class);
+        verify(users, never()).findById(any());
+    }
+
+    // --- phone number -----------------------------------------------------------------------------
+
+    @Test
+    void aUserAddsTheirPhoneNormalisedAndTheChangeIsAuditedWithoutTheNumber() {
+        AppUser user = activeUser(10L);
+        user.setPhoneNumber(null);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.empty());
+
+        UserResponse response = userService.updateBasicInfo(PLAYER, 10L,
+                new UpdateUserRequest("Ana", null, null, 5, " 300 123-4567 "));
+
+        assertThat(user.getPhoneNumber()).isEqualTo(PHONE);
+        assertThat(response.phoneNumber()).isEqualTo(PHONE);
+        Map<String, Object> details = auditedDetails(10L);
+        assertThat(details).containsEntry("phoneNumber", "ADDED");
+        assertThat(details.values()).doesNotContain(PHONE);
+    }
+
+    @Test
+    void anAdminChangesAnotherUsersPhoneToAnInternationalNumber() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.empty());
+
+        userService.updateBasicInfo(ADMIN, 10L, new UpdateUserRequest("Ana", null, null, 5, "+44 20 7946 0958"));
+
+        assertThat(user.getPhoneNumber()).isEqualTo("+442079460958");
+        assertThat(auditedDetails(1L)).containsEntry("phoneNumber", "CHANGED");
+    }
+
+    @Test
+    void aBlankPhoneRemovesIt() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.empty());
+
+        userService.updateBasicInfo(PLAYER, 10L, new UpdateUserRequest("Ana", null, null, 5, "   "));
+
+        assertThat(user.getPhoneNumber()).isNull();
+        assertThat(auditedDetails(10L)).containsEntry("phoneNumber", "REMOVED");
+    }
+
+    @Test
+    void anAbsentPhoneKeepsTheStoredOneAndIsNotAudited() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.empty());
+
+        userService.updateBasicInfo(PLAYER, 10L, new UpdateUserRequest("Ana", null, null, 5, null));
+        userService.updateBasicInfo(PLAYER, 10L, new UpdateUserRequest("Ana", null, null, 5, "+57 300 123 4567"));
+
+        assertThat(user.getPhoneNumber()).isEqualTo(PHONE);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> details = ArgumentCaptor.forClass(Map.class);
+        verify(auditService, times(2))
+                .record(eq(10L), eq(AuditAction.USER_UPDATED), anyString(), eq(10L), details.capture());
+        assertThat(details.getAllValues()).allSatisfy(map -> assertThat(map).doesNotContainKey("phoneNumber"));
+    }
+
+    @Test
+    void aLockedPlayerStillChangesTheirPhone() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        lenient().when(userFacts.isLockedByTournament(10L)).thenReturn(true);
+        when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.of(5L));
+
+        userService.updateBasicInfo(PLAYER, 10L, new UpdateUserRequest("Ana", null, null, 5, "321 987 6543"));
+
+        assertThat(user.getPhoneNumber()).isEqualTo("+573219876543");
+    }
+
+    @Test
+    void anInvalidPhoneThatSkipsBeanValidationIsStillABadRequest() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> userService.updateBasicInfo(PLAYER, 10L,
+                new UpdateUserRequest("Ana", null, null, 5, "6011234567")))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage(PhoneNumbers.INVALID_MESSAGE);
+        assertThat(user.getPhoneNumber()).isEqualTo(PHONE);
+        verify(auditService, never()).record(any(), any(), anyString(), anyLong(), any());
+    }
+
+    @Test
+    void thePhoneIsVisibleToTheUserAdminsAndOrganizersOnly() {
+        lenient().when(users.findById(10L)).thenReturn(Optional.of(activeUser(10L)));
+
+        assertThat(userService.toResponse(activeUser(10L), PLAYER).phoneNumber()).isEqualTo(PHONE);
+        assertThat(userService.toResponse(activeUser(10L), ADMIN).phoneNumber()).isEqualTo(PHONE);
+        assertThat(userService.getForStaff(10L, ORGANIZER).phoneNumber()).isEqualTo(PHONE);
+        assertThat(userService.getForStaff(10L, ADMIN).phoneNumber()).isEqualTo(PHONE);
+        assertThat(userService.toDirectoryResponse(activeUser(10L), ORGANIZER).phoneNumber()).isEqualTo(PHONE);
+        // Another player, and the generic single-profile endpoint for an organizer, never get it.
+        assertThat(userService.toResponse(activeUser(10L), STRANGER).phoneNumber()).isNull();
+        assertThat(userService.toDirectoryResponse(activeUser(10L), STRANGER).phoneNumber()).isNull();
+        assertThat(userService.toResponse(activeUser(10L), ORGANIZER).phoneNumber()).isNull();
+        assertThat(userService.toResponse(activeUser(10L), null).phoneNumber()).isNull();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> auditedDetails(Long actorId) {
+        ArgumentCaptor<Map<String, Object>> details = ArgumentCaptor.forClass(Map.class);
+        verify(auditService).record(eq(actorId), eq(AuditAction.USER_UPDATED), anyString(), eq(10L), details.capture());
+        return details.getValue();
+    }
+
     private static AppUser activeUser(Long id) {
         return AppUser.builder()
                 .id(id)
@@ -379,6 +532,7 @@ class UserServiceTest {
                 .birthDate(LocalDate.of(2002, 3, 4))
                 .documentType(DocumentType.CC)
                 .documentNumber("1001")
+                .phoneNumber(PHONE)
                 .roles(new HashSet<>())
                 .build();
     }

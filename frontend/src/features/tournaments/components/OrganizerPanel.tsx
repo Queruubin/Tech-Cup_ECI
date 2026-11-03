@@ -23,14 +23,17 @@ import type {
 import { tournamentsApi } from '../api'
 import { useTournamentMatches } from '../hooks/useTournaments'
 import { latestPhase } from '../groupStage'
+import { historyPath, type HistoryLocationState } from '../history'
 import { undoPhaseConfirmDescription, undoPhaseState, undoPhaseSuccessMessage } from '../undoPhase'
 import { GroupStageSection } from './GroupStageSection'
 import { HardDeleteTournamentDialog } from './HardDeleteTournamentDialog'
+import { PlayersExportCard } from './PlayersExportCard'
 import { RegistrationsReview } from './RegistrationsReview'
 import { RulebookLink } from './RulebookLink'
 import { TournamentForm } from './TournamentForm'
 import { VenueForm } from './VenueForm'
 import { VenueGallery } from './VenueGallery'
+import { VenueImageModal } from './VenueImageModal'
 
 type Lifecycle = 'activate' | 'start' | 'finish' | 'delete' | 'advance' | 'undo' | 'suspend' | 'resume'
 type Pending = { kind: Lifecycle } | { kind: 'deleteVenue'; venue: VenueResponse }
@@ -46,6 +49,8 @@ export interface OrganizerPanelProps {
   onUpdated: (update: TournamentUpdate) => void
   /** ADMIN only: offers the irreversible "Eliminar torneo" (any status, the name must be typed). */
   canHardDelete?: boolean
+  /** ADMIN only: offers the Excel download of the tournament's players. */
+  canExportPlayers?: boolean
 }
 
 const LIFECYCLE_COPY: Record<Lifecycle, { title: string; description: string; confirm: string; danger?: boolean }> = {
@@ -100,11 +105,12 @@ const LIFECYCLE_COPY: Record<Lifecycle, { title: string; description: string; co
   },
 }
 
-export function OrganizerPanel({ tournament, onUpdated, canHardDelete = false }: OrganizerPanelProps) {
+export function OrganizerPanel({ tournament, onUpdated, canHardDelete = false, canExportPlayers = false }: OrganizerPanelProps) {
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const [pending, setPending] = useState<Pending | null>(null)
   const [hardDeleteOpen, setHardDeleteOpen] = useState(false)
+  const [imageVenue, setImageVenue] = useState<VenueResponse | null>(null)
   const [rulebook, setRulebook] = useState<File | null>(null)
   // Remounts (clears) the venue form only after a successful create, never on delete.
   const [venueFormKey, setVenueFormKey] = useState(0)
@@ -210,6 +216,10 @@ export function OrganizerPanel({ tournament, onUpdated, canHardDelete = false }:
     onUpdated((previous) => ({ ...previous, venues: previous.venues.filter((item) => item.id !== venue.id) }))
   })
 
+  // Replaces the venue in the tournament after its image changed (functional update: no stale closure).
+  const replaceVenue = (venue: VenueResponse) =>
+    onUpdated((previous) => ({ ...previous, venues: previous.venues.map((item) => (item.id === venue.id ? venue : item)) }))
+
   const confirmPending = () => {
     if (!pending) return
     if (pending.kind === 'deleteVenue') {
@@ -238,6 +248,11 @@ export function OrganizerPanel({ tournament, onUpdated, canHardDelete = false }:
           kind === 'undo' && outcome ? undoPhaseSuccessMessage(outcome.phase, outcome.deletedMatches) : messages[kind],
         )
         if (kind === 'delete') navigate('/tournaments', { replace: true })
+        // Finishing leads to the history, where staff may add sanctioned teams and podium photos.
+        if (kind === 'finish') {
+          const state: HistoryLocationState = { justFinished: true }
+          navigate(historyPath(tournament.id), { state })
+        }
       })
       .catch((cause: unknown) => toast.error(errorMessage(cause, 'La operación no pudo completarse.')))
       .finally(() => setPending(null))
@@ -465,13 +480,20 @@ export function OrganizerPanel({ tournament, onUpdated, canHardDelete = false }:
           venues={tournament.venues}
           renderActions={(venue) =>
             !venuesLocked ? (
-              <Button size="sm" variant="danger" onClick={() => setPending({ kind: 'deleteVenue', venue })}>
-                Eliminar
-              </Button>
+              <div className="flex flex-col items-end gap-1.5">
+                <Button size="sm" variant="outline" onClick={() => setImageVenue(venue)}>
+                  {venue.imageFileId ? 'Cambiar foto' : 'Agregar foto'}
+                </Button>
+                <Button size="sm" variant="danger" onClick={() => setPending({ kind: 'deleteVenue', venue })}>
+                  Eliminar
+                </Button>
+              </div>
             ) : null
           }
         />
       </Card>
+
+      {canExportPlayers && <PlayersExportCard tournamentId={tournament.id} />}
 
       <RegistrationsReview
         tournamentId={tournament.id}
@@ -495,6 +517,14 @@ export function OrganizerPanel({ tournament, onUpdated, canHardDelete = false }:
         loading={lifecycle.loading || deleteVenue.loading}
         onConfirm={confirmPending}
         onCancel={() => setPending(null)}
+      />
+
+      <VenueImageModal
+        key={imageVenue?.id ?? 'none'}
+        tournamentId={tournament.id}
+        venue={imageVenue}
+        onChanged={replaceVenue}
+        onClose={() => setImageVenue(null)}
       />
 
       {canHardDelete && (

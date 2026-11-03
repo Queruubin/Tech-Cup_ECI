@@ -45,6 +45,8 @@ function makeMatch(phase: MatchPhase = 'GROUP', overrides: Partial<MatchResponse
     resultEditable: true,
     teamsEditable: true,
     reopenable: false,
+    nextMatchId: null,
+    nextSlot: null,
     events: [],
     ...overrides,
   }

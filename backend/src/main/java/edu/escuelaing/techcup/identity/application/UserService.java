@@ -5,6 +5,7 @@ import edu.escuelaing.techcup.identity.api.dto.UpdateUserRequest;
 import edu.escuelaing.techcup.identity.api.dto.UserResponse;
 import edu.escuelaing.techcup.identity.domain.AcademicProgram;
 import edu.escuelaing.techcup.identity.domain.AppUser;
+import edu.escuelaing.techcup.identity.domain.PhoneNumbers;
 import edu.escuelaing.techcup.identity.domain.Role;
 import edu.escuelaing.techcup.identity.domain.SchoolRelation;
 import edu.escuelaing.techcup.identity.domain.UserStatus;
@@ -20,6 +21,7 @@ import edu.escuelaing.techcup.shared.security.Roles;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,9 +38,13 @@ import org.springframework.transaction.annotation.Transactional;
  *       password.</li>
  *   <li>Inactivation is refused while the user belongs to a team with an APPROVED registration
  *       in an ACTIVE or IN_PROGRESS tournament, or while they captain an ACTIVE team.</li>
- *   <li>Personal data (e-mail, birth date, identity document) is only returned to the user
- *       themself or to an ADMIN; organizers get the e-mail in the directory listings (to tell
- *       people apart), and nothing more.</li>
+ *   <li>The contact phone is optional and editable by the user or an ADMIN at any time (it is not
+ *       frozen by tournaments); it is stored normalised ({@link PhoneNumbers}).</li>
+ *   <li>Personal data (e-mail, phone, birth date, identity document) is only returned to the user
+ *       themself or to an ADMIN; organizers get the e-mail and the phone in the directory listings
+ *       and the staff user view (to tell people apart and to contact captains), and nothing more.
+ *       No other module's response embeds a {@link UserResponse}, so the phone cannot leak through
+ *       team, player, match or history responses.</li>
  * </ul>
  */
 @Service
@@ -83,6 +89,19 @@ public class UserService {
     @Transactional(readOnly = true)
     public UserResponse getResponse(Long id, AuthenticatedUser viewer) {
         return toResponse(getUser(id), viewer);
+    }
+
+    /**
+     * One user as staff see it (the user detail page reached from a team roster): everything for
+     * an ADMIN; for an ORGANIZER the e-mail but no birth date or identity document, exactly like
+     * the directory. Anybody else gets 403 (the endpoint already requires the roles).
+     */
+    @Transactional(readOnly = true)
+    public UserResponse getForStaff(Long id, AuthenticatedUser viewer) {
+        if (viewer == null || !(viewer.isAdmin() || viewer.hasRole(Roles.ORGANIZER))) {
+            throw new ForbiddenOperationException("Solo un administrador o un organizador puede consultar este usuario.");
+        }
+        return toDirectoryResponse(getUser(id), viewer);
     }
 
     /** Directory search for administrators and organizers; organizers do not get identity documents. */
@@ -132,11 +151,19 @@ public class UserService {
         user.setSchoolRelation(relation);
         user.setAcademicProgram(program);
         user.setSemester(relation == SchoolRelation.STUDENT ? request.semester() : null);
+        // null keeps the stored phone; blank removes it. Contact data is never frozen by a tournament.
+        String previousPhone = user.getPhoneNumber();
+        if (request.phoneNumber() != null) {
+            user.setPhoneNumber(normalizePhone(request.phoneNumber()));
+        }
 
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("fullName", user.getFullName());
         if (relation != null) details.put("schoolRelation", relation.name());
         if (program != null) details.put("academicProgram", program.name());
+        // The number itself stays out of the audit trail (data minimisation); only what happened.
+        String phoneChange = phoneChange(previousPhone, user.getPhoneNumber());
+        if (phoneChange != null) details.put("phoneNumber", phoneChange);
         auditService.record(actor.id(), AuditAction.USER_UPDATED, ENTITY_TYPE, user.getId(), details);
         return toResponse(user);
     }
@@ -182,6 +209,27 @@ public class UserService {
         return toResponse(user);
     }
 
+    /**
+     * The stored form of a phone typed by a user: null when blank, otherwise normalised.
+     *
+     * @throws InvalidRequestException (HTTP 400) when it is not a valid phone; the request DTOs
+     *                                 already validate it, this keeps the rule in the use case
+     */
+    static String normalizePhone(String raw) {
+        try {
+            return PhoneNumbers.normalize(raw);
+        } catch (IllegalArgumentException e) {
+            throw new InvalidRequestException(PhoneNumbers.INVALID_MESSAGE);
+        }
+    }
+
+    /** "ADDED", "CHANGED", "REMOVED" or null when the phone did not change. */
+    private static String phoneChange(String before, String after) {
+        if (Objects.equals(before, after)) return null;
+        if (before == null) return "ADDED";
+        return after == null ? "REMOVED" : "CHANGED";
+    }
+
     /** Semester is mandatory for students and meaningless for everybody else. */
     static void validateSemester(SchoolRelation relation, Integer semester) {
         if (relation == SchoolRelation.STUDENT && semester == null) {
@@ -198,6 +246,7 @@ public class UserService {
                 user.getId(),
                 user.getFullName(),
                 user.getEmail(),
+                user.getPhoneNumber(),
                 user.getSchoolRelation(),
                 user.getAcademicProgram(),
                 user.getSemester(),
@@ -212,7 +261,7 @@ public class UserService {
 
     /**
      * The profile as {@code viewer} may see it: everything for the user themself or an ADMIN,
-     * otherwise the e-mail, birth date and identity document are withheld.
+     * otherwise the e-mail, phone, birth date and identity document are withheld.
      */
     public UserResponse toResponse(AppUser user, AuthenticatedUser viewer) {
         UserResponse full = toResponse(user);
@@ -220,9 +269,10 @@ public class UserService {
     }
 
     /**
-     * The directory entry as {@code viewer} may see it: everything for an ADMIN; the e-mail but
-     * no birth date or identity document for an ORGANIZER (who needs the e-mail to tell people
-     * apart, e.g. among referees); nothing personal for anybody else.
+     * The directory entry as {@code viewer} may see it: everything for an ADMIN; the e-mail and the
+     * phone but no birth date or identity document for an ORGANIZER (who needs the e-mail to tell
+     * people apart, e.g. among referees, and the phone to contact captains); nothing personal for
+     * anybody else.
      */
     public UserResponse toDirectoryResponse(AppUser user, AuthenticatedUser viewer) {
         UserResponse full = toResponse(user);
@@ -236,11 +286,13 @@ public class UserService {
         return viewer != null && (viewer.isAdmin() || viewer.id().equals(user.getId()));
     }
 
-    private static UserResponse redact(UserResponse full, boolean keepEmail) {
+    /** Drops birth date and identity document; e-mail and phone survive only when {@code keepContact}. */
+    private static UserResponse redact(UserResponse full, boolean keepContact) {
         return new UserResponse(
                 full.id(),
                 full.fullName(),
-                keepEmail ? full.email() : null,
+                keepContact ? full.email() : null,
+                keepContact ? full.phoneNumber() : null,
                 full.schoolRelation(),
                 full.academicProgram(),
                 full.semester(),

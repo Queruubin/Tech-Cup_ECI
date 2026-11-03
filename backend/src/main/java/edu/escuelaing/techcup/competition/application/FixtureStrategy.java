@@ -10,8 +10,8 @@ import java.util.List;
  * <ul>
  *   <li>{@link RoundRobinFixtureStrategy} — the group stage: everybody plays everybody once,
  *       split into matchdays with the circle method.</li>
- *   <li>{@link KnockoutFixtureStrategy} — the bracket: the seeded list is folded in half so the
- *       first meets the last.</li>
+ *   <li>{@link KnockoutFixtureStrategy} — the bracket: the teams, in bracket order, meet their
+ *       neighbour (first against second, third against fourth).</li>
  * </ul>
  *
  * Keeping the two algorithms behind one interface is what makes the fixture generator testable
@@ -33,7 +33,7 @@ public interface FixtureStrategy {
      * Pairs the given teams.
      *
      * @param teamIds the teams to pair; the meaning of the order depends on the implementation
-     *                (irrelevant for the round robin, seeding order for the knockout)
+     *                (irrelevant for the round robin, bracket order for the knockout)
      * @throws edu.escuelaing.techcup.shared.exception.BusinessRuleException when the list cannot
      *                                                                      produce a valid phase
      */

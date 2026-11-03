@@ -111,6 +111,29 @@ public class Match {
     @JoinColumn(name = "walkover_winner_team_id")
     private Team walkoverWinnerTeam;
 
+    /**
+     * The match of the next knockout round this match feeds, set when that round is drawn from the
+     * winners (null for group matches, for the final, for a round not drawn yet and for knockout
+     * matches drawn before feeder links existed). A plain id, not an association: the next round
+     * is deleted as a whole by undo-phase, and the database clears the link (ON DELETE SET NULL).
+     */
+    @Column(name = "next_match_id")
+    private Long nextMatchId;
+
+    /** The side of {@link #nextMatchId} the winner of this match takes; null exactly when there is no link. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "next_slot", length = 4)
+    private BracketSlot nextSlot;
+
+    /**
+     * A knockout match drawn under the rule used until 2026-10 (first round listed by seed, next
+     * round folded: W1vW4, W2vW3). Set by V8 on every knockout match that existed then and
+     * inherited by the rounds drawn from them, so a bracket already under way keeps its shape.
+     */
+    @Column(name = "legacy_fold", nullable = false)
+    @Builder.Default
+    private boolean legacyFold = false;
+
     @OneToMany(mappedBy = "match", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id ASC")
     @Builder.Default
@@ -128,6 +151,23 @@ public class Match {
 
     public boolean isPlayed() {
         return status == MatchStatus.PLAYED;
+    }
+
+    /** Records that the winner of this match takes {@code slot} of the next-round match {@code nextMatchId}. */
+    public void linkTo(Long nextMatchId, BracketSlot slot) {
+        this.nextMatchId = nextMatchId;
+        this.nextSlot = slot;
+    }
+
+    /** Forgets the feeder link (the next round is being deleted). */
+    public void unlink() {
+        this.nextMatchId = null;
+        this.nextSlot = null;
+    }
+
+    /** The team on {@code slot} of this match. */
+    public Team teamOn(BracketSlot slot) {
+        return slot == BracketSlot.HOME ? homeTeam : awayTeam;
     }
 
     public boolean involves(Long teamId) {
