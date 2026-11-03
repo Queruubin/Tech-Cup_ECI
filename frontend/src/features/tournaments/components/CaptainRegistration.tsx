@@ -12,6 +12,7 @@ import { useAuth } from '@/features/auth/hooks/useAuth'
 import { EligibilityPanel } from '@/features/teams/components/EligibilityPanel'
 import { useEligibility, useMyTeam } from '@/features/teams/hooks/useTeams'
 import { canCreateTeam } from '@/features/teams/myTeamView'
+import { cn } from '@/lib/cn'
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format'
 import {
   FORM_EVIDENCE_ACCEPT,
@@ -26,6 +27,7 @@ import { toast } from '@/store/ui.store'
 import type { TournamentResponse } from '@/types/api'
 import { tournamentsApi } from '../api'
 import { useMyRegistration } from '../hooks/useTournaments'
+import { safeFormUrl } from '../formUrl'
 import { needsFormEvidence } from '../registrationEvidence'
 import { FilePreview } from './FilePreview'
 
@@ -34,6 +36,20 @@ type PreviewKind = 'receipt' | 'formEvidence'
 const PREVIEW_TITLES: Record<PreviewKind, string> = {
   receipt: 'Comprobante de pago',
   formEvidence: 'Evidencia del formulario de la Escuela',
+}
+
+/** The link to the university form, opened in a new tab; only for a URL that passes the http/https rule. */
+function FormUrlLink({ href, className }: { href: string; className?: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn('inline-flex text-sm font-medium text-brand-700 underline', className)}
+    >
+      Llenar el formulario de la Escuela
+    </a>
+  )
 }
 
 export interface CaptainRegistrationProps {
@@ -88,6 +104,8 @@ export function CaptainRegistration({ tournament, onRegistered }: CaptainRegistr
   const showForm = !current || current.status === 'CANCELLED' || current.status === 'REJECTED'
   // Registrations sent before the evidence was required: the organizer cannot approve them yet.
   const needsEvidence = needsFormEvidence(current)
+  // Defence in depth: a value that is not an absolute http/https URL is never rendered as a link.
+  const formUrl = safeFormUrl(tournament.formUrl)
   const previewFileId = preview === 'receipt' ? current?.receiptFileId : preview === 'formEvidence' ? current?.formEvidenceFileId : null
 
   return (
@@ -128,6 +146,7 @@ export function CaptainRegistration({ tournament, onRegistered }: CaptainRegistr
                         Su inscripción no tiene la evidencia del formulario de la Escuela. El organizador no puede aprobarla
                         hasta que la suba.
                       </p>
+                      {formUrl && <FormUrlLink href={formUrl} className="mb-3" />}
                       {uploadEvidence.error && <p className="mb-2 font-medium text-brand-700">{uploadEvidence.error}</p>}
                       <FileInput
                         accept={FORM_EVIDENCE_ACCEPT}
@@ -214,21 +233,24 @@ export function CaptainRegistration({ tournament, onRegistered }: CaptainRegistr
                         invalid={!!submit.fieldErrors.file}
                       />
                     </FormField>
-                    <FormField
-                      label="Evidencia del formulario de la Escuela"
-                      required
-                      hint="Pantallazo o PDF de la confirmación del formulario de inscripción de la Escuela."
-                      error={submit.fieldErrors.formEvidence}
-                    >
-                      <FileInput
-                        accept={FORM_EVIDENCE_ACCEPT}
-                        maxBytes={MAX_UPLOAD_BYTES}
-                        value={formEvidence}
-                        onChange={setFormEvidence}
-                        hint={FORM_EVIDENCE_HINT}
-                        invalid={!!submit.fieldErrors.formEvidence}
-                      />
-                    </FormField>
+                    <div className="flex flex-col gap-2">
+                      <FormField
+                        label="Evidencia del formulario de la Escuela"
+                        required
+                        hint="Pantallazo o PDF de la confirmación del formulario de inscripción de la Escuela."
+                        error={submit.fieldErrors.formEvidence}
+                      >
+                        <FileInput
+                          accept={FORM_EVIDENCE_ACCEPT}
+                          maxBytes={MAX_UPLOAD_BYTES}
+                          value={formEvidence}
+                          onChange={setFormEvidence}
+                          hint={FORM_EVIDENCE_HINT}
+                          invalid={!!submit.fieldErrors.formEvidence}
+                        />
+                      </FormField>
+                      {formUrl && <FormUrlLink href={formUrl} />}
+                    </div>
                   </div>
                   <div className="mt-4">
                     <Button

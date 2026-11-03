@@ -25,6 +25,7 @@ import { useTournamentMatches } from '../hooks/useTournaments'
 import { latestPhase } from '../groupStage'
 import { historyPath, type HistoryLocationState } from '../history'
 import { undoPhaseConfirmDescription, undoPhaseState, undoPhaseSuccessMessage } from '../undoPhase'
+import { FormUrlCard } from './FormUrlCard'
 import { GroupStageSection } from './GroupStageSection'
 import { HardDeleteTournamentDialog } from './HardDeleteTournamentDialog'
 import { PlayersExportCard } from './PlayersExportCard'
@@ -474,6 +475,8 @@ export function OrganizerPanel({ tournament, onUpdated, canHardDelete = false, c
           )}
         </Card>
       </div>
+
+      <FormUrlCard key={tournament.id} tournament={tournament} onUpdated={onUpdated} />
 
       <Card title="Canchas registradas">
         <VenueGallery

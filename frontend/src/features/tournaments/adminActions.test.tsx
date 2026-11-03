@@ -26,6 +26,7 @@ function tournament(status: TournamentStatus, suspendedFromStatus: TournamentSta
     venues: [],
     approvedTeams: 2,
     suspendedFromStatus,
+    formUrl: null,
   }
 }
 

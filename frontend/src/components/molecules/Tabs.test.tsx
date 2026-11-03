@@ -51,6 +51,7 @@ describe('TournamentDetailPage "Gestión" tab', () => {
       venues: [],
       approvedTeams: 0,
       suspendedFromStatus: null,
+      formUrl: null,
     }
     const organizer: UserResponse = {
       id: 3,

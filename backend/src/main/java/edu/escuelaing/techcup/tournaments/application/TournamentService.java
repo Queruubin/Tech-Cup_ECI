@@ -19,6 +19,7 @@ import edu.escuelaing.techcup.tournaments.api.dto.CreateTournamentRequest;
 import edu.escuelaing.techcup.tournaments.api.dto.TournamentResponse;
 import edu.escuelaing.techcup.tournaments.api.dto.UpdateTournamentRequest;
 import edu.escuelaing.techcup.tournaments.api.dto.VenueResponse;
+import edu.escuelaing.techcup.tournaments.domain.FormUrls;
 import edu.escuelaing.techcup.tournaments.domain.Registration;
 import edu.escuelaing.techcup.tournaments.domain.RegistrationStatus;
 import edu.escuelaing.techcup.tournaments.domain.Tournament;
@@ -57,6 +58,9 @@ import org.springframework.web.multipart.MultipartFile;
  *       transaction commits. Venues may not be touched once the tournament is FINISHED. A venue's
  *       image may be replaced or removed in DRAFT, ACTIVE and IN_PROGRESS (refused while SUSPENDED
  *       or FINISHED, like every other venue change).</li>
+ *   <li>The link to the university form captains fill in ({@link FormUrls}: absolute http/https
+ *       URL) is set, replaced or removed by ADMIN or ORGANIZER in DRAFT, ACTIVE and IN_PROGRESS,
+ *       never while SUSPENDED or FINISHED.</li>
  *   <li>Suspend (ADMIN or ORGANIZER): DRAFT, ACTIVE or IN_PROGRESS &rarr; SUSPENDED; resume
  *       returns to exactly that status. A suspended tournament is hidden from everyone but
  *       ADMIN/ORGANIZER and refuses every change ({@link Tournament#requireNotSuspended}).</li>
@@ -483,6 +487,48 @@ public class TournamentService {
         return toResponse(tournament);
     }
 
+    // --- university form link ----------------------------------------------------------------
+
+    /**
+     * Sets or replaces the link to the university form captains must fill in (ADMIN or ORGANIZER).
+     * Validated by {@link FormUrls} (400). Allowed in DRAFT, ACTIVE and IN_PROGRESS, like venue
+     * changes: refused while SUSPENDED (a suspended tournament refuses every change) and once
+     * FINISHED. The tournament row is locked like every other tournament write.
+     */
+    @Transactional
+    public TournamentResponse updateFormUrl(AuthenticatedUser actor, Long id, String url) {
+        String formUrl = FormUrls.normalize(url);
+        Tournament tournament = requireFormUrlEditable(id);
+        boolean replaced = tournament.hasFormUrl();
+        tournament.setFormUrl(formUrl);
+        auditService.record(actor.id(), AuditAction.TOURNAMENT_FORM_URL_UPDATED, ENTITY_TYPE, id,
+                Map.of("url", formUrl, "replaced", replaced));
+        return toResponse(tournament);
+    }
+
+    /** Removes the university-form link; 409 when none is set. Same statuses as {@link #updateFormUrl}. */
+    @Transactional
+    public TournamentResponse removeFormUrl(AuthenticatedUser actor, Long id) {
+        Tournament tournament = requireFormUrlEditable(id);
+        if (!tournament.hasFormUrl()) {
+            throw new BusinessRuleException("El torneo «" + tournament.getName() + "» no tiene URL del formulario.");
+        }
+        String previous = tournament.getFormUrl();
+        tournament.setFormUrl(null);
+        auditService.record(actor.id(), AuditAction.TOURNAMENT_FORM_URL_REMOVED, ENTITY_TYPE, id,
+                Map.of("previousUrl", previous));
+        return toResponse(tournament);
+    }
+
+    private Tournament requireFormUrlEditable(Long id) {
+        Tournament tournament = requireTournamentForUpdate(id);
+        tournament.requireNotSuspended("cambiar la URL del formulario de la Escuela");
+        if (tournament.getStatus().isFinished()) {
+            throw new BusinessRuleException("No se puede cambiar la URL del formulario de un torneo finalizado.");
+        }
+        return tournament;
+    }
+
     @Transactional
     public VenueResponse createVenue(AuthenticatedUser actor, Long id, String name, String description,
                                      MultipartFile image) {
@@ -584,7 +630,8 @@ public class TournamentService {
                 tournament.getRulebookFileId(),
                 tournament.getVenues().stream().map(VenueResponse::from).toList(),
                 approved,
-                tournament.getSuspendedFromStatus());
+                tournament.getSuspendedFromStatus(),
+                tournament.getFormUrl());
     }
 
     private static boolean changesNonDateFields(UpdateTournamentRequest request) {

@@ -69,6 +69,10 @@ public class Tournament {
     @Column(name = "rulebook_file_id", length = 64)
     private String rulebookFileId;
 
+    /** Link to the university form captains fill in before registering ({@link FormUrls}); null = none. */
+    @Column(name = "form_url", length = FormUrls.MAX_LENGTH)
+    private String formUrl;
+
     /** The status a SUSPENDED tournament returns to when resumed; null while not suspended. */
     @Enumerated(EnumType.STRING)
     @Column(name = "suspended_from_status", length = 15)
@@ -95,6 +99,10 @@ public class Tournament {
 
     public boolean hasRulebook() {
         return rulebookFileId != null && !rulebookFileId.isBlank();
+    }
+
+    public boolean hasFormUrl() {
+        return formUrl != null && !formUrl.isBlank();
     }
 
     public void addVenue(Venue venue) {

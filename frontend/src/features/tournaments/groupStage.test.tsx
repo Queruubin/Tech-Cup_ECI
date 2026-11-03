@@ -399,6 +399,7 @@ describe('OrganizerPanel without the global fixture generation', () => {
       venues: [],
       approvedTeams: 4,
       suspendedFromStatus: null,
+      formUrl: null,
     }
   }
 

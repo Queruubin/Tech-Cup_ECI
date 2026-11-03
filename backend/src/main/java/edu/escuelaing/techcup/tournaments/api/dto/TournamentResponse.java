@@ -7,7 +7,9 @@ import java.util.List;
 
 /**
  * Public view of a tournament. {@code approvedTeams} is the number of APPROVED registrations;
- * {@code suspendedFromStatus} is the status a SUSPENDED tournament will return to (null otherwise).
+ * {@code suspendedFromStatus} is the status a SUSPENDED tournament will return to (null otherwise);
+ * {@code formUrl} is the link to the university form captains fill in before registering (null when
+ * none is set).
  */
 public record TournamentResponse(
         Long id,
@@ -21,5 +23,6 @@ public record TournamentResponse(
         String rulebookFileId,
         List<VenueResponse> venues,
         long approvedTeams,
-        TournamentStatus suspendedFromStatus) {
+        TournamentStatus suspendedFromStatus,
+        String formUrl) {
 }

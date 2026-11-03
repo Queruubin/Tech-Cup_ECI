@@ -27,6 +27,7 @@ const TOURNAMENT: TournamentResponse = {
   venues: [],
   approvedTeams: 1,
   suspendedFromStatus: null,
+  formUrl: null,
 }
 
 const TEAM: TeamResponse = {

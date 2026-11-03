@@ -43,6 +43,10 @@ export const tournamentsApi = {
   /** ADMIN only: deletes the tournament in any status with everything it owns (400 when the name differs). */
   hardDelete: (id: number, confirmName: string) => api.post<void>(`/tournaments/${id}/hard-delete`, { confirmName }),
   uploadRulebook: (id: number, file: File) => api.upload<TournamentResponse>(`/tournaments/${id}/rulebook`, file),
+  /** ADMIN or ORGANIZER: sets or replaces the link to the university form (absolute http/https URL). */
+  setFormUrl: (id: number, url: string) => api.put<TournamentResponse>(`/tournaments/${id}/form-url`, { url }),
+  /** ADMIN or ORGANIZER: removes the link to the university form (409 when none is set). */
+  removeFormUrl: (id: number) => api.delete<TournamentResponse>(`/tournaments/${id}/form-url`),
 
   createVenue: (id: number, payload: { name: string; description: string; file: File | null }) =>
     api.upload<VenueResponse>(`/tournaments/${id}/venues`, payload.file, {

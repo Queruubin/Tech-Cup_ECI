@@ -33,6 +33,7 @@ function tournament(status: TournamentResponse['status']): TournamentResponse {
     venues: [],
     approvedTeams: 4,
     suspendedFromStatus: null,
+    formUrl: null,
   }
 }
 

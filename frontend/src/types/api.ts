@@ -380,6 +380,8 @@ export interface TournamentResponse {
   approvedTeams: number
   /** The status a SUSPENDED tournament returns to when resumed; null otherwise. */
   suspendedFromStatus: TournamentStatus | null
+  /** Link to the university form captains fill in before registering; null when none is set. */
+  formUrl: string | null
 }
 
 export interface CreateTournamentRequest {

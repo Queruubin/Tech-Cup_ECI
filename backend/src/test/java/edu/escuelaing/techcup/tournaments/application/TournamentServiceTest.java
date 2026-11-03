@@ -569,6 +569,109 @@ class TournamentServiceTest {
         verify(fileStorage, never()).store(any(), any(), any());
     }
 
+    // --- university form link ----------------------------------------------------------------
+
+    @Test
+    void theFormUrlIsSetUnderTheTournamentLockTrimmedAndAudited() {
+        Tournament tournament = givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+
+        var response = service.updateFormUrl(ORGANIZER, 1L, "  https://forms.office.com/r/AbC123 ");
+
+        assertThat(response.formUrl()).isEqualTo("https://forms.office.com/r/AbC123");
+        assertThat(tournament.getFormUrl()).isEqualTo("https://forms.office.com/r/AbC123");
+        verify(tournaments, never()).findById(any());
+        verify(auditService).record(ORGANIZER.id(), AuditAction.TOURNAMENT_FORM_URL_UPDATED, "TOURNAMENT", 1L,
+                Map.of("url", "https://forms.office.com/r/AbC123", "replaced", false));
+    }
+
+    @Test
+    void theFormUrlIsReplaced() {
+        Tournament tournament = givenLocked(withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file"));
+        tournament.setFormUrl("https://old.example.com/form");
+
+        var response = service.updateFormUrl(ADMIN, 1L, "http://new.example.com/form");
+
+        assertThat(response.formUrl()).isEqualTo("http://new.example.com/form");
+        verify(auditService).record(ADMIN.id(), AuditAction.TOURNAMENT_FORM_URL_UPDATED, "TOURNAMENT", 1L,
+                Map.of("url", "http://new.example.com/form", "replaced", true));
+    }
+
+    @Test
+    void theFormUrlCanBeSetInDraftActiveAndInProgress() {
+        for (TournamentStatus status : List.of(TournamentStatus.DRAFT, TournamentStatus.ACTIVE,
+                TournamentStatus.IN_PROGRESS)) {
+            when(tournaments.findByIdForUpdate(1L)).thenReturn(Optional.of(withStatus(status, "rulebook-file")));
+
+            assertThat(service.updateFormUrl(ORGANIZER, 1L, "https://example.com/" + status).formUrl())
+                    .isEqualTo("https://example.com/" + status);
+        }
+    }
+
+    @Test
+    void theFormUrlIsRemovedAndAudited() {
+        Tournament tournament = givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+        tournament.setFormUrl("https://example.com/form");
+
+        var response = service.removeFormUrl(ORGANIZER, 1L);
+
+        assertThat(response.formUrl()).isNull();
+        assertThat(tournament.getFormUrl()).isNull();
+        verify(auditService).record(ORGANIZER.id(), AuditAction.TOURNAMENT_FORM_URL_REMOVED, "TOURNAMENT", 1L,
+                Map.of("previousUrl", "https://example.com/form"));
+    }
+
+    @Test
+    void removingAFormUrlThatDoesNotExistIsAConflict() {
+        givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+
+        assertThatThrownBy(() -> service.removeFormUrl(ORGANIZER, 1L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("El torneo «TechCup 2026-1» no tiene URL del formulario.");
+        verify(auditService, never()).record(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void anInvalidFormUrlIsABadRequestAndChangesNothing() {
+        Tournament tournament = withStatus(TournamentStatus.ACTIVE, "rulebook-file");
+        tournament.setFormUrl("https://example.com/form");
+        lenient().when(tournaments.findByIdForUpdate(1L)).thenReturn(Optional.of(tournament));
+
+        for (String invalid : new String[]{"javascript:alert(1)", "data:text/html,<b>x</b>", "ftp://example.com/f",
+                "/relative/form", "https://exa mple.com", "https://example.com/" + "a".repeat(500), "", null}) {
+            assertThatThrownBy(() -> service.updateFormUrl(ORGANIZER, 1L, invalid))
+                    .as(String.valueOf(invalid))
+                    .isInstanceOf(InvalidRequestException.class);
+        }
+        assertThatThrownBy(() -> service.updateFormUrl(ORGANIZER, 1L, "javascript:alert(1)"))
+                .hasMessage("Ingrese una URL válida que empiece por http:// o https://.");
+        assertThat(tournament.getFormUrl()).isEqualTo("https://example.com/form");
+        verify(auditService, never()).record(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void theFormUrlCannotChangeOnceFinishedOrWhileSuspended() {
+        Tournament finished = withStatus(TournamentStatus.FINISHED, "rulebook-file");
+        finished.setFormUrl("https://example.com/form");
+        when(tournaments.findByIdForUpdate(1L)).thenReturn(Optional.of(finished));
+
+        assertThatThrownBy(() -> service.updateFormUrl(ORGANIZER, 1L, "https://example.com/new"))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("finalizado");
+        assertThatThrownBy(() -> service.removeFormUrl(ADMIN, 1L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("finalizado");
+        assertThat(finished.getFormUrl()).isEqualTo("https://example.com/form");
+
+        Tournament suspended = withStatus(TournamentStatus.ACTIVE, "rulebook-file");
+        suspended.suspend();
+        when(tournaments.findByIdForUpdate(1L)).thenReturn(Optional.of(suspended));
+        assertThatThrownBy(() -> service.updateFormUrl(ORGANIZER, 1L, "https://example.com/new"))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("está suspendido");
+        assertThat(suspended.getFormUrl()).isNull();
+        verify(auditService, never()).record(any(), any(), any(), any(), any());
+    }
+
     // --- suspend / resume ----------------------------------------------------------------------
 
     private static final AuthenticatedUser ADMIN =

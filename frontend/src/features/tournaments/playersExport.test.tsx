@@ -27,6 +27,7 @@ function tournament(status: TournamentStatus): TournamentResponse {
     venues: [venue],
     approvedTeams: 2,
     suspendedFromStatus: status === 'SUSPENDED' ? 'ACTIVE' : null,
+    formUrl: null,
   }
 }
 

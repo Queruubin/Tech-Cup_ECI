@@ -4,6 +4,7 @@ import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.shared.security.CurrentUser;
 import edu.escuelaing.techcup.tournaments.api.dto.CreateTournamentRequest;
+import edu.escuelaing.techcup.tournaments.api.dto.FormUrlRequest;
 import edu.escuelaing.techcup.tournaments.api.dto.HardDeleteTournamentRequest;
 import edu.escuelaing.techcup.tournaments.api.dto.RegistrationResponse;
 import edu.escuelaing.techcup.tournaments.api.dto.TournamentResponse;
@@ -155,6 +156,21 @@ public class TournamentController {
     public TournamentResponse uploadRulebook(@CurrentUser AuthenticatedUser actor, @PathVariable Long id,
                                              @RequestPart("file") MultipartFile file) {
         return tournamentService.uploadRulebook(actor, id, file);
+    }
+
+    @PutMapping("/{id}/form-url")
+    @PreAuthorize("hasRole('ORGANIZER')")
+    @Operation(summary = "Set or replace the link to the university form captains fill in (absolute http/https URL)")
+    public TournamentResponse updateFormUrl(@CurrentUser AuthenticatedUser actor, @PathVariable Long id,
+                                            @RequestBody FormUrlRequest request) {
+        return tournamentService.updateFormUrl(actor, id, request.url());
+    }
+
+    @DeleteMapping("/{id}/form-url")
+    @PreAuthorize("hasRole('ORGANIZER')")
+    @Operation(summary = "Remove the link to the university form (409 when none is set)")
+    public TournamentResponse removeFormUrl(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
+        return tournamentService.removeFormUrl(actor, id);
     }
 
     @PostMapping(value = "/{id}/venues", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
