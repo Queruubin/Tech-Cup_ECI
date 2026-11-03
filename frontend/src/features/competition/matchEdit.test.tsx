@@ -61,6 +61,8 @@ function registration(teamId: number, teamName: string, status: RegistrationResp
     teamId,
     teamName,
     receiptFileId: null,
+    formEvidenceFileId: null,
+    hasFormEvidence: true,
     status,
     reviewNote: null,
     createdAt: '2026-01-01T00:00:00Z',

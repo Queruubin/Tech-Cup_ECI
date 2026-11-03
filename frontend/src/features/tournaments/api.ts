@@ -59,8 +59,12 @@ export const tournamentsApi = {
   /** ADMIN only: the players of the approved (and under review) teams as an .xlsx file. */
   exportPlayers: (id: number): Promise<DownloadedFile> => downloadBlob(`/tournaments/${id}/players/export`),
 
-  createRegistration: (id: number, receipt: File) =>
-    api.upload<RegistrationResponse>(`/tournaments/${id}/registrations`, receipt),
+  /** Captain: registers the team with the payment receipt ("file") and the university-form evidence ("formEvidence"). */
+  createRegistration: (id: number, receipt: File, formEvidence: File) =>
+    api.uploadFiles<RegistrationResponse>(`/tournaments/${id}/registrations`, { file: receipt, formEvidence }),
+  /** Captain: adds or replaces the university-form evidence of a registration under review. */
+  uploadFormEvidence: (registrationId: number, file: File) =>
+    api.upload<RegistrationResponse>(`/registrations/${registrationId}/form-evidence`, file, {}, 'file', 'PUT'),
   listRegistrations: (id: number, signal?: AbortSignal) =>
     api.get<RegistrationResponse[]>(`/tournaments/${id}/registrations`, undefined, signal),
   myRegistration: (id: number, signal?: AbortSignal) =>

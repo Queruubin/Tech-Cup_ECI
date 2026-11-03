@@ -263,6 +263,12 @@ export const api = {
     if (file) formData.append(fileField, file)
     return request<T>(path, { method, formData })
   },
+  /** Multipart upload of several files, each under its own part name (e.g. receipt + form evidence). */
+  uploadFiles: <T>(path: string, files: Record<string, File>, method: 'POST' | 'PUT' = 'POST') => {
+    const formData = new FormData()
+    for (const [part, file] of Object.entries(files)) formData.append(part, file)
+    return request<T>(path, { method, formData })
+  },
 }
 
 /** Authenticated GET of a binary response; errors are normalised like `request`. */

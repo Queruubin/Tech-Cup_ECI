@@ -22,6 +22,7 @@ const team: TeamResponse = {
   members: [{ userId: 9, fullName: 'Ana Pérez', position: 'FORWARD', jerseyNumber: 9, academicProgram: 'SYSTEMS_ENGINEERING', photoFileId: null }],
   memberCount: 1,
   locked: false,
+  photoFileId: null,
 }
 
 function signIn(roles: Role[]) {

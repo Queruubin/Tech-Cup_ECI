@@ -55,6 +55,10 @@ public class Team {
     @Column(nullable = false, length = 10)
     private TeamStatus status;
 
+    /** Optional team photo (GridFS id, owner {@code TEAM_PHOTO}); never frozen by a tournament. */
+    @Column(name = "photo_file_id", length = 64)
+    private String photoFileId;
+
     @OneToMany(mappedBy = "team", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<TeamMember> members = new ArrayList<>();

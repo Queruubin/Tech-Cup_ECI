@@ -19,6 +19,8 @@ import { teamsApi } from '../api'
 import { EligibilityPanel } from '../components/EligibilityPanel'
 import { JoinRequestsPanel } from '../components/JoinRequestsPanel'
 import { LeaveTeamCard } from '../components/LeaveTeamCard'
+import { TeamPhoto } from '../components/TeamPhoto'
+import { TeamPhotoModal } from '../components/TeamPhotoModal'
 import { SentInvitationsPanel } from '../components/SentInvitationsPanel'
 import { TeamForm, type TeamFormValues } from '../components/TeamForm'
 import { useEligibility, useMyTeam, useTeamInvitations } from '../hooks/useTeams'
@@ -79,6 +81,7 @@ export function MyTeamPage() {
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [busyRequestId, setBusyRequestId] = useState<number | null>(null)
   const [busyInvitationId, setBusyInvitationId] = useState<number | null>(null)
+  const [teamPhotoOpen, setTeamPhotoOpen] = useState(false)
 
   const applyTeam = (updated: TeamResponse) => {
     teamQuery.setData(updated)
@@ -260,6 +263,7 @@ export function MyTeamPage() {
         <>
           <PageHeader
             title={team.name}
+            leading={<TeamPhoto name={team.name} photoFileId={team.photoFileId} size="lg" />}
             description={
               <span className="flex flex-wrap items-center gap-2">
                 <StatusBadge kind="team" value={team.status} />
@@ -294,6 +298,7 @@ export function MyTeamPage() {
       <>
         <PageHeader
           title={team.name}
+          leading={<TeamPhoto name={team.name} photoFileId={team.photoFileId} size="lg" />}
           description={
             <span className="flex flex-wrap items-center gap-2">
               <StatusBadge kind="team" value={team.status} />
@@ -308,6 +313,12 @@ export function MyTeamPage() {
                   Vista pública
                 </Button>
               </Link>
+              {/* Not disabled while locked: the photo can change during a tournament. */}
+              {team.status === 'ACTIVE' && (
+                <Button size="sm" variant="outline" onClick={() => setTeamPhotoOpen(true)}>
+                  {team.photoFileId ? 'Cambiar foto' : 'Agregar foto'}
+                </Button>
+              )}
               <Button size="sm" variant="outline" onClick={() => setEditing((value) => !value)} disabled={team.locked}>
                 {editing ? 'Cerrar edición' : 'Editar equipo'}
               </Button>
@@ -415,6 +426,12 @@ export function MyTeamPage() {
       <QueryState loading={teamQuery.loading} error={teamQuery.error} onRetry={teamQuery.refetch}>
         {renderContent()}
       </QueryState>
+
+      <TeamPhotoModal
+        team={teamPhotoOpen ? team ?? null : null}
+        onChanged={(updated) => teamQuery.setData(updated)}
+        onClose={() => setTeamPhotoOpen(false)}
+      />
 
       <ConfirmDialog
         open={pending !== null}

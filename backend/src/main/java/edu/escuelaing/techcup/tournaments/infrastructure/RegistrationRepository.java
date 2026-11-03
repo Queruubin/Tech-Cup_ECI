@@ -38,6 +38,13 @@ public interface RegistrationRepository extends JpaRepository<Registration, Long
     @Query("SELECT r.receiptFileId FROM Registration r WHERE r.tournament.id = :tournamentId")
     List<String> findReceiptFileIdsByTournamentId(@Param("tournamentId") Long tournamentId);
 
+    /** The university-form evidence files of every registration of a tournament that has one. */
+    @Query("""
+            SELECT r.formEvidenceFileId FROM Registration r
+            WHERE r.tournament.id = :tournamentId AND r.formEvidenceFileId IS NOT NULL
+            """)
+    List<String> findFormEvidenceFileIdsByTournamentId(@Param("tournamentId") Long tournamentId);
+
     /** Ids of the teams taking part in the tournament, in registration order. */
     @Query("""
             SELECT r.team.id FROM Registration r

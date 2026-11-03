@@ -13,7 +13,8 @@ public record TeamResponse(
         Captain captain,
         List<Member> members,
         int memberCount,
-        boolean locked) {
+        boolean locked,
+        String photoFileId) {
 
     public record Captain(Long id, String fullName) {
     }

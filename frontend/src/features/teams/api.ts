@@ -21,6 +21,9 @@ export const teamsApi = {
   inactivate: (id: number) => api.post<TeamResponse>(`/teams/${id}/inactivate`),
   /** ADMIN only: deletes the team for good (409 while it plays a match or holds a live registration). */
   remove: (id: number) => api.delete<void>(`/teams/${id}`),
+  /** Captain of the team, ORGANIZER or ADMIN, at any time (also while the roster is frozen). */
+  replacePhoto: (id: number, file: File) => api.upload<TeamResponse>(`/teams/${id}/photo`, file, {}, 'file', 'PUT'),
+  removePhoto: (id: number) => api.delete<TeamResponse>(`/teams/${id}/photo`),
   eligibility: (id: number, signal?: AbortSignal) =>
     api.get<EligibilityResponse>(`/teams/${id}/eligibility`, undefined, signal),
 

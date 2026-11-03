@@ -6,6 +6,8 @@ import edu.escuelaing.techcup.competition.api.TournamentCompetitionController;
 import edu.escuelaing.techcup.competition.api.TournamentHistoryController;
 import edu.escuelaing.techcup.identity.api.AdminUserController;
 import edu.escuelaing.techcup.players.api.AdminPlayerPhotoController;
+import edu.escuelaing.techcup.teams.api.TeamController;
+import edu.escuelaing.techcup.tournaments.api.RegistrationController;
 import edu.escuelaing.techcup.tournaments.api.TournamentExportController;
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -27,6 +29,18 @@ class StaffEndpointRolesTest {
     @Test
     void removingAnotherPlayersPhotoIsForAdminsOnly() {
         assertThat(roleOf(AdminPlayerPhotoController.class, "removePhoto")).isEqualTo("hasRole('ADMIN')");
+    }
+
+    /** ADMIN inherits ORGANIZER; the use case narrows CAPTAIN down to the captain of that team. */
+    @Test
+    void theTeamPhotoIsManagedByCaptainsAndStaff() {
+        assertThat(roleOf(TeamController.class, "replacePhoto")).isEqualTo("hasAnyRole('CAPTAIN', 'ORGANIZER')");
+        assertThat(roleOf(TeamController.class, "removePhoto")).isEqualTo("hasAnyRole('CAPTAIN', 'ORGANIZER')");
+    }
+
+    @Test
+    void theFormEvidenceIsUploadedByCaptains() {
+        assertThat(roleOf(RegistrationController.class, "uploadFormEvidence")).isEqualTo("hasRole('CAPTAIN')");
     }
 
     @Test

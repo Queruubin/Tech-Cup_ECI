@@ -22,6 +22,7 @@ const team: TeamResponse = {
   members: [],
   memberCount: 7,
   locked: false,
+  photoFileId: null,
 }
 
 describe('canCreateTeam', () => {

@@ -16,7 +16,16 @@ public interface TeamRegistrationPort {
     /**
      * Deletes the team's REJECTED and CANCELLED registrations.
      *
-     * @return the payment receipt file ids of the deleted rows, for the caller to delete after commit
+     * @return how many rows were deleted and their files (payment receipts and university-form
+     *         evidence), for the caller to delete after commit
      */
-    List<String> deleteClosedRegistrationsOf(Long teamId);
+    DeletedRegistrations deleteClosedRegistrationsOf(Long teamId);
+
+    /** The outcome of {@link #deleteClosedRegistrationsOf}. */
+    record DeletedRegistrations(int count, List<String> fileIds) {
+
+        public DeletedRegistrations {
+            fileIds = List.copyOf(fileIds);
+        }
+    }
 }

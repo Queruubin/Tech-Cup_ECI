@@ -24,6 +24,7 @@ const team: TeamResponse = {
   ],
   memberCount: 2,
   locked: true,
+  photoFileId: null,
 }
 
 const luis: UserResponse = {

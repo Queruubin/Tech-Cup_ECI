@@ -14,6 +14,7 @@ const team: TeamResponse = {
   members: [],
   memberCount: 7,
   locked: false,
+  photoFileId: null,
 }
 
 function registration(status: RegistrationResponse['status']): RegistrationResponse {
@@ -23,6 +24,8 @@ function registration(status: RegistrationResponse['status']): RegistrationRespo
     teamId: team.id,
     teamName: team.name,
     receiptFileId: null,
+    formEvidenceFileId: null,
+    hasFormEvidence: true,
     status,
     reviewNote: null,
     createdAt: '2026-01-10T12:00:00Z',

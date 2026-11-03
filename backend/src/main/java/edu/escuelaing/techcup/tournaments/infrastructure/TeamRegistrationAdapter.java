@@ -6,6 +6,7 @@ import edu.escuelaing.techcup.tournaments.domain.RegistrationStatus;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,10 +36,13 @@ public class TeamRegistrationAdapter implements TeamRegistrationPort {
 
     @Override
     @Transactional
-    public List<String> deleteClosedRegistrationsOf(Long teamId) {
+    public DeletedRegistrations deleteClosedRegistrationsOf(Long teamId) {
         List<Registration> closed = registrations.findByTeamIdAndStatusIn(teamId, CLOSED);
-        List<String> receipts = closed.stream().map(Registration::getReceiptFileId).filter(Objects::nonNull).toList();
+        List<String> files = closed.stream()
+                .flatMap(registration -> Stream.of(registration.getReceiptFileId(), registration.getFormEvidenceFileId()))
+                .filter(Objects::nonNull)
+                .toList();
         registrations.deleteAll(closed);
-        return receipts;
+        return new DeletedRegistrations(closed.size(), files);
     }
 }

@@ -430,7 +430,7 @@ public class TournamentService {
      * caller must type its exact name. Child rows go through the {@code ON DELETE CASCADE} foreign
      * keys of V1 (venues, registrations, matches; match events and lineups cascade from matches),
      * so the competition module needs no hook; the binaries (rulebook, venue images, payment
-     * receipts) are deleted once the transaction commits. Teams that played it are untouched and,
+     * receipts, university-form evidence, podium photos) are deleted once the transaction commits. Teams that played it are untouched and,
      * their registrations being gone, no longer locked. Audit rows are history and stay.
      */
     @Transactional
@@ -448,6 +448,7 @@ public class TournamentService {
         tournament.getVenues().forEach(venue -> files.add(venue.getImageFileId()));
         List<String> receipts = registrations.findReceiptFileIdsByTournamentId(id);
         files.addAll(receipts);
+        files.addAll(registrations.findFormEvidenceFileIdsByTournamentId(id));
         // Podium photos of the history (competition module); their rows cascade with the tournament.
         List<String> attached = attachedFiles.fileIdsOf(id);
         files.addAll(attached);

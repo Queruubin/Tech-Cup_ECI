@@ -13,6 +13,10 @@ import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.shared.security.Roles;
 import edu.escuelaing.techcup.shared.storage.FileDeletionScheduler;
+import edu.escuelaing.techcup.shared.storage.FileKind;
+import edu.escuelaing.techcup.shared.storage.FileOwner;
+import edu.escuelaing.techcup.shared.storage.FileStorage;
+import edu.escuelaing.techcup.shared.storage.FileUpload;
 import edu.escuelaing.techcup.teams.api.dto.CreateTeamRequest;
 import edu.escuelaing.techcup.teams.api.dto.TeamResponse;
 import edu.escuelaing.techcup.teams.api.dto.UpdateTeamRequest;
@@ -22,12 +26,14 @@ import edu.escuelaing.techcup.teams.domain.TeamMember;
 import edu.escuelaing.techcup.teams.domain.TeamStatus;
 import edu.escuelaing.techcup.teams.infrastructure.TeamRepository;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * Team use cases (spec 7.3). Rules enforced here:
@@ -50,8 +56,14 @@ import org.springframework.transaction.annotation.Transactional;
  *       a registration UNDER_REVIEW or APPROVED ({@link TeamRegistrationPort}); the admin deletes
  *       (or suspends, then deletes) that tournament first. Otherwise the team goes with its
  *       memberships and join requests/invitations ({@code ON DELETE CASCADE}) and its REJECTED or
- *       CANCELLED registrations, whose receipts are deleted after commit; the players stay as users.
- *       Its captain loses CAPTAIN unless they still captain an ACTIVE team.</li>
+ *       CANCELLED registrations, whose receipts and university-form evidence are deleted after
+ *       commit, as is the team photo; the players stay as users. Its captain loses CAPTAIN unless
+ *       they still captain an ACTIVE team.</li>
+ *   <li>Team photo (optional, one per team): replaced or removed by the team captain, an ORGANIZER
+ *       or an ADMIN at any time. Deliberately <b>not</b> blocked by the tournament roster freeze
+ *       ({@link TeamLockPort}) nor by a suspended tournament: it is cosmetic and decides nothing.
+ *       Stored as an image ({@link FileKind#IMAGE}, magic bytes checked) with owner
+ *       {@link FileOwner.Category#TEAM_PHOTO}; the replaced or removed binary is deleted after commit.</li>
  *   <li>Leave (any member but the captain): refused while the team is locked, like removing a
  *       member; the captain cannot leave (an admin may delete the team instead).</li>
  *   <li>Eligibility ({@value TeamEligibility#MIN_MEMBERS} to {@value TeamEligibility#MAX_MEMBERS}
@@ -59,7 +71,7 @@ import org.springframework.transaction.annotation.Transactional;
  *       {@link TeamEligibility}.</li>
  * </ul>
  * Audited as TEAM_CREATED / TEAM_UPDATED / TEAM_MEMBER_REMOVED / TEAM_MEMBER_LEFT / TEAM_INACTIVATED /
- * TEAM_DELETED.
+ * TEAM_DELETED / TEAM_PHOTO_UPDATED / TEAM_PHOTO_REMOVED.
  */
 @Service
 public class TeamService {
@@ -76,6 +88,7 @@ public class TeamService {
     private final TeamJoinRequestPort joinRequests;
     private final TeamMatchPort teamMatches;
     private final TeamRegistrationPort teamRegistrations;
+    private final FileStorage fileStorage;
     private final FileDeletionScheduler fileDeletion;
     private final TeamResponseAssembler assembler;
     private final AuditService auditService;
@@ -83,7 +96,7 @@ public class TeamService {
     public TeamService(TeamRepository teams, UserService userService, RoleService roleService,
                        MemberProfilePort memberProfiles, TeamLockPort teamLock, TeamJoinRequestPort joinRequests,
                        TeamMatchPort teamMatches, TeamRegistrationPort teamRegistrations,
-                       FileDeletionScheduler fileDeletion, TeamResponseAssembler assembler,
+                       FileStorage fileStorage, FileDeletionScheduler fileDeletion, TeamResponseAssembler assembler,
                        AuditService auditService) {
         this.teams = teams;
         this.userService = userService;
@@ -93,6 +106,7 @@ public class TeamService {
         this.joinRequests = joinRequests;
         this.teamMatches = teamMatches;
         this.teamRegistrations = teamRegistrations;
+        this.fileStorage = fileStorage;
         this.fileDeletion = fileDeletion;
         this.assembler = assembler;
         this.auditService = auditService;
@@ -262,16 +276,61 @@ public class TeamService {
                     + "o elimine el torneo (puede suspenderlo mientras tanto), antes de eliminar el equipo.");
         }
 
-        List<String> receipts = teamRegistrations.deleteClosedRegistrationsOf(teamId);
-        receipts.forEach(fileDeletion::deleteAfterCommit);
+        TeamRegistrationPort.DeletedRegistrations closed = teamRegistrations.deleteClosedRegistrationsOf(teamId);
+        closed.fileIds().forEach(fileDeletion::deleteAfterCommit);
+        fileDeletion.deleteAfterCommit(team.getPhotoFileId());
         Long captainId = team.getCaptain().getId();
         Map<String, Object> details = Map.of("name", team.getName(), "members", team.memberCount(),
-                "deletedRegistrations", receipts.size());
+                "deletedRegistrations", closed.count());
         // Memberships go with the entity; join requests and invitations through ON DELETE CASCADE.
         teams.delete(team);
         teams.flush();
         roleService.revokeCaptainForDeletedTeam(actor.id(), captainId, teamId);
         auditService.record(actor.id(), AuditAction.TEAM_DELETED, ENTITY_TYPE, teamId, details);
+    }
+
+    /**
+     * Sets or replaces the team photo (captain of the team, ORGANIZER or ADMIN). Allowed at any
+     * time: neither the tournament roster freeze nor a suspended tournament blocks it. The team
+     * row is locked so two concurrent uploads cannot both read the same previous photo; the
+     * previous binary is deleted once the change is committed.
+     */
+    @Transactional
+    public TeamResponse replacePhoto(AuthenticatedUser actor, Long teamId, MultipartFile file) {
+        Team team = requireTeamForUpdate(teamId);
+        requirePhotoEditor(actor, team);
+        String previous = team.getPhotoFileId();
+        String fileId = fileStorage.store(FileUpload.from(file), FileKind.IMAGE, FileOwner.teamPhoto(teamId));
+        team.setPhotoFileId(fileId);
+        fileDeletion.deleteAfterCommit(previous);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("photoFileId", fileId);
+        details.put("replaced", previous != null);
+        auditService.record(actor.id(), AuditAction.TEAM_PHOTO_UPDATED, ENTITY_TYPE, teamId, details);
+        return assembler.toResponse(team);
+    }
+
+    /** Removes the team photo (same actors and same "any time" rule as {@link #replacePhoto}). */
+    @Transactional
+    public TeamResponse removePhoto(AuthenticatedUser actor, Long teamId) {
+        Team team = requireTeamForUpdate(teamId);
+        requirePhotoEditor(actor, team);
+        String previous = team.getPhotoFileId();
+        if (previous == null) {
+            throw new BusinessRuleException("El equipo '" + team.getName() + "' no tiene foto.");
+        }
+        team.setPhotoFileId(null);
+        fileDeletion.deleteAfterCommit(previous);
+        auditService.record(actor.id(), AuditAction.TEAM_PHOTO_REMOVED, ENTITY_TYPE, teamId,
+                Map.of("photoFileId", previous));
+        return assembler.toResponse(team);
+    }
+
+    private static void requirePhotoEditor(AuthenticatedUser actor, Team team) {
+        if (!actor.isAdmin() && !actor.hasRole(Roles.ORGANIZER) && !team.isCaptain(actor.id())) {
+            throw new ForbiddenOperationException("Solo el capitán del equipo '" + team.getName()
+                    + "', un organizador o un administrador pueden cambiar su foto.");
+        }
     }
 
     /** "el torneo «A»" or "los torneos «A», «B»". */

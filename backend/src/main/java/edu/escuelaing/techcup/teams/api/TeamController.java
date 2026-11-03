@@ -13,16 +13,20 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/teams")
@@ -95,6 +99,22 @@ public class TeamController {
     @Operation(summary = "Delete a team for good (ADMIN; refused while it plays a match or holds a live registration)")
     public void delete(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
         teamService.delete(actor, id);
+    }
+
+    /** ADMIN inherits ORGANIZER through the role hierarchy; the use case checks "captain of this team". */
+    @PutMapping(value = "/{id}/photo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('CAPTAIN', 'ORGANIZER')")
+    @Operation(summary = "Set or replace the team photo (png, jpeg or webp; captain, organizer or admin, any time)")
+    public TeamResponse replacePhoto(@CurrentUser AuthenticatedUser actor, @PathVariable Long id,
+                                     @RequestPart("file") MultipartFile file) {
+        return teamService.replacePhoto(actor, id, file);
+    }
+
+    @DeleteMapping("/{id}/photo")
+    @PreAuthorize("hasAnyRole('CAPTAIN', 'ORGANIZER')")
+    @Operation(summary = "Remove the team photo (captain, organizer or admin, any time)")
+    public TeamResponse removePhoto(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
+        return teamService.removePhoto(actor, id);
     }
 
     @GetMapping("/{id}/eligibility")

@@ -14,7 +14,14 @@ public record FileOwner(Category category, Long ownerId) {
         VENUE("tournamentId"),
         RULEBOOK("tournamentId"),
         /** An extra photo of a podium team in the history of a finished tournament (public). */
-        PODIUM("tournamentId");
+        PODIUM("tournamentId"),
+        /** The optional photo of a team (any authenticated user may see it, like player photos). */
+        TEAM_PHOTO("teamId"),
+        /**
+         * Evidence that the team filled in the university form, uploaded with a registration.
+         * Private like {@link #RECEIPT}: staff and the captain of the team only.
+         */
+        FORM_EVIDENCE("teamId");
 
         private final String ownerField;
 
@@ -59,7 +66,21 @@ public record FileOwner(Category category, Long ownerId) {
         return new FileOwner(Category.PODIUM, tournamentId);
     }
 
-    public boolean isReceipt() {
-        return category == Category.RECEIPT;
+    /** The photo of the team {@code teamId}. */
+    public static FileOwner teamPhoto(Long teamId) {
+        return new FileOwner(Category.TEAM_PHOTO, teamId);
+    }
+
+    /** The university-form evidence of a registration of the team {@code teamId}. */
+    public static FileOwner formEvidence(Long teamId) {
+        return new FileOwner(Category.FORM_EVIDENCE, teamId);
+    }
+
+    /**
+     * Registration documents (payment receipt, university-form evidence): served only to
+     * organizers, administrators and the captain of the owning team ({@code ownerId} = team id).
+     */
+    public boolean isRegistrationDocument() {
+        return category == Category.RECEIPT || category == Category.FORM_EVIDENCE;
     }
 }

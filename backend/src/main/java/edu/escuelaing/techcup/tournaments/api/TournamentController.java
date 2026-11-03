@@ -204,10 +204,14 @@ public class TournamentController {
     @PostMapping(value = "/{id}/registrations", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('CAPTAIN')")
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "Register my team with its payment receipt (image or PDF)")
+    @Operation(summary = "Register my team with its payment receipt (part 'file') and the evidence of the "
+            + "university form (part 'formEvidence'), both image or PDF and both required")
     public RegistrationResponse register(@CurrentUser AuthenticatedUser actor, @PathVariable Long id,
-                                         @RequestPart("file") MultipartFile file) {
-        return registrationService.register(actor, id, file);
+                                         @RequestPart(value = "file", required = false) MultipartFile file,
+                                         @RequestPart(value = "formEvidence", required = false)
+                                         MultipartFile formEvidence) {
+        // Both parts are checked by the use case, so each missing one gets its own Spanish message.
+        return registrationService.register(actor, id, file, formEvidence);
     }
 
     @GetMapping("/{id}/registrations")

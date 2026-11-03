@@ -733,6 +733,7 @@ class TournamentServiceTest {
         Tournament tournament = givenLocked(withStatus(TournamentStatus.IN_PROGRESS, "rulebook-file"));
         tournament.addVenue(Venue.builder().id(3L).name("Field").imageFileId("venue-image").build());
         when(registrations.findReceiptFileIdsByTournamentId(1L)).thenReturn(List.of("receipt-1", "receipt-2"));
+        when(registrations.findFormEvidenceFileIdsByTournamentId(1L)).thenReturn(List.of("evidence-1"));
         when(attachedFiles.fileIdsOf(1L)).thenReturn(List.of("podium-1", "podium-3"));
 
         service.hardDelete(ADMIN, 1L, "  TechCup 2026-1 ");
@@ -742,6 +743,8 @@ class TournamentServiceTest {
         verify(fileDeletion).deleteAfterCommit("venue-image");
         verify(fileDeletion).deleteAfterCommit("receipt-1");
         verify(fileDeletion).deleteAfterCommit("receipt-2");
+        // The university-form evidence goes with the receipts.
+        verify(fileDeletion).deleteAfterCommit("evidence-1");
         // Podium photos of the history (competition module, through the port) go with it.
         verify(fileDeletion).deleteAfterCommit("podium-1");
         verify(fileDeletion).deleteAfterCommit("podium-3");

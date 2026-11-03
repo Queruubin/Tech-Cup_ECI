@@ -96,6 +96,8 @@ export const AUDIT_ACTIONS = [
   'TEAM_MEMBER_LEFT',
   'TEAM_INACTIVATED',
   'TEAM_DELETED',
+  'TEAM_PHOTO_UPDATED',
+  'TEAM_PHOTO_REMOVED',
   'TOURNAMENT_CREATED',
   'TOURNAMENT_UPDATED',
   'TOURNAMENT_DELETED',
@@ -113,6 +115,7 @@ export const AUDIT_ACTIONS = [
   'REGISTRATION_APPROVED',
   'REGISTRATION_REJECTED',
   'REGISTRATION_CANCELLED',
+  'REGISTRATION_FORM_EVIDENCE_UPLOADED',
   'MATCHES_GENERATED',
   'MATCH_UPDATED',
   'MATCH_CANCELLED',
@@ -333,6 +336,8 @@ export interface TeamResponse {
   members: TeamMember[]
   memberCount: number
   locked: boolean
+  /** Optional team photo (GridFS id, any authenticated user may load it). */
+  photoFileId: string | null
 }
 
 export interface CreateTeamRequest {
@@ -395,6 +400,13 @@ export interface RegistrationResponse {
   teamName: string
   /** `null` when the viewer may not see the receipt (e.g. non-captain in `HomeResponse`). */
   receiptFileId: string | null
+  /**
+   * University-form evidence ("evidencia del formulario de la Escuela"); `null` when missing
+   * (registrations created before it was required) or hidden from this viewer.
+   */
+  formEvidenceFileId: string | null
+  /** Whether the evidence exists, visible to everybody who sees the registration. */
+  hasFormEvidence: boolean
   status: RegistrationStatus
   reviewNote: string | null
   createdAt: string

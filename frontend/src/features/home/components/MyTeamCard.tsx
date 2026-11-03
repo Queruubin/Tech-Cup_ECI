@@ -2,7 +2,9 @@ import { Link } from 'react-router'
 import { StatusBadge } from '@/components/atoms/Badge'
 import { Button } from '@/components/atoms/Button'
 import { Card } from '@/components/molecules/Card'
+import { TeamPhoto } from '@/features/teams/components/TeamPhoto'
 import { rosterCount } from '@/features/teams/teamSize'
+import { needsFormEvidence } from '@/features/tournaments/registrationEvidence'
 import { formatDate } from '@/lib/format'
 import type { RegistrationResponse, TeamResponse } from '@/types/api'
 
@@ -61,6 +63,9 @@ export function MyTeamCard({ team, registration, isCaptain, isPlayer, tournament
       actions={<StatusBadge kind="team" value={team.status} />}
     >
       <dl className="grid grid-cols-2 gap-3 text-sm">
+        <div className="col-span-2">
+          <TeamPhoto name={team.name} photoFileId={team.photoFileId} size="md" />
+        </div>
         <div>
           <dt className="text-stone-500">Colores</dt>
           <dd className="font-medium text-ink">{team.colors}</dd>
@@ -76,6 +81,9 @@ export function MyTeamCard({ team, registration, isCaptain, isPlayer, tournament
               <>
                 <StatusBadge kind="registration" value={registration.status} />
                 <span className="text-xs text-stone-500">Enviada el {formatDate(registration.createdAt)}</span>
+                {needsFormEvidence(registration) && (
+                  <span className="text-xs font-medium text-amber-700">Falta la evidencia del formulario de la Escuela.</span>
+                )}
               </>
             ) : (
               <span className="text-stone-700">Sin inscripción en el torneo vigente.</span>
@@ -89,6 +97,11 @@ export function MyTeamCard({ team, registration, isCaptain, isPlayer, tournament
             {isCaptain ? 'Gestionar equipo' : 'Ver equipo'}
           </Button>
         </Link>
+        {isCaptain && needsFormEvidence(registration) && (
+          <Link to={registrationHref(tournamentId)}>
+            <Button size="sm">Subir evidencia del formulario</Button>
+          </Link>
+        )}
         {showRegisterCta && (
           <Link to={registrationHref(tournamentId)}>
             <Button size="sm">{registration ? 'Inscribir equipo de nuevo' : 'Inscribir equipo'}</Button>

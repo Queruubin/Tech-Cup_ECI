@@ -5,8 +5,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * Answers the {@link FileAccessPolicy} question of the shared file controller ("does this user
- * captain that team?") for payment receipts, which the tournaments module owns. Backed by a
- * native read over the {@code teams} table, like the other cross-module lock queries.
+ * captain that team?") for the registration documents (payment receipts and university-form
+ * evidence), which the tournaments module owns. Backed by a native read over the {@code teams}
+ * table, like the other cross-module lock queries.
  */
 @Component
 public class ReceiptAccessAdapter implements FileAccessPolicy {

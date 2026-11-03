@@ -13,9 +13,11 @@ import static org.mockito.Mockito.when;
 
 import edu.escuelaing.techcup.identity.application.UserService;
 import edu.escuelaing.techcup.identity.domain.AppUser;
+import edu.escuelaing.techcup.shared.audit.AuditAction;
 import edu.escuelaing.techcup.shared.audit.AuditService;
 import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.exception.ForbiddenOperationException;
+import edu.escuelaing.techcup.shared.exception.InvalidRequestException;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.shared.storage.FileDeletionScheduler;
 import edu.escuelaing.techcup.shared.storage.FileKind;
@@ -65,6 +67,12 @@ class RegistrationServiceTest {
             new AuthenticatedUser(7L, "organizer@escuelaing.edu.co", Set.of("ORGANIZER"));
     private static final MultipartFile RECEIPT =
             new MockMultipartFile("file", "receipt.pdf", "application/pdf", new byte[]{1, 2, 3});
+    private static final MultipartFile EVIDENCE =
+            new MockMultipartFile("formEvidence", "form.png", "image/png", new byte[]{4, 5, 6});
+    private static final MultipartFile EMPTY =
+            new MockMultipartFile("formEvidence", "form.png", "image/png", new byte[0]);
+    private static final AuthenticatedUser ADMIN =
+            new AuthenticatedUser(1L, "admin@escuelaing.edu.co", Set.of("ADMIN"));
 
     @Mock
     private RegistrationRepository registrations;
@@ -94,7 +102,7 @@ class RegistrationServiceTest {
     void registrationRequiresAnActiveTournament() {
         givenTournament(TournamentStatus.DRAFT, TODAY.plusDays(5), 8);
 
-        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT))
+        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT, EVIDENCE))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("mientras el torneo esté activo");
         verify(registrations, never()).save(any());
@@ -104,7 +112,7 @@ class RegistrationServiceTest {
     void registrationIsRefusedAfterTheDeadline() {
         givenTournament(TournamentStatus.ACTIVE, TODAY.minusDays(1), 8);
 
-        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT))
+        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT, EVIDENCE))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("fecha límite de inscripción");
     }
@@ -117,12 +125,40 @@ class RegistrationServiceTest {
         givenApprovedCount(0L);
         givenEligible(true);
         when(fileStorage.store(any(), eq(FileKind.IMAGE_OR_PDF), eq(FileOwner.receipt(5L)))).thenReturn("receipt-file");
+        when(fileStorage.store(any(), eq(FileKind.IMAGE_OR_PDF), eq(FileOwner.formEvidence(5L))))
+                .thenReturn("evidence-file");
         when(registrations.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        var response = service.register(CAPTAIN, 1L, RECEIPT);
+        var response = service.register(CAPTAIN, 1L, RECEIPT, EVIDENCE);
 
         assertThat(response.status()).isEqualTo(RegistrationStatus.UNDER_REVIEW);
         assertThat(response.receiptFileId()).isEqualTo("receipt-file");
+        // The university-form evidence is stored as its own private document (same kinds as the receipt).
+        assertThat(response.formEvidenceFileId()).isEqualTo("evidence-file");
+        assertThat(response.hasFormEvidence()).isTrue();
+    }
+
+    @Test
+    void registrationRequiresThePaymentReceipt() {
+        for (MultipartFile missing : new MultipartFile[]{null, new MockMultipartFile("file", new byte[0])}) {
+            assertThatThrownBy(() -> service.register(CAPTAIN, 1L, missing, EVIDENCE))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessage("Adjunte el comprobante de pago.");
+        }
+        verify(tournamentService, never()).requireTournamentForUpdate(any());
+        verify(fileStorage, never()).store(any(), any(), any());
+    }
+
+    @Test
+    void registrationRequiresTheUniversityFormEvidence() {
+        for (MultipartFile missing : new MultipartFile[]{null, EMPTY}) {
+            assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT, missing))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessage("Adjunte la evidencia del formulario de la Escuela.");
+        }
+        verify(tournamentService, never()).requireTournamentForUpdate(any());
+        verify(fileStorage, never()).store(any(), any(), any());
+        verify(registrations, never()).save(any());
     }
 
     @Test
@@ -130,7 +166,7 @@ class RegistrationServiceTest {
         givenTournament(TournamentStatus.ACTIVE, TODAY.plusDays(5), 8);
         when(teamService.findActiveTeamOf(OTHER_MEMBER.id())).thenReturn(Optional.of(team()));
 
-        assertThatThrownBy(() -> service.register(OTHER_MEMBER, 1L, RECEIPT))
+        assertThatThrownBy(() -> service.register(OTHER_MEMBER, 1L, RECEIPT, EVIDENCE))
                 .isInstanceOf(ForbiddenOperationException.class)
                 .hasMessageContaining("capitán");
     }
@@ -140,7 +176,7 @@ class RegistrationServiceTest {
         givenTournament(TournamentStatus.ACTIVE, TODAY.plusDays(5), 8);
         when(teamService.findActiveTeamOf(CAPTAIN.id())).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT))
+        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT, EVIDENCE))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("equipo activo");
     }
@@ -152,7 +188,7 @@ class RegistrationServiceTest {
         when(registrations.findFirstByTournamentIdAndTeamIdAndStatusInOrderByIdDesc(eq(1L), eq(5L), anyCollection()))
                 .thenReturn(Optional.of(registration(RegistrationStatus.UNDER_REVIEW)));
 
-        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT))
+        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT, EVIDENCE))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("inscripción en revisión");
     }
@@ -164,7 +200,7 @@ class RegistrationServiceTest {
         givenNoLiveRegistration();
         givenApprovedCount(4L);
 
-        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT))
+        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT, EVIDENCE))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("ya está completo");
     }
@@ -177,7 +213,7 @@ class RegistrationServiceTest {
         givenApprovedCount(0L);
         givenEligible(false);
 
-        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT))
+        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT, EVIDENCE))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("no cumple los requisitos")
                 .hasMessageContaining("al menos 8");
@@ -287,6 +323,141 @@ class RegistrationServiceTest {
                 .hasMessageContaining("«aprobada»");
     }
 
+    // --- university-form evidence ---------------------------------------------------------------
+
+    @Test
+    void anUnderReviewRegistrationWithoutEvidenceCannotBeApproved() {
+        Registration legacy = legacyRegistration(RegistrationStatus.UNDER_REVIEW);
+        when(registrations.findById(9L)).thenReturn(Optional.of(legacy));
+        givenLockedTournament(TournamentStatus.ACTIVE);
+
+        assertThatThrownBy(() -> service.approve(ORGANIZER, 9L, null))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("La inscripción no tiene la evidencia del formulario de la Escuela. "
+                        + "El capitán debe subirla antes de aprobarla.");
+        assertThat(legacy.getStatus()).isEqualTo(RegistrationStatus.UNDER_REVIEW);
+        verify(teamService, never()).requireTeamForUpdate(any());
+    }
+
+    @Test
+    void aRegistrationWithoutEvidenceCanStillBeRejected() {
+        Registration legacy = legacyRegistration(RegistrationStatus.UNDER_REVIEW);
+        when(registrations.findById(9L)).thenReturn(Optional.of(legacy));
+        givenLockedTournament(TournamentStatus.ACTIVE);
+        when(userService.getUser(ORGANIZER.id())).thenReturn(user(ORGANIZER.id()));
+
+        assertThat(service.reject(ORGANIZER, 9L, null).status()).isEqualTo(RegistrationStatus.REJECTED);
+    }
+
+    @Test
+    void theCaptainUploadsTheMissingEvidenceAndTheRegistrationCanThenBeApproved() {
+        Registration legacy = legacyRegistration(RegistrationStatus.UNDER_REVIEW);
+        when(registrations.findById(9L)).thenReturn(Optional.of(legacy));
+        givenLockedTournament(TournamentStatus.ACTIVE);
+        when(fileStorage.store(any(), eq(FileKind.IMAGE_OR_PDF), eq(FileOwner.formEvidence(5L)))).thenReturn("new-evidence");
+
+        var response = service.uploadFormEvidence(CAPTAIN, 9L, EVIDENCE);
+
+        assertThat(response.formEvidenceFileId()).isEqualTo("new-evidence");
+        assertThat(legacy.getFormEvidenceFileId()).isEqualTo("new-evidence");
+        verify(fileStorage, never()).delete(any());
+        verify(auditService).record(eq(CAPTAIN.id()), eq(AuditAction.REGISTRATION_FORM_EVIDENCE_UPLOADED),
+                eq("REGISTRATION"), eq(9L), any());
+
+        givenApprovedCount(1L);
+        givenEligible(true);
+        when(userService.getUser(ORGANIZER.id())).thenReturn(user(ORGANIZER.id()));
+        assertThat(service.approve(ORGANIZER, 9L, null).status()).isEqualTo(RegistrationStatus.APPROVED);
+    }
+
+    @Test
+    void replacingTheEvidenceDeletesThePreviousFile() {
+        Registration registration = registration(RegistrationStatus.UNDER_REVIEW);
+        when(registrations.findById(9L)).thenReturn(Optional.of(registration));
+        givenLockedTournament(TournamentStatus.ACTIVE);
+        when(fileStorage.store(any(), eq(FileKind.IMAGE_OR_PDF), eq(FileOwner.formEvidence(5L)))).thenReturn("new-evidence");
+
+        service.uploadFormEvidence(CAPTAIN, 9L, EVIDENCE);
+
+        // No transaction in a unit test: FileDeletionScheduler deletes right away (after commit in production).
+        verify(fileStorage).delete("evidence-file");
+        verify(fileStorage, never()).delete("receipt-file");
+    }
+
+    @Test
+    void onlyTheTeamCaptainUploadsTheEvidence() {
+        when(registrations.findById(9L)).thenReturn(Optional.of(legacyRegistration(RegistrationStatus.UNDER_REVIEW)));
+
+        for (AuthenticatedUser other : new AuthenticatedUser[]{OTHER_MEMBER, ORGANIZER, ADMIN}) {
+            assertThatThrownBy(() -> service.uploadFormEvidence(other, 9L, EVIDENCE))
+                    .isInstanceOf(ForbiddenOperationException.class)
+                    .hasMessageContaining("Solo el capitán del equipo 'Tigers'");
+        }
+        verify(fileStorage, never()).store(any(), any(), any());
+    }
+
+    @Test
+    void theEvidenceIsUploadedOnlyWhileTheRegistrationIsUnderReview() {
+        for (RegistrationStatus status : new RegistrationStatus[]{
+                RegistrationStatus.APPROVED, RegistrationStatus.REJECTED, RegistrationStatus.CANCELLED}) {
+            when(registrations.findById(9L)).thenReturn(Optional.of(legacyRegistration(status)));
+            when(tournamentService.requireTournamentForUpdate(1L))
+                    .thenReturn(tournament(TournamentStatus.ACTIVE, TODAY.plusDays(5), 8));
+
+            assertThatThrownBy(() -> service.uploadFormEvidence(CAPTAIN, 9L, EVIDENCE))
+                    .isInstanceOf(BusinessRuleException.class)
+                    .hasMessageContaining("mientras la inscripción está en revisión")
+                    .hasMessageContaining("«" + status.label() + "»");
+        }
+        verify(fileStorage, never()).store(any(), any(), any());
+    }
+
+    @Test
+    void theEvidenceUploadIsRefusedWhileTheTournamentIsSuspendedOrWithoutAFile() {
+        when(registrations.findById(9L)).thenReturn(Optional.of(legacyRegistration(RegistrationStatus.UNDER_REVIEW)));
+        assertThatThrownBy(() -> service.uploadFormEvidence(CAPTAIN, 9L, EMPTY))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessage("Adjunte la evidencia del formulario de la Escuela.");
+
+        when(tournamentService.requireTournamentForUpdate(1L))
+                .thenReturn(tournament(TournamentStatus.SUSPENDED, TODAY.plusDays(5), 8));
+        assertThatThrownBy(() -> service.uploadFormEvidence(CAPTAIN, 9L, EVIDENCE))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("está suspendido");
+        verify(fileStorage, never()).store(any(), any(), any());
+    }
+
+    @Test
+    void removingAnApprovedTeamDeletesItsReceiptAndEvidence() {
+        Registration registration = registration(RegistrationStatus.APPROVED);
+        when(registrations.findById(9L)).thenReturn(Optional.of(registration));
+        givenLockedTournament(TournamentStatus.ACTIVE);
+
+        service.remove(ORGANIZER, 9L);
+
+        verify(registrations).delete(registration);
+        verify(fileStorage).delete("receipt-file");
+        verify(fileStorage).delete("evidence-file");
+    }
+
+    @Test
+    void aMemberWhoIsNotTheCaptainSeesTheRegistrationWithoutItsFiles() {
+        Team team = team();
+        when(teamService.findActiveTeamOf(OTHER_MEMBER.id())).thenReturn(Optional.of(team));
+        when(teamService.findActiveTeamOf(CAPTAIN.id())).thenReturn(Optional.of(team));
+        when(registrations.findFirstByTournamentIdAndTeamIdOrderByIdDesc(1L, 5L))
+                .thenReturn(Optional.of(registration(RegistrationStatus.UNDER_REVIEW)));
+
+        var member = service.findMine(OTHER_MEMBER, 1L).orElseThrow();
+        var captain = service.findMine(CAPTAIN, 1L).orElseThrow();
+
+        assertThat(member.receiptFileId()).isNull();
+        assertThat(member.formEvidenceFileId()).isNull();
+        assertThat(member.hasFormEvidence()).isTrue();
+        assertThat(captain.receiptFileId()).isEqualTo("receipt-file");
+        assertThat(captain.formEvidenceFileId()).isEqualTo("evidence-file");
+    }
+
     // --- cancel -------------------------------------------------------------------------------
 
     @Test
@@ -325,7 +496,7 @@ class RegistrationServiceTest {
     void registrationIsRefusedWhileTheTournamentIsSuspended() {
         givenTournament(TournamentStatus.SUSPENDED, TODAY.plusDays(5), 8);
 
-        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT))
+        assertThatThrownBy(() -> service.register(CAPTAIN, 1L, RECEIPT, EVIDENCE))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("está suspendido")
                 .hasMessageContaining("inscribir equipos");
@@ -412,9 +583,17 @@ class RegistrationServiceTest {
                 .tournament(tournament(TournamentStatus.ACTIVE, TODAY.plusDays(5), 8))
                 .team(team())
                 .receiptFileId("receipt-file")
+                .formEvidenceFileId("evidence-file")
                 .status(status)
                 .createdAt(Instant.now())
                 .build();
+    }
+
+    /** A registration created before the university-form evidence was required. */
+    private static Registration legacyRegistration(RegistrationStatus status) {
+        Registration registration = registration(status);
+        registration.setFormEvidenceFileId(null);
+        return registration;
     }
 
     private static AppUser user(Long id) {

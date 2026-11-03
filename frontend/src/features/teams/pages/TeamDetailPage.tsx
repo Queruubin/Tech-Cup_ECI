@@ -21,8 +21,11 @@ import { toast } from '@/store/ui.store'
 import { teamsApi } from '../api'
 import { EligibilityPanel } from '../components/EligibilityPanel'
 import { LeaveTeamCard } from '../components/LeaveTeamCard'
+import { TeamPhoto } from '../components/TeamPhoto'
+import { TeamPhotoModal } from '../components/TeamPhotoModal'
 import { useEligibility, useTeam } from '../hooks/useTeams'
 import { joinRequestAvailability, TEAM_NOT_RECRUITING_HINT } from '../rosterLock'
+import { canManageTeamPhoto } from '../teamPhoto'
 import { MAX_TEAM_MEMBERS } from '../teamSize'
 import { REMOVE_PHOTO_QUESTION } from '@/features/admin/photoModeration'
 import type { TeamMember } from '@/types/api'
@@ -48,6 +51,7 @@ export function TeamDetailPage() {
   const [message, setMessage] = useState('')
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [photoMember, setPhotoMember] = useState<TeamMember | null>(null)
+  const [teamPhotoOpen, setTeamPhotoOpen] = useState(false)
 
   const joinRequest = useMutation((payload: { teamId: number; message?: string }) =>
     playersApi.createJoinRequest(payload.teamId, payload.message ? { message: payload.message } : {}),
@@ -72,6 +76,8 @@ export function TeamDetailPage() {
   const team = teamQuery.data
   const isMember = !!team && team.members.some((member) => member.userId === user?.id)
   const isCaptainOfTeam = !!team && team.captain.id === user?.id
+  // Captain, organizer or admin; never blocked by a tournament (the photo decides nothing).
+  const canEditTeamPhoto = canManageTeamPhoto(user, team ?? null)
   const joinAvailability = joinRequestAvailability(team, {
     userId: user?.id ?? null,
     // Asking to join is personal (like founding a team): ADMIN implies PLAYER for permissions, but
@@ -120,6 +126,7 @@ export function TeamDetailPage() {
           <>
             <PageHeader
               title={team.name}
+              leading={<TeamPhoto name={team.name} photoFileId={team.photoFileId} size="lg" />}
               description={
                 <span className="flex flex-wrap items-center gap-2">
                   <StatusBadge kind="team" value={team.status} />
@@ -142,6 +149,11 @@ export function TeamDetailPage() {
               }
               actions={
                 <>
+                  {canEditTeamPhoto && (
+                    <Button size="sm" variant="ghost" onClick={() => setTeamPhotoOpen(true)}>
+                      {team.photoFileId ? 'Cambiar foto' : 'Agregar foto'}
+                    </Button>
+                  )}
                   {isCaptainOfTeam && (
                     <Link to="/my-team">
                       <Button size="sm" variant="outline">
@@ -231,6 +243,14 @@ export function TeamDetailPage() {
           </>
         )}
       </QueryState>
+
+      {canEditTeamPhoto && (
+        <TeamPhotoModal
+          team={teamPhotoOpen ? team ?? null : null}
+          onChanged={(updated) => teamQuery.setData(updated)}
+          onClose={() => setTeamPhotoOpen(false)}
+        />
+      )}
 
       {isAdmin && (
         <ConfirmDialog

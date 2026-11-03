@@ -39,7 +39,7 @@ export function HardDeleteTournamentDialog({
       open={open}
       onClose={close}
       title="Eliminar torneo definitivamente"
-      description="Se borrarán el torneo, sus canchas, inscripciones, partidos, resultados y alineaciones, junto con el reglamento y los comprobantes. Los equipos y jugadores se conservan. Esta acción no se puede deshacer."
+      description="Se borrarán el torneo, sus canchas, inscripciones, partidos, resultados y alineaciones, junto con el reglamento, los comprobantes y las evidencias del formulario de la Escuela. Los equipos y jugadores se conservan. Esta acción no se puede deshacer."
       size="sm"
       footer={
         <>

@@ -279,6 +279,7 @@ describe('captain phone on the team page', () => {
     members: [{ userId: 7, fullName: 'Ana Pérez', position: 'FORWARD', jerseyNumber: 9, academicProgram: 'OTHER', photoFileId: null }],
     memberCount: 1,
     locked: false,
+    photoFileId: null,
   }
 
   function renderTeam() {

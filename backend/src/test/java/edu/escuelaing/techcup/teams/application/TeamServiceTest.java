@@ -23,6 +23,9 @@ import edu.escuelaing.techcup.shared.exception.BusinessRuleException;
 import edu.escuelaing.techcup.shared.exception.ForbiddenOperationException;
 import edu.escuelaing.techcup.shared.exception.NotFoundException;
 import edu.escuelaing.techcup.shared.storage.FileDeletionScheduler;
+import edu.escuelaing.techcup.shared.storage.FileKind;
+import edu.escuelaing.techcup.shared.storage.FileOwner;
+import edu.escuelaing.techcup.shared.storage.FileStorage;
 import edu.escuelaing.techcup.shared.security.AuthenticatedUser;
 import edu.escuelaing.techcup.teams.api.dto.CreateTeamRequest;
 import edu.escuelaing.techcup.teams.api.dto.UpdateTeamRequest;
@@ -41,6 +44,7 @@ import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 
 @ExtendWith(MockitoExtension.class)
 class TeamServiceTest {
@@ -66,6 +70,8 @@ class TeamServiceTest {
     private TeamMatchPort teamMatches;
     @Mock
     private TeamRegistrationPort teamRegistrations;
+    @Mock
+    private FileStorage fileStorage;
     @Mock
     private FileDeletionScheduler fileDeletion;
     @Mock
@@ -356,12 +362,17 @@ class TeamServiceTest {
         when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
         when(teamMatches.tournamentsWithMatchesOf(5L)).thenReturn(List.of());
         when(teamRegistrations.tournamentsWithLiveRegistrationOf(5L)).thenReturn(List.of());
-        when(teamRegistrations.deleteClosedRegistrationsOf(5L)).thenReturn(List.of("receipt-1", "receipt-2"));
+        team.setPhotoFileId("team-photo");
+        when(teamRegistrations.deleteClosedRegistrationsOf(5L)).thenReturn(
+                new TeamRegistrationPort.DeletedRegistrations(2, List.of("receipt-1", "evidence-1", "receipt-2")));
 
         service.delete(ADMIN, 5L);
 
         verify(fileDeletion).deleteAfterCommit("receipt-1");
         verify(fileDeletion).deleteAfterCommit("receipt-2");
+        // The university-form evidence of the closed registrations and the team photo go too.
+        verify(fileDeletion).deleteAfterCommit("evidence-1");
+        verify(fileDeletion).deleteAfterCommit("team-photo");
         // The delete is flushed before the captain check, which queries the database.
         InOrder order = inOrder(teams, roleService);
         order.verify(teams).delete(team);
@@ -498,6 +509,102 @@ class TeamServiceTest {
 
     private static MemberProfile profile(Long userId, int jersey) {
         return new MemberProfile(userId, Position.MIDFIELDER, jersey, null);
+    }
+
+    // --- team photo -----------------------------------------------------------------------------
+
+    private static final MockMultipartFile PHOTO =
+            new MockMultipartFile("file", "team.png", "image/png", new byte[]{1, 2, 3});
+    private static final AuthenticatedUser ORGANIZER = new AuthenticatedUser(2L, "o@escuelaing.edu.co", Set.of("ORGANIZER"));
+
+    @Test
+    void theCaptainAnOrganizerAndAnAdminSetTheTeamPhoto() {
+        for (AuthenticatedUser editor : new AuthenticatedUser[]{CAPTAIN, ORGANIZER, ADMIN}) {
+            Team team = teamWithCaptain();
+            when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
+            when(fileStorage.store(any(), eq(FileKind.IMAGE), eq(FileOwner.teamPhoto(5L)))).thenReturn("photo-" + editor.id());
+
+            service.replacePhoto(editor, 5L, PHOTO);
+
+            assertThat(team.getPhotoFileId()).isEqualTo("photo-" + editor.id());
+            verify(auditService).record(editor.id(), AuditAction.TEAM_PHOTO_UPDATED, "TEAM", 5L,
+                    Map.of("photoFileId", "photo-" + editor.id(), "replaced", false));
+        }
+    }
+
+    @Test
+    void anotherMemberOrPlayerCannotChangeTheTeamPhoto() {
+        Team team = teamWithCaptain();
+        team.addMember(user(21L));
+        team.setPhotoFileId("old-photo");
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
+
+        for (AuthenticatedUser other : new AuthenticatedUser[]{MEMBER, STRANGER}) {
+            assertThatThrownBy(() -> service.replacePhoto(other, 5L, PHOTO))
+                    .isInstanceOf(ForbiddenOperationException.class)
+                    .hasMessageContaining("un organizador o un administrador");
+            assertThatThrownBy(() -> service.removePhoto(other, 5L))
+                    .isInstanceOf(ForbiddenOperationException.class);
+        }
+        assertThat(team.getPhotoFileId()).isEqualTo("old-photo");
+        verify(fileStorage, never()).store(any(), any(), any());
+        verify(fileDeletion, never()).deleteAfterCommit(anyString());
+    }
+
+    /**
+     * The photo is cosmetic: neither the roster freeze of a tournament (an ACTIVE, IN_PROGRESS or
+     * SUSPENDED one keeps the team locked) nor its suspension blocks it, so the lock is not even read.
+     */
+    @Test
+    void theTeamPhotoChangesWhileTheTeamIsLockedByAnActiveOrSuspendedTournament() {
+        Team team = teamWithCaptain();
+        team.setPhotoFileId("old-photo");
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
+        org.mockito.Mockito.lenient().when(teamLock.isLocked(5L)).thenReturn(true);
+        when(fileStorage.store(any(), eq(FileKind.IMAGE), eq(FileOwner.teamPhoto(5L)))).thenReturn("new-photo");
+
+        service.replacePhoto(ORGANIZER, 5L, PHOTO);
+
+        assertThat(team.getPhotoFileId()).isEqualTo("new-photo");
+        verify(teamLock, never()).isLocked(any());
+    }
+
+    @Test
+    void replacingTheTeamPhotoDeletesThePreviousOneAfterCommit() {
+        Team team = teamWithCaptain();
+        team.setPhotoFileId("old-photo");
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
+        when(fileStorage.store(any(), eq(FileKind.IMAGE), eq(FileOwner.teamPhoto(5L)))).thenReturn("new-photo");
+
+        service.replacePhoto(CAPTAIN, 5L, PHOTO);
+
+        verify(fileDeletion).deleteAfterCommit("old-photo");
+        verify(fileStorage, never()).delete(any());
+        verify(auditService).record(CAPTAIN.id(), AuditAction.TEAM_PHOTO_UPDATED, "TEAM", 5L,
+                Map.of("photoFileId", "new-photo", "replaced", true));
+    }
+
+    @Test
+    void removingTheTeamPhotoDeletesItAfterCommit() {
+        Team team = teamWithCaptain();
+        team.setPhotoFileId("old-photo");
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
+
+        service.removePhoto(ADMIN, 5L);
+
+        assertThat(team.getPhotoFileId()).isNull();
+        verify(fileDeletion).deleteAfterCommit("old-photo");
+        verify(auditService).record(ADMIN.id(), AuditAction.TEAM_PHOTO_REMOVED, "TEAM", 5L,
+                Map.of("photoFileId", "old-photo"));
+    }
+
+    @Test
+    void removingAMissingTeamPhotoIsAConflict() {
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(teamWithCaptain()));
+
+        assertThatThrownBy(() -> service.removePhoto(CAPTAIN, 5L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("El equipo 'Tigers' no tiene foto.");
     }
 
     @Test

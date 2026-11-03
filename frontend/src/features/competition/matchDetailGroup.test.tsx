@@ -72,6 +72,7 @@ function team(id: number, name: string, playerId: number, playerName: string): T
     ],
     memberCount: 7,
     locked: true,
+    photoFileId: null,
   } as TeamResponse
 }
 

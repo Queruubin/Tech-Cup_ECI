@@ -6,9 +6,11 @@ import edu.escuelaing.techcup.shared.security.Roles;
 import org.springframework.stereotype.Component;
 
 /**
- * Who may download a stored file. Payment receipts carry personal banking data, so they are
- * served only to organizers, administrators and the captain of the team that uploaded them.
- * Every other kind (photos, venue images, rulebooks) is visible to any authenticated user.
+ * Who may download a stored file. Registration documents (payment receipts, which carry personal
+ * banking data, and the university-form evidence) are served only to organizers, administrators
+ * and the captain of the team that uploaded them ({@link FileOwner#isRegistrationDocument()}).
+ * Every other kind (player and team photos, venue images, rulebooks) is visible to any
+ * authenticated user.
  * Podium photos ({@link FileOwner.Category#PODIUM}) are public: besides this endpoint, anonymous
  * visitors read them through {@code GET /api/tournaments/{id}/history/podium/{position}/photo},
  * which serves only the file currently attached to that podium position.
@@ -24,7 +26,7 @@ public class FileAccessGuard {
 
     public boolean canDownload(AuthenticatedUser actor, StoredFile file) {
         FileOwner owner = file.owner();
-        if (owner == null || !owner.isReceipt()) {
+        if (owner == null || !owner.isRegistrationDocument()) {
             return true;
         }
         if (actor.isAdmin() || actor.hasRole(Roles.ORGANIZER)) {

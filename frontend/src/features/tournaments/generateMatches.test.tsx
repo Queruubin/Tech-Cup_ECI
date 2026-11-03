@@ -38,6 +38,8 @@ function registration(teamId: number, teamName: string): RegistrationResponse {
     teamId,
     teamName,
     receiptFileId: null,
+    formEvidenceFileId: null,
+    hasFormEvidence: true,
     status: 'APPROVED',
     reviewNote: null,
     createdAt: '2026-08-01T10:00:00Z',

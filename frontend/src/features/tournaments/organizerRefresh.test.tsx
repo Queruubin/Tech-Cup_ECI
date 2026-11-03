@@ -36,6 +36,8 @@ function registration(teamId: number, teamName: string, status: RegistrationResp
     teamId,
     teamName,
     receiptFileId: null,
+    formEvidenceFileId: null,
+    hasFormEvidence: true,
     status,
     reviewNote: null,
     createdAt: '2026-08-01T10:00:00Z',

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { StatusBadge } from '@/components/atoms/Badge'
+import { Badge, StatusBadge } from '@/components/atoms/Badge'
 import { Button } from '@/components/atoms/Button'
 import { Textarea } from '@/components/atoms/Textarea'
 import { Alert } from '@/components/molecules/Alert'
@@ -15,9 +15,11 @@ import { toast } from '@/store/ui.store'
 import type { RegistrationResponse, TournamentStatus } from '@/types/api'
 import { tournamentsApi } from '../api'
 import { useRegistrations } from '../hooks/useTournaments'
+import { approvalBlocker } from '../registrationEvidence'
 import { FilePreview } from './FilePreview'
 
 type Decision = { registration: RegistrationResponse; action: 'approve' | 'reject' }
+type Preview = { registration: RegistrationResponse; kind: 'receipt' | 'formEvidence' }
 
 interface RegistrationsReviewProps {
   tournamentId: number
@@ -28,7 +30,7 @@ interface RegistrationsReviewProps {
 
 export function RegistrationsReview({ tournamentId, tournamentStatus, onDecided }: RegistrationsReviewProps) {
   const query = useRegistrations(tournamentId)
-  const [preview, setPreview] = useState<RegistrationResponse | null>(null)
+  const [preview, setPreview] = useState<Preview | null>(null)
   const [removing, setRemoving] = useState<RegistrationResponse | null>(null)
   const [decision, setDecision] = useState<Decision | null>(null)
   const [note, setNote] = useState('')
@@ -119,12 +121,22 @@ export function RegistrationsReview({ tournamentId, tournamentStatus, onDecided 
                     {registration.reviewedAt && ` · Revisada el ${formatDateTime(registration.reviewedAt)}`}
                   </p>
                   {registration.reviewNote && <p className="mt-1 text-xs text-stone-700">Nota: {registration.reviewNote}</p>}
+                  {approvalBlocker(registration) && registration.status === 'UNDER_REVIEW' && tournamentStatus !== 'SUSPENDED' && (
+                    <p className="mt-1 text-xs text-amber-700">{approvalBlocker(registration)}</p>
+                  )}
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
                   {registration.receiptFileId && (
-                    <Button size="sm" variant="ghost" onClick={() => setPreview(registration)}>
+                    <Button size="sm" variant="ghost" onClick={() => setPreview({ registration, kind: 'receipt' })}>
                       Ver comprobante
                     </Button>
+                  )}
+                  {registration.formEvidenceFileId ? (
+                    <Button size="sm" variant="ghost" onClick={() => setPreview({ registration, kind: 'formEvidence' })}>
+                      Ver formulario
+                    </Button>
+                  ) : (
+                    !registration.hasFormEvidence && <Badge tone="warning">Sin evidencia del formulario</Badge>
                   )}
                   {registration.status === 'APPROVED' && tournamentStatus === 'ACTIVE' && (
                     <Button size="sm" variant="danger" onClick={() => setRemoving(registration)}>
@@ -134,7 +146,12 @@ export function RegistrationsReview({ tournamentId, tournamentStatus, onDecided 
                   {/* A suspended tournament refuses every decision (409): nothing to offer until it is resumed. */}
                   {registration.status === 'UNDER_REVIEW' && tournamentStatus !== 'SUSPENDED' && (
                     <>
-                      <Button size="sm" onClick={() => setDecision({ registration, action: 'approve' })}>
+                      <Button
+                        size="sm"
+                        onClick={() => setDecision({ registration, action: 'approve' })}
+                        disabled={approvalBlocker(registration) !== null}
+                        title={approvalBlocker(registration) ?? undefined}
+                      >
                         Aprobar
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => setDecision({ registration, action: 'reject' })}>
@@ -149,14 +166,23 @@ export function RegistrationsReview({ tournamentId, tournamentStatus, onDecided 
         )}
       </QueryState>
 
-      <Modal open={preview !== null} onClose={() => setPreview(null)} title="Comprobante de pago" description={preview?.teamName} size="lg">
-        <FilePreview fileId={preview?.receiptFileId} alt={`Comprobante de ${preview?.teamName ?? ''}`} />
+      <Modal
+        open={preview !== null}
+        onClose={() => setPreview(null)}
+        title={preview?.kind === 'formEvidence' ? 'Evidencia del formulario de la Escuela' : 'Comprobante de pago'}
+        description={preview?.registration.teamName}
+        size="lg"
+      >
+        <FilePreview
+          fileId={preview?.kind === 'formEvidence' ? preview.registration.formEvidenceFileId : preview?.registration.receiptFileId}
+          alt={`${preview?.kind === 'formEvidence' ? 'Formulario' : 'Comprobante'} de ${preview?.registration.teamName ?? ''}`}
+        />
       </Modal>
 
       <ConfirmDialog
         open={removing !== null}
         title="Eliminar equipo del torneo"
-        description={removing ? `Se quitará a ${removing.teamName} del torneo y se borrará su comprobante de pago.` : undefined}
+        description={removing ? `Se quitará a ${removing.teamName} del torneo y se borrarán su comprobante de pago y la evidencia del formulario.` : undefined}
         confirmLabel="Eliminar equipo"
         danger
         loading={removeTeam.loading}

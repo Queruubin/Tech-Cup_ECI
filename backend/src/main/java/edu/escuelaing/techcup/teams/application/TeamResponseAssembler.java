@@ -44,6 +44,7 @@ public class TeamResponseAssembler {
                 new TeamResponse.Captain(team.getCaptain().getId(), team.getCaptain().getFullName()),
                 members,
                 members.size(),
-                teamLock.isLocked(team.getId()));
+                teamLock.isLocked(team.getId()),
+                team.getPhotoFileId());
     }
 }

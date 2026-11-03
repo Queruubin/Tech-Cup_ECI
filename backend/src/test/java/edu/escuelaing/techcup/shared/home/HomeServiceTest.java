@@ -51,12 +51,12 @@ class HomeServiceTest {
     @BeforeEach
     void setUp() {
         TeamResponse team = new TeamResponse(5L, "Tigers", "orange", TeamStatus.ACTIVE,
-                new TeamResponse.Captain(20L, "Captain"), List.of(), 7, false);
+                new TeamResponse.Captain(20L, "Captain"), List.of(), 7, false, null);
         TournamentResponse tournament = new TournamentResponse(1L, "TechCup", LocalDate.of(2026, 3, 10),
                 LocalDate.of(2026, 4, 10), LocalDate.of(2026, 3, 5), 8, BigDecimal.TEN, TournamentStatus.ACTIVE,
                 "rulebook", List.of(), 3, null);
         RegistrationResponse registration = new RegistrationResponse(9L, 1L, 5L, "Tigers", "receipt-file",
-                RegistrationStatus.UNDER_REVIEW, null, Instant.now(), null);
+                "evidence-file", true, RegistrationStatus.UNDER_REVIEW, null, Instant.now(), null);
         when(teamService.findMine(org.mockito.ArgumentMatchers.anyLong())).thenReturn(Optional.of(team));
         when(tournamentService.findCurrent()).thenReturn(Optional.of(tournament));
         when(registrationService.findByTeam(1L, 5L)).thenReturn(Optional.of(registration));
@@ -67,6 +67,7 @@ class HomeServiceTest {
         HomeResponse home = homeService.home(CAPTAIN);
 
         assertThat(home.myRegistration().receiptFileId()).isEqualTo("receipt-file");
+        assertThat(home.myRegistration().formEvidenceFileId()).isEqualTo("evidence-file");
     }
 
     @Test
@@ -76,5 +77,7 @@ class HomeServiceTest {
         assertThat(home.myRegistration()).isNotNull();
         assertThat(home.myRegistration().status()).isEqualTo(RegistrationStatus.UNDER_REVIEW);
         assertThat(home.myRegistration().receiptFileId()).isNull();
+        assertThat(home.myRegistration().formEvidenceFileId()).isNull();
+        assertThat(home.myRegistration().hasFormEvidence()).isTrue();
     }
 }

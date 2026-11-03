@@ -120,6 +120,7 @@ describe('TeamDetailPage "Eliminar equipo"', () => {
     members: [],
     memberCount: 7,
     locked: false,
+    photoFileId: null,
   }
 
   function signIn(roles: Role[]) {

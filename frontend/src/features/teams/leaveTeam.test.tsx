@@ -30,6 +30,7 @@ function makeTeam(overrides: Partial<TeamResponse> = {}): TeamResponse {
     members: [member(CAPTAIN_ID, 'Ana Pérez'), member(MEMBER_ID, 'Pedro Gómez')],
     memberCount: 2,
     locked: false,
+    photoFileId: null,
     ...overrides,
   }
 }

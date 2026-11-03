@@ -51,6 +51,13 @@ public class Registration {
     @Column(name = "receipt_file_id", nullable = false, length = 64)
     private String receiptFileId;
 
+    /**
+     * Evidence that the team filled in the university form (GridFS id, owner {@code FORM_EVIDENCE}).
+     * Required for new registrations; null only on registrations created before it existed.
+     */
+    @Column(name = "form_evidence_file_id", length = 64)
+    private String formEvidenceFileId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 15)
     private RegistrationStatus status;
@@ -82,6 +89,10 @@ public class Registration {
         reviewedBy = reviewer;
         reviewNote = note == null || note.isBlank() ? null : note.trim();
         reviewedAt = Instant.now();
+    }
+
+    public boolean hasFormEvidence() {
+        return formEvidenceFileId != null && !formEvidenceFileId.isBlank();
     }
 
     @PrePersist

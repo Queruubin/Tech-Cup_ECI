@@ -12,6 +12,9 @@ export const RECEIPT_ACCEPT = `${IMAGE_ACCEPT},${PDF_ACCEPT}`
 export const IMAGE_HINT = 'PNG, JPG o WebP, máximo 5 MB'
 export const PDF_HINT = 'Archivo PDF, máximo 5 MB'
 export const RECEIPT_HINT = 'PNG, JPG, WebP o PDF del comprobante de pago, máximo 5 MB'
+/** Same kinds and limit as the receipt. */
+export const FORM_EVIDENCE_ACCEPT = RECEIPT_ACCEPT
+export const FORM_EVIDENCE_HINT = 'PNG, JPG, WebP o PDF del formulario diligenciado, máximo 5 MB'
 
 /** Fallback MIME types for browsers that report an empty `File.type`. */
 const MIME_BY_EXTENSION: Record<string, string> = {

@@ -2,6 +2,7 @@ import { Link } from 'react-router'
 import { Badge, StatusBadge } from '@/components/atoms/Badge'
 import type { TeamResponse } from '@/types/api'
 import { rosterCount } from '../teamSize'
+import { TeamPhoto } from './TeamPhoto'
 
 export interface TeamCardProps {
   team: TeamResponse
@@ -15,9 +16,12 @@ export function TeamCard({ team, isMine }: TeamCardProps) {
       className="flex flex-col gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm transition hover:border-brand-300 hover:shadow"
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h3 className="truncate text-base font-semibold text-ink">{team.name}</h3>
-          <p className="truncate text-xs text-stone-500">Capitán: {team.captain.fullName}</p>
+        <div className="flex min-w-0 items-center gap-3">
+          <TeamPhoto name={team.name} photoFileId={team.photoFileId} size="sm" />
+          <div className="min-w-0">
+            <h3 className="truncate text-base font-semibold text-ink">{team.name}</h3>
+            <p className="truncate text-xs text-stone-500">Capitán: {team.captain.fullName}</p>
+          </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <StatusBadge kind="team" value={team.status} />

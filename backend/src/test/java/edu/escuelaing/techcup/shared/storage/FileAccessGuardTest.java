@@ -14,7 +14,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-/** Receipts are private to organizers, admins and the uploading captain; everything else is not. */
+/**
+ * Registration documents (receipts, university-form evidence) are private to organizers, admins and
+ * the uploading captain; everything else is not.
+ */
 @ExtendWith(MockitoExtension.class)
 class FileAccessGuardTest {
 
@@ -50,10 +53,26 @@ class FileAccessGuardTest {
     }
 
     @Test
+    void theUniversityFormEvidenceFollowsTheReceiptRule() {
+        when(policy.isCaptainOfTeam(20L, 5L)).thenReturn(true);
+        when(policy.isCaptainOfTeam(10L, 5L)).thenReturn(false);
+        StoredFile evidence = file(FileOwner.formEvidence(5L));
+
+        assertThat(guard.canDownload(CAPTAIN, evidence)).isTrue();
+        assertThat(guard.canDownload(ORGANIZER, evidence)).isTrue();
+        assertThat(guard.canDownload(ADMIN, evidence)).isTrue();
+        assertThatThrownBy(() -> guard.requireDownload(PLAYER, evidence))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessage("No tiene permiso para ver este archivo.");
+    }
+
+    @Test
     void otherKindsAndLegacyFilesAreServedToAnyAuthenticatedUser() {
         assertThat(guard.canDownload(PLAYER, file(FileOwner.photo(99L)))).isTrue();
         assertThat(guard.canDownload(PLAYER, file(FileOwner.rulebook(1L)))).isTrue();
         assertThat(guard.canDownload(PLAYER, file(FileOwner.podium(1L)))).isTrue();
+        // Team photos are readable like player photos.
+        assertThat(guard.canDownload(PLAYER, file(FileOwner.teamPhoto(5L)))).isTrue();
         assertThat(guard.canDownload(PLAYER, file(null))).isTrue();
     }
 

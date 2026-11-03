@@ -21,6 +21,7 @@ const team: TeamResponse = {
   members: [],
   memberCount: 7,
   locked: false,
+  photoFileId: null,
 }
 
 function invitation(id: number, playerId: number, status: JoinRequestResponse['status'], createdAt: string): JoinRequestResponse {
