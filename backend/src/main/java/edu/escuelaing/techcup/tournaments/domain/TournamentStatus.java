@@ -118,8 +118,8 @@ public enum TournamentStatus {
     }
 
     /**
-     * ACTIVE or IN_PROGRESS: the tournament is live. (A SUSPENDED tournament is not live, but its
-     * approved teams stay locked as well; see the team-lock queries.)
+     * ACTIVE or IN_PROGRESS: the tournament is live. (A SUSPENDED tournament is not live; the
+     * team-lock queries treat it as the status it was suspended from.)
      */
     public boolean isLive() {
         return this == ACTIVE || this == IN_PROGRESS;

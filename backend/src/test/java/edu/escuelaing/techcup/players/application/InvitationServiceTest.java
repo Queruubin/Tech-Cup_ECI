@@ -145,7 +145,7 @@ class InvitationServiceTest {
 
         assertThatThrownBy(() -> service.invite(CAPTAIN, 5L, new InvitationCreateRequest(10L, null)))
                 .isInstanceOf(BusinessRuleException.class)
-                .hasMessage("El equipo 'Tigers' está inscrito en un torneo activo o en curso; su plantilla no se puede modificar hasta que el torneo finalice.");
+                .hasMessage("El equipo 'Tigers' está jugando un torneo que ya inició; su plantilla no se puede modificar hasta que el torneo finalice.");
         verify(userService, never()).getUser(10L);
         verify(requests, never()).saveAndFlush(any());
     }

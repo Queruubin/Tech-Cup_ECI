@@ -15,6 +15,7 @@ import edu.escuelaing.techcup.shared.storage.FileKind;
 import edu.escuelaing.techcup.shared.storage.FileOwner;
 import edu.escuelaing.techcup.shared.storage.FileStorage;
 import edu.escuelaing.techcup.shared.storage.FileUpload;
+import edu.escuelaing.techcup.teams.application.TeamService;
 import edu.escuelaing.techcup.tournaments.api.dto.CreateTournamentRequest;
 import edu.escuelaing.techcup.tournaments.api.dto.TournamentResponse;
 import edu.escuelaing.techcup.tournaments.api.dto.UpdateTournamentRequest;
@@ -49,7 +50,11 @@ import org.springframework.web.multipart.MultipartFile;
  *   <li>Activate (DRAFT &rarr; ACTIVE) requires an uploaded rulebook and at least one venue.</li>
  *   <li>Start (ACTIVE &rarr; IN_PROGRESS) is allowed from the start date up to the end date,
  *       with at least {@value #MIN_TEAMS_TO_START} approved registrations; registrations still
- *       under review are cancelled at that moment, since nothing can be approved afterwards.</li>
+ *       under review are cancelled at that moment, since nothing can be approved afterwards. The
+ *       start freezes the approved teams' rosters (teams module, {@code TeamLockPort}): their
+ *       pending join requests and invitations are cancelled ({@link TeamService#closeRecruitment}).
+ *       The approved teams need no re-check: since their approval every roster change had to keep
+ *       them eligible.</li>
  *   <li>Finish (IN_PROGRESS &rarr; FINISHED) is allowed once the end date has been reached or the
  *       FINAL match has been played, and never while a match is still SCHEDULED, since no result
  *       can be recorded afterwards ({@link FinalMatchPort}).</li>
@@ -98,6 +103,7 @@ public class TournamentService {
     private final VenueRepository venues;
     private final RegistrationRepository registrations;
     private final UserService userService;
+    private final TeamService teamService;
     private final FileStorage fileStorage;
     private final FileDeletionScheduler fileDeletion;
     private final FinalMatchPort finalMatch;
@@ -106,13 +112,14 @@ public class TournamentService {
     private final Clock clock;
 
     public TournamentService(TournamentRepository tournaments, VenueRepository venues,
-                             RegistrationRepository registrations, UserService userService,
+                             RegistrationRepository registrations, UserService userService, TeamService teamService,
                              FileStorage fileStorage, FileDeletionScheduler fileDeletion, FinalMatchPort finalMatch,
                              TournamentFilesPort attachedFiles, AuditService auditService, Clock clock) {
         this.tournaments = tournaments;
         this.venues = venues;
         this.registrations = registrations;
         this.userService = userService;
+        this.teamService = teamService;
         this.fileStorage = fileStorage;
         this.fileDeletion = fileDeletion;
         this.finalMatch = finalMatch;
@@ -333,7 +340,15 @@ public class TournamentService {
     /**
      * ACTIVE &rarr; IN_PROGRESS, between the start date and the end date (inclusive) and with
      * enough approved teams. Registrations still under review are cancelled with a note: once the
-     * tournament is in progress nothing can be approved any more.
+     * tournament is in progress nothing can be approved any more. The approved teams' rosters
+     * freeze now, so their pending join requests and invitations are cancelled too.
+     *
+     * <p>The approved teams are not re-checked: from their approval on, every roster change (and
+     * every academic program change of a member) had to leave them eligible. Closing each team's
+     * recruitment locks its row (tournament row first, then team rows, like the approval), so a
+     * roster change already holding that row commits first (it saw the tournament not started and
+     * kept the team eligible) and one arriving later sees the tournament in progress and is
+     * refused by the freeze.
      */
     @Transactional
     public TournamentResponse start(AuthenticatedUser actor, Long id) {
@@ -369,8 +384,15 @@ public class TournamentService {
             }
         }
 
+        int closedJoinRequests = 0;
+        for (Registration registration : registrations.findByTournamentIdAndStatusOrderByIdAsc(id,
+                RegistrationStatus.APPROVED)) {
+            closedJoinRequests += teamService.closeRecruitment(actor.id(), registration.getTeam().getId());
+        }
+
         auditService.record(actor.id(), AuditAction.TOURNAMENT_STARTED, ENTITY_TYPE, id,
-                Map.of("approvedTeams", approved, "cancelledRegistrations", pending.size()));
+                Map.of("approvedTeams", approved, "cancelledRegistrations", pending.size(),
+                        "cancelledJoinRequests", closedJoinRequests));
         return toResponse(tournament);
     }
 
@@ -407,8 +429,10 @@ public class TournamentService {
 
     /**
      * DRAFT, ACTIVE or IN_PROGRESS &rarr; SUSPENDED (ADMIN or ORGANIZER). Locked like the other
-     * lifecycle changes, so no result, registration or phase change slips in concurrently. The
-     * teams it holds stay locked while it is suspended.
+     * lifecycle changes, so no result, registration or phase change slips in concurrently. It
+     * counts as the status it left: suspended while IN_PROGRESS its approved teams stay locked;
+     * suspended while ACTIVE it has not started, so their rosters may still change (keeping them
+     * eligible).
      */
     @Transactional
     public TournamentResponse suspend(AuthenticatedUser actor, Long id) {

@@ -120,7 +120,7 @@ class JoinRequestServiceTest {
 
         assertThatThrownBy(() -> service.create(PLAYER, 5L, null))
                 .isInstanceOf(BusinessRuleException.class)
-                .hasMessage("El equipo 'Tigers' está inscrito en un torneo activo o en curso; su plantilla no se puede modificar hasta que el torneo finalice.");
+                .hasMessage("El equipo 'Tigers' está jugando un torneo que ya inició; su plantilla no se puede modificar hasta que el torneo finalice.");
         verify(requests, never()).saveAndFlush(any());
     }
 

@@ -25,7 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>PLAYER cannot be revoked by hand while the user captains or belongs to an ACTIVE team
  *       (the roster would hold someone who is no longer a player), mirroring the CAPTAIN rule.</li>
  *   <li>PLAYER and CAPTAIN cannot be removed while the user plays a tournament with their team
- *       (APPROVED registration in an ACTIVE or IN_PROGRESS tournament).</li>
+ *       (APPROVED registration in a tournament that has started: IN_PROGRESS, or SUSPENDED from
+ *       IN_PROGRESS).</li>
  *   <li>Roles can only be changed by hand on ACTIVE users.</li>
  *   <li>CAPTAIN is otherwise managed by the teams module: granted to whoever creates a team
  *       ({@link #grantCaptainForNewTeam}) and revoked when that team is inactivated
@@ -43,7 +44,7 @@ public class RoleService {
     static final String TEAM_DELETED = "TEAM_DELETED";
     static final String PLAYER_IN_ACTIVE_TEAM = "El usuario pertenece a un equipo activo; retírelo del equipo "
             + "o inactive el equipo antes de quitarle el rol de jugador.";
-    static final String LOCKED_PLAYER_ROLES = "El usuario está inscrito con su equipo en un torneo activo o en curso; "
+    static final String LOCKED_PLAYER_ROLES = "El usuario está jugando con su equipo un torneo que ya inició; "
             + "no se pueden cambiar sus roles de jugador o capitán hasta que el torneo finalice.";
 
     private final UserService userService;

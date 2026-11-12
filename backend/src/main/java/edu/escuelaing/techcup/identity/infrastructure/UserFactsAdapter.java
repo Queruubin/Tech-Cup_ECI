@@ -30,6 +30,11 @@ public class UserFactsAdapter implements UserFactsPort {
     }
 
     @Override
+    public boolean belongsToRegisteredTeam(Long userId) {
+        return query.belongsToRegisteredTeam(userId);
+    }
+
+    @Override
     public boolean captainsActiveTeam(Long userId) {
         return query.captainsActiveTeam(userId);
     }

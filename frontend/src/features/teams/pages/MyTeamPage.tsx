@@ -25,6 +25,7 @@ import { SentInvitationsPanel } from '../components/SentInvitationsPanel'
 import { TeamForm, type TeamFormValues } from '../components/TeamForm'
 import { useEligibility, useMyTeam, useTeamInvitations } from '../hooks/useTeams'
 import { selectMyTeamView } from '../myTeamView'
+import { TEAM_LOCKED_NOTICE } from '../rosterLock'
 import { MAX_TEAM_MEMBERS, rosterCount } from '../teamSize'
 
 type PendingAction =
@@ -333,8 +334,7 @@ export function MyTeamPage() {
 
         {team.locked && (
           <Alert kind="info" className="mb-4">
-            El equipo está inscrito en un torneo activo o en progreso. No es posible modificar el nombre ni los colores, ni
-            sumar o retirar integrantes hasta que el torneo finalice.
+            {TEAM_LOCKED_NOTICE}
           </Alert>
         )}
 

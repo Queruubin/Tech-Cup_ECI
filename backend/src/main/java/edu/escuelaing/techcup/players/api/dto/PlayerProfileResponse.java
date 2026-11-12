@@ -11,8 +11,9 @@ public record PlayerProfileResponse(
         Long teamId,
         String teamName,
         /*
-         * True while the player's team is locked by a tournament (APPROVED registration in an
-         * ACTIVE, IN_PROGRESS or SUSPENDED one): the jersey number cannot change then.
+         * True while the player's team is locked by a tournament (APPROVED registration in one
+         * that has started: IN_PROGRESS, or SUSPENDED from IN_PROGRESS): the jersey number cannot
+         * change then.
          */
         boolean teamLocked) {
 }

@@ -25,12 +25,12 @@ import edu.escuelaing.techcup.teams.domain.TeamEligibility;
 import edu.escuelaing.techcup.teams.domain.TeamMember;
 import edu.escuelaing.techcup.teams.domain.TeamStatus;
 import edu.escuelaing.techcup.teams.infrastructure.TeamRepository;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -41,17 +41,33 @@ import org.springframework.web.multipart.MultipartFile;
  *   <li>Create (any PLAYER): unique name; the creator needs a sport profile, becomes the first
  *       member and, in the same transaction, the team captain (CAPTAIN role granted through
  *       {@link RoleService#grantCaptainForNewTeam}); a user belongs to at most one ACTIVE team.</li>
- *   <li>Add member: team ACTIVE and not locked ({@link TeamLockPort}: its roster is frozen while
- *       it plays a tournament), fewer than {@value TeamEligibility#MAX_MEMBERS} members, player
- *       has a profile, jersey number unique within the team, player not in another active team.</li>
+ *   <li>Roster freeze ({@link TeamLockPort#isLocked}): a team with an APPROVED registration in a
+ *       tournament that has started (IN_PROGRESS, or SUSPENDED from IN_PROGRESS) is locked until
+ *       the tournament finishes: no member joins, leaves or is removed, and the team cannot be
+ *       renamed or inactivated. Paying and being approved does not freeze it.</li>
+ *   <li>Registered but not started ({@link TeamLockPort#upcomingTournamentsOf}): while the team is
+ *       APPROVED in a tournament that is ACTIVE (or SUSPENDED from ACTIVE), every roster change
+ *       (add, remove, leave) must leave a roster that still passes {@link TeamEligibility}, the
+ *       rule the approval checked ({@value TeamEligibility#MIN_MEMBERS} to
+ *       {@value TeamEligibility#MAX_MEMBERS} members, program majority...), so an approved team
+ *       stays valid without a second approval and is valid whenever its tournament starts.</li>
+ *   <li>Add member: team ACTIVE and not locked, fewer than {@value TeamEligibility#MAX_MEMBERS}
+ *       members, player has a profile, jersey number unique within the team, player not in
+ *       another active team, plus the registered-team rule above.</li>
  *   <li>Update name/colors, remove a member, inactivate: only by the team captain (or ADMIN) and
- *       only while the team is not locked by an approved registration in an ACTIVE or
- *       IN_PROGRESS tournament ({@link TeamLockPort}). The captain cannot be removed.
- *       Every roster change (add, remove, leave) locks the team row first, so concurrent changes
- *       and the registration approval (which re-checks the minimum size) serialise on it.
- *       Inactivating a team also cancels its pending join requests and invitations
+ *       only while the team is not locked. The captain cannot be removed. Renaming is allowed
+ *       before the tournament starts (it is cosmetic); inactivating is refused while the team is
+ *       APPROVED in a not-started tournament too (an organizer removes it from the tournament
+ *       first). Inactivating a team also cancels its pending join requests and invitations
  *       ({@link TeamJoinRequestPort}) and revokes CAPTAIN from its captain
  *       ({@link RoleService#revokeCaptainForClosedTeam}).</li>
+ *   <li>Row locks: every roster change (add, remove, leave) and the inactivation lock the team row
+ *       first and only then read the registration state, so they serialise with the registration
+ *       approval (tournament row, then team row; it re-runs the eligibility rule) and with the
+ *       tournament start, which locks every approved team's row to close its recruitment
+ *       ({@link #closeRecruitment}). A change either commits before the approval or the start (the
+ *       approval re-checks the result, the start finds a valid roster) or runs after it and sees
+ *       the new state (the registered-team rule, or the freeze).</li>
  *   <li>Delete (ADMIN only): refused while the team plays any match ({@link TeamMatchPort}) or has
  *       a registration UNDER_REVIEW or APPROVED ({@link TeamRegistrationPort}); the admin deletes
  *       (or suspends, then deletes) that tournament first. Otherwise the team goes with its
@@ -197,6 +213,10 @@ public class TeamService {
         if (team.isCaptain(userId)) {
             throw new BusinessRuleException("No se puede retirar al capitán del equipo.");
         }
+        if (!team.hasMember(userId)) {
+            throw new NotFoundException("El usuario " + userId + " no es integrante del equipo " + teamId + ".");
+        }
+        requireStaysEligibleIfRegistered(team, membersAfterRemoving(team, userId));
         team.removeMember(userId);
         auditService.record(actor.id(), AuditAction.TEAM_MEMBER_REMOVED, ENTITY_TYPE, teamId,
                 Map.of("userId", userId));
@@ -206,9 +226,10 @@ public class TeamService {
     /**
      * The signed-in player leaves the team. Only a member may, never its captain (a team always
      * keeps its captain, who cannot stop being one by hand), and not while the roster is frozen by
-     * a tournament ({@link TeamLockPort}, the same rule as removing a member). The team row is
-     * locked first, so the departure serialises with the other roster changes and with the
-     * registration approval, which re-checks the minimum size under that same lock.
+     * a started tournament ({@link TeamLockPort}); before the start, an approved team must stay
+     * eligible without the leaver (the same rules as removing a member). The team row is locked
+     * first, so the departure serialises with the other roster changes, with the registration
+     * approval (which re-checks the eligibility under that same lock) and with the tournament start.
      *
      * <p>Only the membership ties a player to a team: the profile's and the session's team are
      * derived from it, and a member holds no pending join request or invitation (joining a team
@@ -225,9 +246,10 @@ public class TeamService {
                     + "un administrador puede eliminar el equipo.");
         }
         if (teamLock.isLocked(teamId)) {
-            throw new BusinessRuleException("El equipo '" + team.getName() + "' está inscrito en un torneo activo "
-                    + "o en curso; no puede salir de él hasta que el torneo finalice.");
+            throw new BusinessRuleException("El equipo '" + team.getName() + "' está jugando un torneo que ya "
+                    + "inició; no puede salir de él hasta que el torneo finalice.");
         }
+        requireStaysEligibleIfRegistered(team, membersAfterRemoving(team, actor.id()));
         team.removeMember(actor.id());
         auditService.record(actor.id(), AuditAction.TEAM_MEMBER_LEFT, ENTITY_TYPE, teamId,
                 Map.of("userId", actor.id(), "remainingMembers", team.memberCount()));
@@ -235,15 +257,24 @@ public class TeamService {
 
     /**
      * Inactivates the team, closes the join requests and invitations still waiting for it and
-     * takes the CAPTAIN role away from its captain.
+     * takes the CAPTAIN role away from its captain. Refused while the team plays a tournament and
+     * also while it is APPROVED in one that has not started: an organizer must remove it from that
+     * tournament first. The team row is locked first, so an approval cannot slip in between the
+     * check and the change.
      */
     @Transactional
     public TeamResponse inactivate(AuthenticatedUser actor, Long teamId) {
-        Team team = requireTeam(teamId);
+        Team team = requireTeamForUpdate(teamId);
         requireCaptainOrAdmin(actor, team);
         requireUnlocked(team);
         if (!team.isActive()) {
             throw new BusinessRuleException("El equipo ya está inactivo.");
+        }
+        List<String> upcoming = teamLock.upcomingTournamentsOf(teamId);
+        if (!upcoming.isEmpty()) {
+            throw new BusinessRuleException("El equipo '" + team.getName() + "' está inscrito en "
+                    + tournamentList(upcoming) + ", que aún no " + Messages.agree(upcoming.size(), "inicia", "inician")
+                    + ". Un organizador debe retirarlo del torneo antes de inactivarlo.");
         }
         team.setStatus(TeamStatus.INACTIVE);
         int cancelled = joinRequests.cancelPendingRequestsOf(actor.id(), teamId, TEAM_INACTIVATED);
@@ -335,23 +366,13 @@ public class TeamService {
 
     /** "el torneo «A»" or "los torneos «A», «B»". */
     private static String tournamentList(List<String> names) {
-        String quoted = names.stream().map(name -> "«" + name + "»").collect(Collectors.joining(", "));
-        return (names.size() == 1 ? "el torneo " : "los torneos ") + quoted;
+        return RosterEligibility.tournamentList(names);
     }
 
     @Transactional(readOnly = true)
     public TeamEligibility.Result eligibility(Long teamId) {
         Team team = requireTeam(teamId);
-        Map<Long, MemberProfilePort.MemberProfile> profiles = memberProfiles.findProfiles(team.memberIds());
-        List<TeamEligibility.MemberFacts> facts = team.getMembers().stream()
-                .map(TeamMember::getUser)
-                .map(user -> {
-                    var profile = profiles.get(user.getId());
-                    return new TeamEligibility.MemberFacts(user.getId(), user.getFullName(), profile != null,
-                            profile == null ? null : profile.jerseyNumber(), user.getAcademicProgram());
-                })
-                .toList();
-        return TeamEligibility.check(facts);
+        return RosterEligibility.check(members(team), memberProfiles.findProfiles(team.memberIds()), Map.of());
     }
 
     /**
@@ -406,22 +427,32 @@ public class TeamService {
             throw new BusinessRuleException("El número de camiseta " + profile.jerseyNumber()
                     + " ya está en uso en el equipo '" + team.getName() + "'.");
         }
-        team.addMember(userService.getUser(userId));
+        AppUser player = userService.getUser(userId);
+        List<AppUser> after = new ArrayList<>(members(team));
+        after.add(player);
+        requireStaysEligibleIfRegistered(team, after);
+        team.addMember(player);
     }
 
     /**
-     * Closes recruitment when the team's roster becomes frozen (its tournament registration was
-     * approved): the join requests and invitations still pending could never be accepted any more,
-     * so they are cancelled instead of being left for players to trip over.
+     * Closes recruitment when the team's roster becomes frozen (the tournament where it is
+     * APPROVED starts): the join requests and invitations still pending could never be accepted
+     * any more, so they are cancelled instead of being left for players to trip over. The team row
+     * is locked first, so a roster change already under way commits before the start does, and one
+     * arriving later sees the started tournament (and the freeze).
      *
      * @return how many requests and invitations were cancelled
      */
     @Transactional
     public int closeRecruitment(Long actorUserId, Long teamId) {
+        requireTeamForUpdate(teamId);
         return joinRequests.cancelPendingRequestsOf(actorUserId, teamId, ROSTER_FROZEN);
     }
 
-    /** Whether the team is registered (APPROVED) in an ACTIVE or IN_PROGRESS tournament. */
+    /**
+     * Whether the team's roster is frozen: APPROVED in a tournament that has started (IN_PROGRESS,
+     * or SUSPENDED from IN_PROGRESS).
+     */
     @Transactional(readOnly = true)
     public boolean isLocked(Long teamId) {
         return teamLock.isLocked(teamId);
@@ -454,8 +485,34 @@ public class TeamService {
 
     private void requireUnlocked(Team team) {
         if (teamLock.isLocked(team.getId())) {
-            throw new BusinessRuleException("El equipo '" + team.getName() + "' está inscrito en un torneo activo "
-                    + "o en progreso, por lo que no se puede modificar.");
+            throw new BusinessRuleException("El equipo '" + team.getName() + "' está jugando un torneo que ya "
+                    + "inició, por lo que no se puede modificar hasta que el torneo finalice.");
         }
+    }
+
+    /**
+     * While the team is APPROVED in a tournament that has not started, refuses a roster change
+     * whose result would fail {@link TeamEligibility}. Called with the team row already locked.
+     */
+    private void requireStaysEligibleIfRegistered(Team team, List<AppUser> resultingMembers) {
+        List<String> upcoming = teamLock.upcomingTournamentsOf(team.getId());
+        if (upcoming.isEmpty()) {
+            return;
+        }
+        List<Long> ids = resultingMembers.stream().map(AppUser::getId).toList();
+        TeamEligibility.Result result =
+                RosterEligibility.check(resultingMembers, memberProfiles.findProfiles(ids), Map.of());
+        if (!result.eligible()) {
+            throw new BusinessRuleException(
+                    RosterEligibility.registeredTeamRefusal(team.getName(), upcoming, result.problems()));
+        }
+    }
+
+    private static List<AppUser> members(Team team) {
+        return team.getMembers().stream().map(TeamMember::getUser).toList();
+    }
+
+    private static List<AppUser> membersAfterRemoving(Team team, Long userId) {
+        return members(team).stream().filter(user -> !user.getId().equals(userId)).toList();
     }
 }

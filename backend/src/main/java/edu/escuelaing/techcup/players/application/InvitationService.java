@@ -31,7 +31,8 @@ import org.springframework.transaction.annotation.Transactional;
  * whose direction is {@link JoinRequestDirection#INVITATION}. Rules enforced here:
  * <ul>
  *   <li>Only the team captain (or an ADMIN) invites; the team must be ACTIVE, not full and not
- *       locked by a tournament (its roster is frozen).</li>
+ *       locked by a tournament that has started (its roster is frozen; an approval alone does not
+ *       freeze it, the acceptance then keeps the approved team eligible).</li>
  *   <li>The invited user must be ACTIVE, hold the PLAYER role, have a sport profile and not
  *       belong to an ACTIVE team. A team cannot hold two PENDING invitations for the same
  *       player; a player may hold pending invitations from several teams, and they do not count

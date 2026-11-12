@@ -28,8 +28,10 @@ public interface TeamGateway {
     TeamRef getTeam(Long teamId);
 
     /**
-     * Whether the team is locked: registered (APPROVED) in an ACTIVE, IN_PROGRESS or SUSPENDED
-     * tournament, so its roster is frozen and it cannot take new players.
+     * Whether the team is locked: registered (APPROVED) in a tournament that has started
+     * (IN_PROGRESS, or SUSPENDED from IN_PROGRESS), so its roster is frozen and it cannot take new
+     * players. Approved in a tournament that has not started yet, it still can (the teams module
+     * then keeps the roster eligible on every change).
      */
     boolean isLocked(Long teamId);
 
@@ -43,8 +45,9 @@ public interface TeamGateway {
     List<Long> lockMemberIds(Long teamId);
 
     /**
-     * Adds a player to a team enforcing the team rules (active team, capacity, unique jersey,
-     * player not in another team, player has a profile).
+     * Adds a player to a team enforcing the team rules (active team, not frozen, capacity, unique
+     * jersey, player not in another team, player has a profile, and an approved team in a
+     * not-started tournament stays eligible).
      *
      * @throws edu.escuelaing.techcup.shared.exception.BusinessRuleException when a rule is violated
      */

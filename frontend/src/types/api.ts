@@ -335,6 +335,11 @@ export interface TeamResponse {
   captain: UserSummary
   members: TeamMember[]
   memberCount: number
+  /**
+   * Roster frozen: APPROVED in a tournament that has started (in progress, or suspended while in
+   * progress). False for a team approved in a tournament that has not started: it may still change its
+   * roster while it stays eligible.
+   */
   locked: boolean
   /** Optional team photo (GridFS id, any authenticated user may load it). */
   photoFileId: string | null

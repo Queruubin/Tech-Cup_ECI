@@ -55,6 +55,8 @@ class UserServiceTest {
     @Mock
     private UserFactsPort userFacts;
     @Mock
+    private TeamEligibilityGuardPort teamEligibility;
+    @Mock
     private PasswordEncoder passwordEncoder;
     @Mock
     private AuditService auditService;
@@ -66,7 +68,7 @@ class UserServiceTest {
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(users, userFacts, passwordEncoder, auditService);
+        userService = new UserService(users, userFacts, teamEligibility, passwordEncoder, auditService);
     }
 
     // --- team facts ---------------------------------------------------------------------------
@@ -86,20 +88,22 @@ class UserServiceTest {
 
     // --- inactivation -------------------------------------------------------------------------
 
+    /** Wider than the roster freeze: approved in a tournament that has not started counts too. */
     @Test
-    void inactivationIsRefusedWhileLockedByATournament() {
+    void inactivationIsRefusedWhileTheUserBelongsToARegisteredTeam() {
         when(users.findById(10L)).thenReturn(Optional.of(activeUser(10L)));
-        when(userFacts.isLockedByTournament(10L)).thenReturn(true);
+        when(userFacts.belongsToRegisteredTeam(10L)).thenReturn(true);
 
         assertThatThrownBy(() -> userService.inactivate(ADMIN, 10L))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("torneo activo o en progreso");
+        verify(userFacts, never()).isLockedByTournament(anyLong());
     }
 
     @Test
     void inactivationIsRefusedWhileTheUserCaptainsAnActiveTeam() {
         when(users.findById(10L)).thenReturn(Optional.of(activeUser(10L)));
-        when(userFacts.isLockedByTournament(10L)).thenReturn(false);
+        when(userFacts.belongsToRegisteredTeam(10L)).thenReturn(false);
         when(userFacts.captainsActiveTeam(10L)).thenReturn(true);
 
         assertThatThrownBy(() -> userService.inactivate(ADMIN, 10L))
@@ -111,7 +115,7 @@ class UserServiceTest {
     void inactivatesAnUnlockedUser() {
         AppUser user = activeUser(10L);
         when(users.findById(10L)).thenReturn(Optional.of(user));
-        when(userFacts.isLockedByTournament(10L)).thenReturn(false);
+        when(userFacts.belongsToRegisteredTeam(10L)).thenReturn(false);
         when(userFacts.captainsActiveTeam(10L)).thenReturn(false);
         when(userFacts.activeTeamIdOf(anyLong())).thenReturn(Optional.empty());
 
@@ -232,8 +236,8 @@ class UserServiceTest {
 
     // --- eligibility data frozen during a tournament --------------------------------------------
 
-    private static final String LOCKED_ELIGIBILITY_DATA = "El usuario está inscrito con su equipo en un torneo "
-            + "activo o en curso; su relación con la Escuela y su programa no se pueden modificar hasta que el "
+    private static final String LOCKED_ELIGIBILITY_DATA = "El usuario está jugando con su equipo un torneo que "
+            + "ya inició; su relación con la Escuela y su programa no se pueden modificar hasta que el "
             + "torneo finalice.";
 
     @Test
@@ -250,6 +254,51 @@ class UserServiceTest {
         }
         assertThat(user.getAcademicProgram()).isEqualTo(AcademicProgram.SYSTEMS_ENGINEERING);
         verify(auditService, never()).record(any(), any(), anyString(), anyLong(), any());
+        verify(teamEligibility, never()).requireProgramChangeKeepsTeamEligible(any(), any());
+    }
+
+    /** Before the start the teams module decides: the change must keep the approved team eligible. */
+    @Test
+    void beforeTheStartAProgramChangeIsRefusedWhenItWouldBreakTheTeamsEligibility() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        when(userFacts.isLockedByTournament(10L)).thenReturn(false);
+        String refusal = "El equipo 'Tigers' está inscrito en el torneo «Copa», que aún no inicia: debe seguir "
+                + "cumpliendo los requisitos para participar y con este cambio no los cumpliría. Más de la mitad...";
+        org.mockito.Mockito.doThrow(new BusinessRuleException(refusal))
+                .when(teamEligibility).requireProgramChangeKeepsTeamEligible(10L, AcademicProgram.OTHER);
+
+        assertThatThrownBy(() -> userService.updateBasicInfo(PLAYER, 10L,
+                new UpdateUserRequest("Ana", null, AcademicProgram.OTHER, 5, null)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage(refusal);
+        assertThat(user.getAcademicProgram()).isEqualTo(AcademicProgram.SYSTEMS_ENGINEERING);
+        verify(auditService, never()).record(any(), any(), anyString(), anyLong(), any());
+    }
+
+    @Test
+    void beforeTheStartAProgramChangeThatKeepsTheTeamEligibleGoesThrough() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        when(userFacts.isLockedByTournament(10L)).thenReturn(false);
+        when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.of(5L));
+
+        userService.updateBasicInfo(PLAYER, 10L, new UpdateUserRequest("Ana", null, AcademicProgram.OTHER, 5, null));
+
+        verify(teamEligibility).requireProgramChangeKeepsTeamEligible(10L, AcademicProgram.OTHER);
+        assertThat(user.getAcademicProgram()).isEqualTo(AcademicProgram.OTHER);
+    }
+
+    @Test
+    void anUnchangedProgramDoesNotAskTheTeamsModule() {
+        AppUser user = activeUser(10L);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
+        when(userFacts.activeTeamIdOf(10L)).thenReturn(Optional.of(5L));
+
+        userService.updateBasicInfo(PLAYER, 10L,
+                new UpdateUserRequest("Ana", null, AcademicProgram.SYSTEMS_ENGINEERING, 5, null));
+
+        verify(teamEligibility, never()).requireProgramChangeKeepsTeamEligible(any(), any());
     }
 
     @Test

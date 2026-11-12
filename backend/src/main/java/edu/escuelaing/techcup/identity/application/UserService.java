@@ -31,13 +31,17 @@ import org.springframework.transaction.annotation.Transactional;
  * <ul>
  *   <li>Name, academic program and semester are editable by the user or an ADMIN; the school
  *       relation only by an ADMIN; e-mail is immutable. Semester is required iff STUDENT.
- *       While the user plays a tournament with their team (APPROVED registration in an ACTIVE or
- *       IN_PROGRESS tournament) nobody, not even an ADMIN, may change the school relation or the
- *       academic program, since both decide the team's eligibility.</li>
+ *       While the user plays a tournament with their team (APPROVED registration in a tournament
+ *       that has started: IN_PROGRESS, or SUSPENDED from IN_PROGRESS) nobody, not even an ADMIN,
+ *       may change the school relation or the academic program, since both decide the team's
+ *       eligibility. Before the start, a member of a team APPROVED in the tournament may change
+ *       them only while the team stays eligible (program majority), checked by the teams module
+ *       through {@link TeamEligibilityGuardPort}.</li>
  *   <li>A user changes their own password by proving the current one; an ADMIN may reset any
  *       password.</li>
  *   <li>Inactivation is refused while the user belongs to a team with an APPROVED registration
- *       in an ACTIVE or IN_PROGRESS tournament, or while they captain an ACTIVE team.</li>
+ *       in a tournament that has not finished (started or not), or while they captain an ACTIVE
+ *       team.</li>
  *   <li>The contact phone is optional and editable by the user or an ADMIN at any time (it is not
  *       frozen by tournaments); it is stored normalised ({@link PhoneNumbers}).</li>
  *   <li>Personal data (e-mail, phone, birth date, identity document) is only returned to the user
@@ -52,18 +56,20 @@ public class UserService {
 
     static final String ENTITY_TYPE = "USER";
     static final String WRONG_CURRENT_PASSWORD = "La contraseña actual no es correcta.";
-    static final String LOCKED_ELIGIBILITY_DATA = "El usuario está inscrito con su equipo en un torneo activo o en curso; "
+    static final String LOCKED_ELIGIBILITY_DATA = "El usuario está jugando con su equipo un torneo que ya inició; "
             + "su relación con la Escuela y su programa no se pueden modificar hasta que el torneo finalice.";
 
     private final AppUserRepository users;
     private final UserFactsPort userFacts;
+    private final TeamEligibilityGuardPort teamEligibility;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
 
-    public UserService(AppUserRepository users, UserFactsPort userFacts, PasswordEncoder passwordEncoder,
-                       AuditService auditService) {
+    public UserService(AppUserRepository users, UserFactsPort userFacts, TeamEligibilityGuardPort teamEligibility,
+                       PasswordEncoder passwordEncoder, AuditService auditService) {
         this.users = users;
         this.userFacts = userFacts;
+        this.teamEligibility = teamEligibility;
         this.passwordEncoder = passwordEncoder;
         this.auditService = auditService;
     }
@@ -123,7 +129,10 @@ public class UserService {
         return userFacts.activeTeamIdOf(userId).isPresent() || userFacts.captainsActiveTeam(userId);
     }
 
-    /** True when the user belongs to a team with an APPROVED registration in an ACTIVE or IN_PROGRESS tournament. */
+    /**
+     * True when the user belongs to a team with an APPROVED registration in a tournament that has
+     * started (IN_PROGRESS, or SUSPENDED from IN_PROGRESS): the team's roster is frozen.
+     */
     @Transactional(readOnly = true)
     public boolean isLockedByTournament(Long userId) {
         return userFacts.isLockedByTournament(userId);
@@ -146,6 +155,10 @@ public class UserService {
             throw new BusinessRuleException(LOCKED_ELIGIBILITY_DATA);
         }
         validateSemester(relation, request.semester());
+        if (program != user.getAcademicProgram()) {
+            // Before the start, a team APPROVED in the tournament must keep its program majority.
+            teamEligibility.requireProgramChangeKeepsTeamEligible(userId, program);
+        }
 
         user.setFullName(request.fullName().trim());
         user.setSchoolRelation(relation);
@@ -196,7 +209,9 @@ public class UserService {
         if (!user.isActive()) {
             throw new BusinessRuleException("El usuario ya está inactivo.");
         }
-        if (userFacts.isLockedByTournament(userId)) {
+        // Wider than the roster freeze on purpose: an approved team keeps its players until its
+        // tournament ends; before the start the captain can remove the player first.
+        if (userFacts.belongsToRegisteredTeam(userId)) {
             throw new BusinessRuleException("El usuario pertenece a un equipo inscrito en un torneo activo "
                     + "o en progreso, por lo que no se puede inactivar.");
         }

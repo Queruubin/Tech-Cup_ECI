@@ -37,9 +37,9 @@ import org.springframework.web.multipart.MultipartFile;
  *       A replaced or removed photo is deleted once the change is committed. An ADMIN may remove
  *       any player's photo (moderation); the owner can upload another one afterwards.</li>
  *   <li>The position can always be changed. The jersey number too, except while the player's
- *       team is locked by a tournament ({@link TeamGateway#isLocked}); inside a team it must stay
- *       unique among the teammates. A jersey change takes the team row lock, so it serialises
- *       with teammates' changes and with the registration approval that locks the team.</li>
+ *       team is locked by a tournament that has started ({@link TeamGateway#isLocked}); inside a
+ *       team it must stay unique among the teammates. A jersey change takes the team row lock, so
+ *       it serialises with teammates' changes, the registration approval and the tournament start.</li>
  *   <li>The players directory lists only ACTIVE users who currently hold the PLAYER role (a profile
  *       outlives the role); the free-agent search additionally requires no active team.</li>
  * </ul>

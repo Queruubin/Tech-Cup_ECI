@@ -26,7 +26,10 @@ public enum RegistrationStatus {
         }
     },
 
-    /** Accepted by an organizer: the team takes part and is locked while the tournament is live. */
+    /**
+     * Accepted by an organizer: the team takes part. Until the tournament starts its roster may
+     * change only while it stays eligible; once it starts the roster is locked.
+     */
     APPROVED("aprobada") {
         @Override
         public Set<RegistrationStatus> allowedTargets() {

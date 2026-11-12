@@ -33,12 +33,12 @@ public final class Messages {
 
     /**
      * Refusal for any change that would add players to a team whose roster is frozen because it
-     * is registered (APPROVED) in an ACTIVE or IN_PROGRESS tournament. Shared by the teams module
-     * (which enforces it on every membership) and the players module (which refuses early when a
-     * join request or an invitation would target such a team).
+     * is registered (APPROVED) in a tournament that has started (IN_PROGRESS). Shared by the teams
+     * module (which enforces it on every membership) and the players module (which refuses early
+     * when a join request or an invitation would target such a team).
      */
     public static String frozenRoster(String teamName) {
-        return "El equipo '" + teamName + "' está inscrito en un torneo activo o en curso; "
+        return "El equipo '" + teamName + "' está jugando un torneo que ya inició; "
                 + "su plantilla no se puede modificar hasta que el torneo finalice.";
     }
 }

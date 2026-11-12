@@ -28,7 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
  * Spreadsheet of the players of a tournament, for the administrator (insurance, ID checks,
  * eligibility). ADMIN only, in any tournament status (SUSPENDED and FINISHED included).
  * <ul>
- *   <li>Sheet "Aprobados": one row per member of every team with an APPROVED registration.</li>
+ *   <li>Sheet "Aprobados": one row per member of every team with an APPROVED registration (a
+ *       snapshot too until the tournament starts: those rosters may still change while they stay
+ *       eligible).</li>
  *   <li>Sheet "En revisión": the same for UNDER_REVIEW registrations, so the administrator can
  *       check the players before approving. Those rosters are not frozen yet, so the sheet is a
  *       snapshot; it is empty once the tournament has started (pending registrations are then

@@ -3,10 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuthStore } from '@/store/auth.store'
+import { useUiStore } from '@/store/ui.store'
 import type { Role, TeamMember, TeamResponse, UserResponse } from '@/types/api'
 import { MyTeamPage } from './pages/MyTeamPage'
 import { TeamDetailPage } from './pages/TeamDetailPage'
-import { LEAVE_FROZEN_HINT } from './rosterLock'
+import { LEAVE_FROZEN_HINT, ROSTER_FROZEN_NOTICE, TEAM_LOCKED_NOTICE } from './rosterLock'
 import { MAX_TEAM_MEMBERS, MIN_TEAM_MEMBERS, TEAM_SIZE_RULE, rosterCount } from './teamSize'
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -200,6 +201,70 @@ describe('"Salir del equipo" on the team page', () => {
     renderTeamPage()
     expect(await screen.findByRole('heading', { name: 'Leones FC' }, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Salir del equipo' })).not.toBeInTheDocument()
+  })
+})
+
+describe('roster controls follow the tournament start, not the approval', () => {
+  it('lets the captain of a team approved in a not-started tournament (not locked) remove and invite', async () => {
+    signIn(me(CAPTAIN_ID, 4, ['PLAYER', 'CAPTAIN']))
+    serve(makeTeam({ locked: false }), me(CAPTAIN_ID, 4))
+    renderMyTeam()
+
+    const remove = await screen.findByRole('button', { name: 'Retirar' }, { timeout: 3000 })
+    expect(remove).toBeEnabled()
+    expect(screen.getAllByRole('button', { name: 'Ver jugadores disponibles' }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Editar equipo' })).toBeEnabled()
+    expect(screen.queryByText(TEAM_LOCKED_NOTICE)).not.toBeInTheDocument()
+    expect(screen.queryByText(ROSTER_FROZEN_NOTICE)).not.toBeInTheDocument()
+  })
+
+  it('lets a member of such a team leave', async () => {
+    signIn(me(MEMBER_ID, 4))
+    serve(makeTeam({ locked: false }), me(MEMBER_ID, 4))
+    renderMyTeam()
+
+    expect(await screen.findByRole('button', { name: 'Salir del equipo' }, { timeout: 3000 })).toBeEnabled()
+    expect(screen.queryByText(LEAVE_FROZEN_HINT)).not.toBeInTheDocument()
+  })
+
+  it('freezes everything once the tournament has started (locked)', async () => {
+    signIn(me(CAPTAIN_ID, 4, ['PLAYER', 'CAPTAIN']))
+    serve(makeTeam({ locked: true }), me(CAPTAIN_ID, 4))
+    renderMyTeam()
+
+    expect(await screen.findByText(TEAM_LOCKED_NOTICE, {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retirar' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Editar equipo' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Ver jugadores disponibles' })).not.toBeInTheDocument()
+  })
+
+  it('shows a removal refused by the minimum size as a normal error message', async () => {
+    signIn(me(CAPTAIN_ID, 4, ['PLAYER', 'CAPTAIN']))
+    const refusal =
+      "El equipo 'Leones FC' está inscrito en el torneo «Copa», que aún no inicia: debe seguir cumpliendo los requisitos " +
+      'para participar y con este cambio no los cumpliría. El equipo tiene 7 integrantes; se requieren al menos 8.'
+    serve(makeTeam({ locked: false }), me(CAPTAIN_ID, 4))
+    const served = vi.mocked(globalThis.fetch).getMockImplementation()!
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      if (init?.method === 'DELETE' && String(input).endsWith('/teams/4/members/2')) {
+        return jsonResponse({ status: 409, message: refusal }, 409)
+      }
+      return served(input, init)
+    })
+    renderMyTeam()
+
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Retirar' }, { timeout: 3000 }))
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getAllByRole('button').at(-1)!)
+
+    // The page reports it like any other refusal: an error toast with the server's message.
+    await waitFor(
+      () => expect(useUiStore.getState().toasts).toContainEqual(expect.objectContaining({ kind: 'error', message: refusal })),
+      { timeout: 3000 },
+    )
+    expect(screen.getByText('Pedro Gómez')).toBeInTheDocument()
+    useUiStore.getState().clearToasts()
   })
 })
 

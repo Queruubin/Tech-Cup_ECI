@@ -33,11 +33,13 @@ import org.springframework.transaction.annotation.Transactional;
  * <ul>
  *   <li>Only a player with a sport profile and no active team can request; at most ONE
  *       PENDING request at a time (pending invitations do not count); the target team must be
- *       ACTIVE, not full and not locked by a tournament (its roster is frozen).</li>
+ *       ACTIVE, not full and not locked by a tournament that has started (its roster is frozen;
+ *       an approval alone does not freeze it).</li>
  *   <li>The player may cancel while PENDING; the team captain accepts or rejects. Invitations
  *       are refused by these operations (409).</li>
  *   <li>Accepting locks the player's row, adds the member through the teams module (which
- *       re-validates capacity, jersey uniqueness and "one team per player") and cancels the
+ *       re-validates the freeze, capacity, jersey uniqueness, "one team per player" and, for a
+ *       team approved in a tournament that has not started, its eligibility) and cancels the
  *       player's other pending requests and invitations ({@link #completeMembership}, shared with
  *       invitation acceptance).</li>
  *   <li>When a team is inactivated its pending requests are cancelled on its behalf.</li>

@@ -12,6 +12,7 @@ import { useAuth } from '@/features/auth/hooks/useAuth'
 import { EligibilityPanel } from '@/features/teams/components/EligibilityPanel'
 import { useEligibility, useMyTeam } from '@/features/teams/hooks/useTeams'
 import { canCreateTeam } from '@/features/teams/myTeamView'
+import { approvedRosterNote } from '@/features/teams/rosterLock'
 import { cn } from '@/lib/cn'
 import { formatDate, formatDateTime, formatMoney } from '@/lib/format'
 import {
@@ -176,7 +177,9 @@ export function CaptainRegistration({ tournament, onRegistered }: CaptainRegistr
                     </Alert>
                   )}
                   {current.status === 'APPROVED' && (
-                    <p className="mb-3 text-sm text-stone-600">Su equipo participa en el torneo. Mientras el torneo esté activo o en progreso, la plantilla queda bloqueada.</p>
+                    <p className="mb-3 text-sm text-stone-600">
+                      {approvedRosterNote(tournament.status, tournament.suspendedFromStatus)}
+                    </p>
                   )}
                   <div className="flex flex-wrap gap-2">
                     {current.receiptFileId && (

@@ -163,7 +163,7 @@ class RoleServiceTest {
         for (Role role : new Role[] {Role.PLAYER, Role.CAPTAIN}) {
             assertThatThrownBy(() -> roleService.removeRole(ADMIN, 10L, role))
                     .isInstanceOf(BusinessRuleException.class)
-                    .hasMessage("El usuario está inscrito con su equipo en un torneo activo o en curso; "
+                    .hasMessage("El usuario está jugando con su equipo un torneo que ya inició; "
                             + "no se pueden cambiar sus roles de jugador o capitán hasta que el torneo finalice.");
         }
         assertThat(user.getRoles()).containsExactlyInAnyOrder(Role.PLAYER, Role.CAPTAIN);

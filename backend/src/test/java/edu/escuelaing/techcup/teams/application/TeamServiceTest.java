@@ -175,10 +175,173 @@ class TeamServiceTest {
 
         assertThatThrownBy(() -> service.addMember(5L, 10L))
                 .isInstanceOf(BusinessRuleException.class)
-                .hasMessage("El equipo '" + team.getName() + "' está inscrito en un torneo activo o en curso; "
+                .hasMessage("El equipo '" + team.getName() + "' está jugando un torneo que ya inició; "
                         + "su plantilla no se puede modificar hasta que el torneo finalice.");
         assertThat(team.hasMember(10L)).isFalse();
         verify(userService, never()).getUser(10L);
+    }
+
+    // --- approved in a tournament that has not started: changes keep the team eligible ---------
+
+    @Test
+    void anApprovedTeamWhoseTournamentHasNotStartedStillTakesNewMembers() {
+        Team team = eligibleTeam(8);
+        givenLockedRow(team);
+        when(teamLock.upcomingTournamentsOf(5L)).thenReturn(List.of("Copa"));
+        givenNewPlayer(user(10L), 77);
+
+        service.addMember(5L, 10L);
+
+        assertThat(team.hasMember(10L)).isTrue();
+        assertThat(team.memberCount()).isEqualTo(9);
+    }
+
+    @Test
+    void anApprovedTeamCannotGrowPastTheMaximumEvenBeforeTheStart() {
+        Team team = eligibleTeam(TeamEligibility.MAX_MEMBERS);
+        givenLockedRow(team);
+
+        assertThatThrownBy(() -> service.addMember(5L, 10L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("El equipo 'Tigers' ya está completo (13 integrantes).");
+        assertThat(team.memberCount()).isEqualTo(13);
+    }
+
+    /** The approval checked the program majority: a new member cannot break it before the start. */
+    @Test
+    void anApprovedTeamCannotTakeAMemberThatBreaksItsProgramMajority() {
+        // 9 members, 5 of them from organizing programs (5 * 2 > 9): eligible. A 10th from OTHER
+        // would leave 5 of 10, which is not "strictly more than half".
+        Team team = eligibleTeam(9);
+        for (long id = 101; id <= 104; id++) {
+            long memberId = id;
+            team.getMembers().stream().filter(m -> m.userId().equals(memberId))
+                    .forEach(m -> m.getUser().setAcademicProgram(AcademicProgram.OTHER));
+        }
+        givenLockedRow(team);
+        when(teamLock.upcomingTournamentsOf(5L)).thenReturn(List.of("Copa"));
+        givenNewPlayer(userFrom(10L, AcademicProgram.OTHER), 77);
+
+        assertThatThrownBy(() -> service.addMember(5L, 10L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("El equipo 'Tigers' está inscrito en el torneo «Copa», que aún no inicia: debe seguir "
+                        + "cumpliendo los requisitos para participar y con este cambio no los cumpliría. "
+                        + "Más de la mitad de los integrantes deben pertenecer a los programas de Sistemas, "
+                        + "Inteligencia Artificial, Ciberseguridad o Estadística (5 de 10 cumplen).");
+        assertThat(team.hasMember(10L)).isFalse();
+    }
+
+    @Test
+    void anApprovedTeamMayLoseAMemberBeforeTheStartWhileItKeepsTheMinimum() {
+        Team team = eligibleTeam(9);
+        givenLockedRow(team);
+        when(teamLock.upcomingTournamentsOf(5L)).thenReturn(List.of("Copa"));
+        givenProfilesForAll();
+
+        service.removeMember(CAPTAIN, 5L, 101L);
+
+        assertThat(team.hasMember(101L)).isFalse();
+        assertThat(team.memberCount()).isEqualTo(8);
+        verify(auditService).record(eq(20L), eq(AuditAction.TEAM_MEMBER_REMOVED), anyString(), eq(5L), any());
+    }
+
+    @Test
+    void anApprovedTeamCannotDropBelowTheMinimumBeforeTheStart() {
+        Team team = eligibleTeam(8);
+        givenLockedRow(team);
+        when(teamLock.upcomingTournamentsOf(5L)).thenReturn(List.of("Copa"));
+        givenProfilesForAll();
+
+        assertThatThrownBy(() -> service.removeMember(CAPTAIN, 5L, 101L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("El equipo 'Tigers' está inscrito en el torneo «Copa», que aún no inicia: debe seguir "
+                        + "cumpliendo los requisitos para participar y con este cambio no los cumpliría. "
+                        + "El equipo tiene 7 integrantes; se requieren al menos 8.");
+        assertThat(team.memberCount()).isEqualTo(8);
+        verify(auditService, never()).record(any(), any(), anyString(), any(), any());
+    }
+
+    @Test
+    void aMemberCannotLeaveAnApprovedTeamBelowTheMinimumBeforeTheStart() {
+        Team team = eligibleTeam(8);
+        givenLockedRow(team);
+        when(teamLock.upcomingTournamentsOf(5L)).thenReturn(List.of("Copa", "Liga"));
+        givenProfilesForAll();
+
+        assertThatThrownBy(() -> service.leave(memberActor(101L), 5L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageStartingWith("El equipo 'Tigers' está inscrito en los torneos «Copa», «Liga», que aún no "
+                        + "inician:")
+                .hasMessageEndingWith("El equipo tiene 7 integrantes; se requieren al menos 8.");
+        assertThat(team.hasMember(101L)).isTrue();
+    }
+
+    @Test
+    void aMemberMayLeaveAnApprovedTeamBeforeTheStartWhileItKeepsTheMinimum() {
+        Team team = eligibleTeam(9);
+        givenLockedRow(team);
+        when(teamLock.upcomingTournamentsOf(5L)).thenReturn(List.of("Copa"));
+        givenProfilesForAll();
+
+        service.leave(memberActor(101L), 5L);
+
+        assertThat(team.hasMember(101L)).isFalse();
+    }
+
+    /** Without an approved registration in a not-started tournament the minimum only gates registration. */
+    @Test
+    void anUnregisteredTeamMayShrinkBelowTheMinimum() {
+        Team team = eligibleTeam(8);
+        givenLockedRow(team);
+
+        service.removeMember(CAPTAIN, 5L, 101L);
+
+        assertThat(team.memberCount()).isEqualTo(7);
+        verify(memberProfiles, never()).findProfiles(anyCollection());
+    }
+
+    @Test
+    void anApprovedTeamWhoseTournamentHasNotStartedCanBeRenamed() {
+        Team team = teamWithCaptain();
+        when(teams.findById(5L)).thenReturn(Optional.of(team));
+        when(teams.findByNameIgnoreCase("Pumas")).thenReturn(Optional.empty());
+
+        service.update(CAPTAIN, 5L, new UpdateTeamRequest("Pumas", null));
+
+        assertThat(team.getName()).isEqualTo("Pumas");
+        verify(teamLock, never()).upcomingTournamentsOf(any());
+    }
+
+    @Test
+    void anApprovedTeamWhoseTournamentHasNotStartedCannotBeInactivated() {
+        Team team = teamWithCaptain();
+        givenLockedRow(team);
+        when(teamLock.upcomingTournamentsOf(5L)).thenReturn(List.of("Copa"));
+
+        assertThatThrownBy(() -> service.inactivate(CAPTAIN, 5L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessage("El equipo 'Tigers' está inscrito en el torneo «Copa», que aún no inicia. "
+                        + "Un organizador debe retirarlo del torneo antes de inactivarlo.");
+        assertThat(team.isActive()).isTrue();
+        verify(joinRequests, never()).cancelPendingRequestsOf(any(), any(), anyString());
+        verify(roleService, never()).revokeCaptainForClosedTeam(any(), any(), any());
+    }
+
+    /** Started (locked): every roster change is refused, whatever the size. */
+    @Test
+    void aStartedTournamentFreezesRemovalsAndDepartures() {
+        Team team = eligibleTeam(10);
+        givenLockedRow(team);
+        when(teamLock.isLocked(5L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.removeMember(CAPTAIN, 5L, 101L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("torneo que ya inició");
+        assertThatThrownBy(() -> service.leave(memberActor(101L), 5L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("torneo que ya inició");
+        assertThat(team.memberCount()).isEqualTo(10);
+        verify(teamLock, never()).upcomingTournamentsOf(any());
     }
 
     // --- create ------------------------------------------------------------------------------
@@ -251,7 +414,8 @@ class TeamServiceTest {
 
         assertThatThrownBy(() -> service.update(CAPTAIN, 5L, new UpdateTeamRequest("New", null)))
                 .isInstanceOf(BusinessRuleException.class)
-                .hasMessageContaining("torneo activo o en progreso");
+                .hasMessage("El equipo 'Tigers' está jugando un torneo que ya inició, por lo que no se puede "
+                        + "modificar hasta que el torneo finalice.");
     }
 
     @Test
@@ -265,7 +429,7 @@ class TeamServiceTest {
     @Test
     void inactivatingATeamCancelsItsPendingJoinRequests() {
         Team team = teamWithCaptain();
-        when(teams.findById(5L)).thenReturn(Optional.of(team));
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
         when(teamLock.isLocked(5L)).thenReturn(false);
         when(joinRequests.cancelPendingRequestsOf(20L, 5L, "TEAM_INACTIVATED")).thenReturn(2);
 
@@ -280,7 +444,7 @@ class TeamServiceTest {
     @Test
     void inactivatingATeamRevokesCaptainFromItsCaptainAfterItIsInactive() {
         Team team = teamWithCaptain();
-        when(teams.findById(5L)).thenReturn(Optional.of(team));
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
         when(teamLock.isLocked(5L)).thenReturn(false);
         doAnswer(inv -> {
             assertThat(team.isActive()).as("team already inactive when CAPTAIN is revoked").isFalse();
@@ -294,11 +458,22 @@ class TeamServiceTest {
 
     @Test
     void aLockedTeamIsNotInactivatedAndKeepsItsCaptain() {
-        when(teams.findById(5L)).thenReturn(Optional.of(teamWithCaptain()));
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(teamWithCaptain()));
         when(teamLock.isLocked(5L)).thenReturn(true);
 
         assertThatThrownBy(() -> service.inactivate(CAPTAIN, 5L)).isInstanceOf(BusinessRuleException.class);
         verify(roleService, never()).revokeCaptainForClosedTeam(any(), any(), any());
+    }
+
+    /** Inactivation takes the team row lock, so an approval cannot slip in between check and change. */
+    @Test
+    void inactivationLocksTheTeamRow() {
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(teamWithCaptain()));
+
+        service.inactivate(CAPTAIN, 5L);
+
+        verify(teams).findByIdForUpdate(5L);
+        verify(teams, never()).findById(any());
     }
 
     @Test
@@ -452,7 +627,7 @@ class TeamServiceTest {
 
         assertThatThrownBy(() -> service.leave(MEMBER, 5L))
                 .isInstanceOf(BusinessRuleException.class)
-                .hasMessage("El equipo 'Tigers' está inscrito en un torneo activo o en curso; "
+                .hasMessage("El equipo 'Tigers' está jugando un torneo que ya inició; "
                         + "no puede salir de él hasta que el torneo finalice.");
         assertThat(team.hasMember(21L)).isTrue();
         verify(auditService, never()).record(any(), any(), any(), any(), any());
@@ -607,12 +782,58 @@ class TeamServiceTest {
                 .hasMessage("El equipo 'Tigers' no tiene foto.");
     }
 
+    /** Called by the tournament start: the team row is locked before the requests are cancelled. */
     @Test
-    void closingRecruitmentCancelsPendingRequestsAsRosterFrozen() {
+    void closingRecruitmentLocksTheTeamAndCancelsPendingRequestsAsRosterFrozen() {
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(teamWithCaptain()));
         when(joinRequests.cancelPendingRequestsOf(1L, 5L, "ROSTER_FROZEN")).thenReturn(3);
 
         assertThat(service.closeRecruitment(1L, 5L)).isEqualTo(3);
-        verify(joinRequests).cancelPendingRequestsOf(1L, 5L, "ROSTER_FROZEN");
+        InOrder order = inOrder(teams, joinRequests);
+        order.verify(teams).findByIdForUpdate(5L);
+        order.verify(joinRequests).cancelPendingRequestsOf(1L, 5L, "ROSTER_FROZEN");
     }
 
+    // --- helpers for the registered-team rule ----------------------------------------------------
+
+    /** The captain (20) plus members 101, 102... up to {@code size}, all from an organizing program. */
+    private static Team eligibleTeam(int size) {
+        Team team = teamWithCaptain();
+        for (long id = 101; team.memberCount() < size; id++) {
+            team.addMember(user(id));
+        }
+        return team;
+    }
+
+    private void givenLockedRow(Team team) {
+        when(teams.findByIdForUpdate(5L)).thenReturn(Optional.of(team));
+    }
+
+    /** Every user has a profile whose jersey number is their id (so they never clash). */
+    private void givenProfilesForAll() {
+        when(memberProfiles.findProfiles(anyCollection())).thenAnswer(inv -> {
+            Map<Long, MemberProfile> profiles = new java.util.HashMap<>();
+            for (Object id : (java.util.Collection<?>) inv.getArgument(0)) {
+                profiles.put((Long) id, profile((Long) id, ((Long) id).intValue()));
+            }
+            return profiles;
+        });
+    }
+
+    private void givenNewPlayer(AppUser player, int jersey) {
+        when(memberProfiles.findProfile(player.getId())).thenReturn(Optional.of(profile(player.getId(), jersey)));
+        when(teams.findActiveTeamByMember(player.getId())).thenReturn(Optional.empty());
+        when(userService.getUser(player.getId())).thenReturn(player);
+        givenProfilesForAll();
+    }
+
+    private static AuthenticatedUser memberActor(Long id) {
+        return new AuthenticatedUser(id, "m" + id + "@escuelaing.edu.co", Set.of("PLAYER"));
+    }
+
+    private static AppUser userFrom(Long id, AcademicProgram program) {
+        AppUser user = user(id);
+        user.setAcademicProgram(program);
+        return user;
+    }
 }

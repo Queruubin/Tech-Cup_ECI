@@ -60,8 +60,12 @@ import org.springframework.web.multipart.MultipartFile;
  *       and refuses with {@link Tournament#requireNotSuspended}.</li>
  * </ul>
  * The legal transitions themselves belong to the {@link RegistrationStatus} State machine.
- * Approving a registration is what "locks" a team (see {@code teams.application.TeamLockPort}):
- * the lock is derived from the row written here, so it needs no extra bookkeeping.
+ * Approving a registration does not freeze the team's roster: until the tournament starts the team
+ * may still add and remove players, as long as every change keeps it eligible (enforced by the
+ * teams module, see {@code teams.application.TeamLockPort#upcomingTournamentsOf}), so it never
+ * needs a second approval. The freeze ("locked") begins when the tournament starts
+ * ({@link TournamentService#start}). Both are derived from the rows written here and the
+ * tournament status, so they need no extra bookkeeping.
  * Audited as REGISTRATION_CREATED / APPROVED / REJECTED / CANCELLED / FORM_EVIDENCE_UPLOADED.
  */
 @Service
@@ -258,13 +262,13 @@ public class RegistrationService {
             throw new BusinessRuleException(APPROVAL_WITHOUT_FORM_EVIDENCE);
         }
         requireCapacity(tournament);
-        // Roster changes (leave, remove, accept) lock the team row too: the size re-checked here
-        // cannot change before this approval commits and freezes the roster.
+        // Roster changes (leave, remove, accept) lock the team row too: the roster re-checked here
+        // cannot change before this approval commits; afterwards every change sees the APPROVED
+        // registration and must keep the team eligible. Pending requests and invitations stay
+        // open: the roster is only frozen when the tournament starts.
         teamService.requireTeamForUpdate(registration.getTeam().getId());
         requireStillEligible(registration.getTeam());
         registration.moveTo(RegistrationStatus.APPROVED, userService.getUser(actor.id()), note);
-        // The approval freezes the roster: pending requests and invitations can no longer succeed.
-        teamService.closeRecruitment(actor.id(), registration.getTeam().getId());
         auditService.record(actor.id(), AuditAction.REGISTRATION_APPROVED, ENTITY_TYPE, registrationId,
                 Map.of("teamId", registration.getTeam().getId(),
                         "tournamentId", registration.getTournament().getId()));
@@ -285,7 +289,8 @@ public class RegistrationService {
     /**
      * Removes an APPROVED team from a tournament that has not started yet (ORGANIZER; ADMIN inherits
      * the role). The registration is deleted together with its receipt and form evidence, so the team is no longer
-     * locked and may register again while registrations are open; the team and its players are
+     * bound by it (it may be inactivated, and its roster changes no longer need to keep it eligible)
+     * and may register again while registrations are open; the team and its players are
      * untouched. Once the tournament is IN_PROGRESS the fixture exists and the team can only be
      * handled with the match tools. The tournament row is locked first, like {@code approve}, so the
      * removal cannot race with the tournament starting.
@@ -337,8 +342,8 @@ public class RegistrationService {
 
     /**
      * The eligibility gate runs again at approval time: a registration may sit UNDER_REVIEW for
-     * days, and the team lock only starts once it is APPROVED, so in between the roster can shrink
-     * below the minimum, lose a profile, or the team itself can be inactivated.
+     * days, and the roster only has to stay eligible once it is APPROVED, so in between it can
+     * shrink below the minimum, lose its program majority, or the team itself can be inactivated.
      */
     private void requireStillEligible(Team team) {
         if (!team.isActive()) {

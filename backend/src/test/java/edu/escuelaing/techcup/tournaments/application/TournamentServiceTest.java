@@ -23,6 +23,7 @@ import edu.escuelaing.techcup.shared.storage.FileDeletionScheduler;
 import edu.escuelaing.techcup.shared.storage.FileKind;
 import edu.escuelaing.techcup.shared.storage.FileOwner;
 import edu.escuelaing.techcup.shared.storage.FileStorage;
+import edu.escuelaing.techcup.teams.application.TeamService;
 import edu.escuelaing.techcup.teams.domain.Team;
 import edu.escuelaing.techcup.tournaments.api.dto.UpdateTournamentRequest;
 import edu.escuelaing.techcup.tournaments.domain.Registration;
@@ -72,6 +73,8 @@ class TournamentServiceTest {
     @Mock
     private UserService userService;
     @Mock
+    private TeamService teamService;
+    @Mock
     private FileStorage fileStorage;
     @Mock
     private FileDeletionScheduler fileDeletion;
@@ -87,8 +90,8 @@ class TournamentServiceTest {
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(TODAY.atStartOfDay(ZONE).toInstant(), ZONE);
-        service = new TournamentService(tournaments, venues, registrations, userService, fileStorage, fileDeletion,
-                finalMatch, attachedFiles, auditService, clock);
+        service = new TournamentService(tournaments, venues, registrations, userService, teamService, fileStorage,
+                fileDeletion, finalMatch, attachedFiles, auditService, clock);
         lenient().when(registrations.countByTournamentIdAndStatus(eq(1L), eq(RegistrationStatus.APPROVED)))
                 .thenReturn(0L);
     }
@@ -207,6 +210,42 @@ class TournamentServiceTest {
         assertThat(pending.getStatus()).isEqualTo(RegistrationStatus.CANCELLED);
         assertThat(pending.getReviewNote()).isEqualTo(TournamentService.AUTO_CANCEL_NOTE);
         verify(auditService).record(eq(7L), eq(AuditAction.REGISTRATION_CANCELLED), anyString(), eq(9L), any());
+    }
+
+    /** The rosters freeze at the start, not at the approval: recruitment closes now. */
+    @Test
+    void startClosesTheRecruitmentOfEveryApprovedTeam() {
+        Tournament tournament = givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+        Registration tigers = Registration.builder().id(11L).tournament(tournament)
+                .team(Team.builder().id(5L).name("Tigers").build()).status(RegistrationStatus.APPROVED).build();
+        Registration lions = Registration.builder().id(12L).tournament(tournament)
+                .team(Team.builder().id(6L).name("Lions").build()).status(RegistrationStatus.APPROVED).build();
+        when(registrations.countByTournamentIdAndStatus(1L, RegistrationStatus.APPROVED)).thenReturn(2L);
+        when(registrations.findByTournamentIdAndStatusOrderByIdAsc(1L, RegistrationStatus.UNDER_REVIEW))
+                .thenReturn(List.of());
+        when(registrations.findByTournamentIdAndStatusOrderByIdAsc(1L, RegistrationStatus.APPROVED))
+                .thenReturn(List.of(tigers, lions));
+        when(teamService.closeRecruitment(7L, 5L)).thenReturn(2);
+        when(teamService.closeRecruitment(7L, 6L)).thenReturn(1);
+
+        service.start(ORGANIZER, 1L);
+
+        assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.IN_PROGRESS);
+        verify(teamService).closeRecruitment(7L, 5L);
+        verify(teamService).closeRecruitment(7L, 6L);
+        verify(auditService).record(7L, AuditAction.TOURNAMENT_STARTED, TournamentService.ENTITY_TYPE, 1L,
+                Map.of("approvedTeams", 2L, "cancelledRegistrations", 0, "cancelledJoinRequests", 3));
+        // No eligibility re-check at the start: every roster change since the approval kept it.
+        verify(teamService, never()).eligibility(any());
+    }
+
+    @Test
+    void aStartRefusedByItsChecksClosesNoRecruitment() {
+        givenLocked(withStatus(TournamentStatus.ACTIVE, "rulebook-file"));
+        when(registrations.countByTournamentIdAndStatus(1L, RegistrationStatus.APPROVED)).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.start(ORGANIZER, 1L)).isInstanceOf(BusinessRuleException.class);
+        verify(teamService, never()).closeRecruitment(any(), any());
     }
 
     @Test

@@ -6,10 +6,12 @@ import { JoinRequestsPanel } from './components/JoinRequestsPanel'
 import { SentInvitationsPanel } from './components/SentInvitationsPanel'
 import { canCreateTeam, selectMyTeamView } from './myTeamView'
 import {
+  approvedRosterNote,
   isRosterFrozen,
   joinRequestAvailability,
   ROSTER_FROZEN_NOTICE,
   TEAM_NOT_RECRUITING_HINT,
+  tournamentHasStarted,
 } from './rosterLock'
 import { MAX_TEAM_MEMBERS } from './teamSize'
 
@@ -90,6 +92,33 @@ describe('roster freeze of a team playing a tournament', () => {
     const member: TeamMember = { userId: 9, fullName: 'Pedro', position: 'DEFENDER', jerseyNumber: 4, academicProgram: 'OTHER', photoFileId: null }
     expect(joinRequestAvailability({ ...team, members: [member] }, freePlayer)).toBe('hidden')
     expect(joinRequestAvailability(null, freePlayer)).toBe('hidden')
+  })
+})
+
+describe('the roster freezes when the tournament starts, not when the team is approved', () => {
+  it('counts a tournament as started only while in progress (or suspended from in progress)', () => {
+    expect(tournamentHasStarted('IN_PROGRESS', null)).toBe(true)
+    expect(tournamentHasStarted('SUSPENDED', 'IN_PROGRESS')).toBe(true)
+    expect(tournamentHasStarted('SUSPENDED', 'ACTIVE')).toBe(false)
+    expect(tournamentHasStarted('ACTIVE', null)).toBe(false)
+  })
+
+  it('tells the captain of an approved team what they may still do', () => {
+    expect(approvedRosterNote('ACTIVE', null)).toBe(
+      'Su equipo participa en el torneo. Hasta que el torneo inicie puede sumar o retirar integrantes, siempre que el ' +
+        'equipo siga cumpliendo los requisitos (entre 8 y 13 integrantes y más de la mitad de los programas ' +
+        'organizadores). Cuando inicie, la plantilla queda bloqueada.',
+    )
+    expect(approvedRosterNote('SUSPENDED', 'ACTIVE')).toBe(approvedRosterNote('ACTIVE', null))
+    expect(approvedRosterNote('IN_PROGRESS', null)).toBe(
+      'Su equipo participa en el torneo. Como el torneo ya inició, la plantilla queda bloqueada hasta que finalice.',
+    )
+    expect(approvedRosterNote('SUSPENDED', 'IN_PROGRESS')).toBe(approvedRosterNote('IN_PROGRESS', null))
+  })
+
+  it('keeps "Solicitar unirme" open on a team that is approved but not locked', () => {
+    const freePlayer = { userId: 30, isPlayer: true, teamId: null }
+    expect(joinRequestAvailability({ ...team, locked: false }, freePlayer)).toBe('open')
   })
 })
 

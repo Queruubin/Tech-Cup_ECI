@@ -76,7 +76,7 @@ public class AdminUserController {
 
     @PostMapping("/{id}/inactivate")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Inactivate a user not locked by an active tournament")
+    @Operation(summary = "Inactivate a user not in a team approved in an unfinished tournament")
     public UserResponse inactivate(@CurrentUser AuthenticatedUser actor, @PathVariable Long id) {
         return userService.inactivate(actor, id);
     }

@@ -1,6 +1,7 @@
 package edu.escuelaing.techcup.teams.infrastructure;
 
 import edu.escuelaing.techcup.teams.application.TeamLockPort;
+import java.util.List;
 import org.springframework.stereotype.Component;
 
 /** Default {@link TeamLockPort} adapter backed by {@link RegistrationLockQuery}. */
@@ -15,6 +16,11 @@ public class RegistrationTeamLockAdapter implements TeamLockPort {
 
     @Override
     public boolean isLocked(Long teamId) {
-        return query.hasApprovedRegistrationInLiveTournament(teamId);
+        return query.hasApprovedRegistrationInStartedTournament(teamId);
+    }
+
+    @Override
+    public List<String> upcomingTournamentsOf(Long teamId) {
+        return query.findUpcomingTournamentNames(teamId);
     }
 }

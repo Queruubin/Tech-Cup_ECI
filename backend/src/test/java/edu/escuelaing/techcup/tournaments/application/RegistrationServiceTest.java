@@ -237,7 +237,8 @@ class RegistrationServiceTest {
         assertThat(registration.getReviewNote()).isEqualTo("Payment verified");
         assertThat(registration.getReviewedBy()).isNotNull();
         verify(tournamentService).requireTournamentForUpdate(1L);
-        verify(teamService).closeRecruitment(ORGANIZER.id(), registration.getTeam().getId());
+        // Approval no longer freezes the roster: pending requests and invitations stay open until the start.
+        verify(teamService, never()).closeRecruitment(any(), any());
         // The roster is re-checked under the team row lock, so nobody can leave in between.
         InOrder order = inOrder(tournamentService, teamService);
         order.verify(tournamentService).requireTournamentForUpdate(1L);
